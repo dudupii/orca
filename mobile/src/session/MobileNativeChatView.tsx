@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import { ArrowDown, ChevronsDownUp, ChevronsUpDown, Square } from 'lucide-react-native'
+import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
 import type { AskAnswerSelection, AskPrompt } from '../../../src/shared/native-chat-ask'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { colors } from '../theme/mobile-theme'
@@ -52,6 +53,9 @@ type Props = {
   /** Structured lane: per-turn "Working for N" status plus live tool progress,
    *  replacing the bridge lane's static three-dot working row (desktop parity). */
   structuredActivityUi?: boolean
+  /** Structured lane: the session's self-reported command surface, driving the
+   *  composer's `/` menu (undefined on the PTY lane). */
+  sessionCommands?: readonly AgentSessionSlashCommand[]
   /** Interrupt the agent mid-turn (shown as a Stop button on the working bar). */
   onStop?: () => void
   /** Live partial assistant text to show as an in-progress bubble, already gated
@@ -130,6 +134,7 @@ export function MobileNativeChatView({
   agent,
   agentWorking,
   structuredActivityUi = false,
+  sessionCommands,
   onStop,
   streaming,
   hasMore,
@@ -181,9 +186,7 @@ export function MobileNativeChatView({
   const { fontScale, pinchGesture } = useMobileNativeChatPinchGesture()
   useEffect(
     () => () => {
-      if (sendScrollTimerRef.current) {
-        clearTimeout(sendScrollTimerRef.current)
-      }
+      clearTimeout(sendScrollTimerRef.current ?? undefined)
     },
     []
   )
@@ -226,9 +229,7 @@ export function MobileNativeChatView({
       onClearSendError?.()
       // Always jump to the newest message when the user sends.
       setAtBottom(true)
-      if (sendScrollTimerRef.current) {
-        clearTimeout(sendScrollTimerRef.current)
-      }
+      clearTimeout(sendScrollTimerRef.current ?? undefined)
       sendScrollTimerRef.current = setTimeout(() => {
         sendScrollTimerRef.current = null
         listRef.current?.scrollToEnd({ animated: true })
@@ -440,6 +441,7 @@ export function MobileNativeChatView({
         structuredCommands={
           structuredActivityUi ? (sessionOptions?.controller.conversationCommands ?? []) : undefined
         }
+        sessionCommands={sessionCommands}
         value={composerText}
         onChangeText={onComposerTextChange}
         onSend={handleSend}

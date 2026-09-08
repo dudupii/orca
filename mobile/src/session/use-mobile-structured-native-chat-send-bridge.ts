@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
 import { isStructuredAgentSessionComposerCommand } from '../../../src/shared/structured-agent-session-composer'
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
 import type { MobileNativeChatSendOrigin } from './use-mobile-native-chat-drafts'
@@ -16,6 +17,9 @@ export function useMobileStructuredNativeChatSendBridge(args: {
     deadline?: number,
     attachments?: readonly StructuredNativeChatAttachment[]
   ) => Promise<MobileNativeChatSendOutcome>
+  /** The structured session's self-reported command surface; reported commands
+   *  and skills are control sends, so they must not echo as optimistic bubbles. */
+  reportedCommands: readonly AgentSessionSlashCommand[]
   captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
   clearDraftForSend: (origin: MobileNativeChatSendOrigin, text: string) => void
   acceptSend: (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => void
@@ -41,6 +45,7 @@ export function useMobileStructuredNativeChatSendBridge(args: {
     clearDraftForSend,
     holdUnconfirmedSend,
     onSendError,
+    reportedCommands,
     restoreRejectedDraft,
     sendStructured
   } = args
@@ -65,20 +70,17 @@ export function useMobileStructuredNativeChatSendBridge(args: {
             : images !== undefined
               ? await sendStructured(text, images)
               : await sendStructured(text)
+      const isComposerCommand =
+        isStructuredAgentSessionComposerCommand(text, 'codex', reportedCommands) ||
+        isStructuredAgentSessionComposerCommand(text, 'claude', reportedCommands)
       if (outcome === 'accepted') {
-        if (
-          !isStructuredAgentSessionComposerCommand(text, 'codex') &&
-          !isStructuredAgentSessionComposerCommand(text, 'claude')
-        ) {
+        if (!isComposerCommand) {
           acceptSend(origin, text.trimEnd(), images)
         }
         return 'accepted'
       }
       if (outcome === 'unknown') {
-        if (
-          isStructuredAgentSessionComposerCommand(text, 'codex') ||
-          isStructuredAgentSessionComposerCommand(text, 'claude')
-        ) {
+        if (isComposerCommand) {
           restoreRejectedDraft(origin, text)
           return 'unknown'
         }
@@ -96,6 +98,7 @@ export function useMobileStructuredNativeChatSendBridge(args: {
       clearDraftForSend,
       holdUnconfirmedSend,
       onSendError,
+      reportedCommands,
       restoreRejectedDraft,
       sendStructured
     ]
