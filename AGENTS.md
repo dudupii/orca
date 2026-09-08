@@ -33,11 +33,36 @@ Never use vague names like `helpers`, `utils`, `common`, `misc`, or `shared-stuf
 
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
 
-# Verifying Changes
+# Commands
 
+- **Run**: `pnpm dev` (Electron app), `pnpm dev:web` (browser web client)
+- **Build**: `pnpm build:desktop` (all JS targets); `pnpm build` adds native binaries; platform installers via `pnpm run build:mac` / `build:win` / `build:linux`
 - **Typecheck**: `pnpm tc` (or `tc:node` / `tc:cli` / `tc:web`)
-- **Test**: `pnpm test [path/to/file.test.ts]`
+- **Test**: `pnpm test [path/to/file.test.ts]` — tests colocate with sources as `*.test.ts`; platform-gated suites use suffixes like `*.win32.test.ts`, `*.wsl.test.ts`
+- **E2E**: `pnpm test:e2e` (Playwright `electron-headless` project); one spec: `npx playwright test tests/e2e/<spec>.ts --config tests/playwright.config.ts --project=electron-headless`
 - **Lint**: `oxlint`, or `pnpm run check:code-quality:changed` for changed files (full `pnpm lint` is slow); format with `pnpm format`
+
+# Architecture
+
+Orca is an Electron app surrounded by satellite runtimes that all speak one RPC protocol:
+
+- **Electron app** — `src/main` (main process; runtime core in `src/main/runtime/`), `src/preload` (contextBridge), `src/renderer` (React UI)
+- **Terminal daemon** — `src/main/daemon`: detached plain-Node process owning every local PTY so terminals survive app restarts (NDJSON over unix socket / named pipe). Invariants: `src/main/daemon/AGENTS.md`
+- **`orcad`** — `src/main/orcad`: the same runtime served from plain Node, no Electron (`orca serve`, headless hosts). Supervision contract: `docs/reference/orcad-operations.md`
+- **`orca` CLI** — `src/cli`: finds a live runtime via `<userData>/orca-runtime.json` (`RuntimeMetadata` in `src/shared/runtime-bootstrap.ts`), then RPC over unix socket / named pipe / WebSocket
+- **Remote-host relay** — `src/relay` → `out/relay/relay.js`, deployed to SSH hosts to own remote PTYs, fs, and agent hooks. Unrelated to `cloud/`, the mobile-pairing relay infra (separate pnpm workspace under `cloud/`)
+- **Web client** — `src/renderer/src/web`: the same renderer UI in a browser, speaking runtime RPC over WebSocket through a preload-API shim
+- **Mobile** — `mobile/`: Expo companion app over E2EE WebSocket RPC
+
+RPC methods are defined with `defineMethod` / `defineStreamingMethod` (`src/main/runtime/rpc/core.ts`) in `src/main/runtime/rpc/methods/` and registered in the flat `ALL_RPC_METHODS` manifest (`methods/index.ts`) — the single grep-point for what the server exposes. Renderer→main is Electron IPC (`src/main/ipc/`); every external client (CLI, web, mobile, orcad) uses runtime RPC.
+
+`src/shared` is the only tree compiled into all three typecheck projects, so cross-runtime contracts and wire types belong there. The CLI may import from `src/main` only via the cherry-picked list in `config/tsconfig.cli.json`.
+
+Renderer state is a single zustand store composed of slice creators in `src/renderer/src/store/slices/`. First-paint imports are rationed by the boot graph (`pnpm verify:renderer-boot-graph`).
+
+Agent integrations are one directory per CLI agent under `src/main/` (`claude/`, `codex/`, `opencode/`, `pi/`, …); forges and trackers likewise (`github/`, `gitlab/`, `linear/`, `jira/`, …). In `src/main`, `window/` manages app windows while `windows/` holds Windows-OS utilities — different things.
+
+Nested `AGENTS.md` files (`src/main/daemon/`, `tests/`, `tests/e2e/`) carry local rules — read the one nearest the code you touch.
 
 # Considerations
 
@@ -97,3 +122,17 @@ Source-control and review changes must consider GitLab and other supported git p
 ## GitHub CLI Usage
 
 Be mindful of the user's `gh` CLI API rate limit — batch requests where possible and avoid unnecessary calls. All code, commands, and scripts must be compatible with macOS, Linux, and Windows.
+
+# Agent skills
+
+## Issue tracker
+
+Issues live in this repo's GitHub Issues (dudupii/orca) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+## Triage labels
+
+The five canonical triage roles use their default label strings. See `docs/agents/triage-labels.md`.
+
+## Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`, created lazily by `/domain-modeling`. See `docs/agents/domain.md`.
