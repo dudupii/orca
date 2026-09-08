@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import { ArrowDown, ChevronsDownUp, ChevronsUpDown, Square } from 'lucide-react-native'
+import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
 import type { AskAnswerSelection, AskPrompt } from '../../../src/shared/native-chat-ask'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import {
@@ -71,6 +72,9 @@ type Props = MobileQueuedSlotProps & {
   settledTurns?: NativeChatSettledTurns | null
   /** Structured lane: the journal that places each row in its turn. */
   turnJournal?: NativeChatTurnJournal | null
+  /** Structured lane: the session's self-reported command surface, driving the
+   *  composer's `/` menu (undefined on the PTY lane). */
+  sessionCommands?: readonly AgentSessionSlashCommand[]
   /** Interrupt the agent mid-turn (shown as a Stop button on the working bar). */
   /** Interrupt a provider turn. */
   onStop?: () => void
@@ -157,6 +161,7 @@ export function MobileNativeChatView({
   workingStartedAt,
   settledTurns,
   turnJournal = null,
+  sessionCommands,
   onStop,
   streaming,
   hasMore,
@@ -437,6 +442,7 @@ export function MobileNativeChatView({
         structuredCommands={
           structuredActivityUi ? (sessionOptions?.controller.conversationCommands ?? []) : undefined
         }
+        sessionCommands={sessionCommands}
         value={composerText}
         onChangeText={onComposerTextChange}
         onSend={handleSend}
