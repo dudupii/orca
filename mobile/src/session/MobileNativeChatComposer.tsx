@@ -6,6 +6,7 @@ import { getVerifiedNativeChatCommands } from '../../../src/shared/native-chat-a
 import { structuredSlashCommands } from '../../../src/shared/structured-agent-session-composer'
 import type { AgentSessionConversationCommand } from '../../../src/shared/agent-session-conversation-command'
 import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
+import type { SlashCommandSuggestion } from '../../../src/shared/native-chat-slash-commands'
 import {
   mobileComposerSlashEntries,
   nativeChatComposerCatalog
@@ -31,6 +32,7 @@ import { mobileNativeChatInputStyles } from './mobile-native-chat-input-styles'
 
 const NO_FILE_PATHS: string[] = []
 const NO_ATTACHMENTS: PendingNativeChatImage[] = []
+const NO_SKILL_SUGGESTIONS: readonly SlashCommandSuggestion[] = []
 
 type Props = {
   /** Lets the owner focus the field, e.g. after Edit moves a queued message into it. */
@@ -39,6 +41,9 @@ type Props = {
   /** The structured session's self-reported command surface — the authority for
    *  the `/` menu whenever it has arrived. */
   sessionCommands?: readonly AgentSessionSlashCommand[]
+  /** Filesystem-discovered skills for the active worktree — offered on every
+   *  lane, deduped against whatever the session already reported. */
+  skillSuggestions?: readonly SlashCommandSuggestion[]
   /** Controlled composer text — owned by the parent so dictation can write to it. */
   value: string
   onChangeText: (text: string) => void
@@ -83,6 +88,7 @@ export function MobileNativeChatComposer({
   agent,
   structuredCommands,
   sessionCommands,
+  skillSuggestions = NO_SKILL_SUGGESTIONS,
   sessionOptions,
   onAttachImage,
   attachments = NO_ATTACHMENTS,
@@ -147,7 +153,7 @@ export function MobileNativeChatComposer({
       // (~5 rows visible), so an uncapped `/` would mount every row and
       // re-reconcile them on each streaming tick right above the transcript.
       return rankSlashCommandSuggestions(
-        mobileComposerSlashEntries(catalog),
+        mobileComposerSlashEntries(catalog, skillSuggestions),
         trigger.query,
         12
       ).map((entry) =>
@@ -160,7 +166,7 @@ export function MobileNativeChatComposer({
       kind: 'file' as const,
       path
     }))
-  }, [trigger, filePaths, agent, structuredCommands, sessionCommands])
+  }, [trigger, filePaths, agent, structuredCommands, sessionCommands, skillSuggestions])
 
   useEffect(() => {
     if (trigger?.kind === 'file') {
