@@ -4,6 +4,9 @@ import { isStructuredAgentSessionComposerCommand } from '../../../src/shared/str
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
 import type { MobileNativeChatSendOrigin } from './use-mobile-native-chat-drafts'
 
+// Stable empty report so callback deps never churn while no report has arrived.
+const NO_REPORTED_COMMANDS: readonly AgentSessionSlashCommand[] = []
+
 type StructuredNativeChatAttachment = {
   id?: string
   path: string
@@ -19,7 +22,7 @@ export function useMobileStructuredNativeChatSendBridge(args: {
   ) => Promise<MobileNativeChatSendOutcome>
   /** The structured session's self-reported command surface; reported commands
    *  and skills are control sends, so they must not echo as optimistic bubbles. */
-  reportedCommands: readonly AgentSessionSlashCommand[]
+  reportedCommands?: readonly AgentSessionSlashCommand[]
   captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
   clearDraftForSend: (origin: MobileNativeChatSendOrigin, text: string) => void
   acceptSend: (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => void
@@ -70,9 +73,10 @@ export function useMobileStructuredNativeChatSendBridge(args: {
             : images !== undefined
               ? await sendStructured(text, images)
               : await sendStructured(text)
+      const reported = reportedCommands ?? NO_REPORTED_COMMANDS
       const isComposerCommand =
-        isStructuredAgentSessionComposerCommand(text, 'codex', reportedCommands) ||
-        isStructuredAgentSessionComposerCommand(text, 'claude', reportedCommands)
+        isStructuredAgentSessionComposerCommand(text, 'codex', reported) ||
+        isStructuredAgentSessionComposerCommand(text, 'claude', reported)
       if (outcome === 'accepted') {
         if (!isComposerCommand) {
           acceptSend(origin, text.trimEnd(), images)
