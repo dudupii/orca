@@ -61,5 +61,11 @@ export function runLocalLinuxBuild({
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
-  runLocalLinuxBuild({ extraArgs: process.argv.slice(2) })
+  // pnpm forwards args after `--` verbatim, separator included; drop the bare
+  // `--` so forwarded options stay options for electron-builder's yargs.
+  const forwardedArgs = process.argv.slice(2)
+  if (forwardedArgs[0] === '--') {
+    forwardedArgs.shift()
+  }
+  runLocalLinuxBuild({ extraArgs: forwardedArgs })
 }
