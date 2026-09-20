@@ -78,13 +78,11 @@ jobs:
       # Same chain as a local build:linux (typecheck → relay → cli → vite → web →
       # mobile-web → electron-builder). CI runners have a clean tar/xz, so all
       # three targets build; only the deb and AppImage are shipped.
-      # EP_PUBLISH: on a tag push electron-builder detects CI + tag and tries to
-      # upload to GitHub Releases itself, failing without GH_TOKEN. The release
-      # job below owns uploads, so never publish from here.
+      # --publish never: on a tag push electron-builder would otherwise
+      # implicitly publish to GitHub Releases (needs GH_TOKEN, which this job
+      # doesn't have). The release job below owns all uploads.
       - name: Build Linux desktop packages
-        env:
-          EP_PUBLISH: never
-        run: pnpm run build:linux
+        run: pnpm run build:linux -- --publish never
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v7
@@ -140,12 +138,10 @@ jobs:
         run: pnpm install --frozen-lockfile --cpu=current,x64,arm64
 
       # Same chain as a local build:mac; the mac config builds dmg + zip for
-      # x64 and arm64 in one electron-builder run. EP_PUBLISH for the same
-      # reason as the linux job: the release job owns uploads.
+      # x64 and arm64 in one electron-builder run. --publish never for the
+      # same reason as the linux job: the release job owns uploads.
       - name: Build macOS packages
-        env:
-          EP_PUBLISH: never
-        run: pnpm run build:mac
+        run: pnpm run build:mac -- --publish never
 
       - name: Upload dmg artifacts
         uses: actions/upload-artifact@v7
