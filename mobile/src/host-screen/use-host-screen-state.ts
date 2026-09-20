@@ -20,7 +20,9 @@ export function useHostScreenState(hostId: string | undefined, action: string | 
     hostId ? (getCachedWorktrees(hostId) as Worktree[] | null) : null
   )
   const clientRef = useRef<RpcClient | null>(null)
-  const fetchWorktreesInFlightRef = useRef(false)
+  // The in-flight worktree.ps request: concurrent fetchWorktrees callers await it rather
+  // than each returning empty-handed (the Add project handoff needs the refreshed list).
+  const fetchWorktreesInFlightRef = useRef<Promise<Worktree[] | undefined> | null>(null)
   // Why: useRef, not useMemo — React may discard memoized values, which would silently
   // reset the snapshot token this object exists to own.
   const worktreeCatalogRef = useRef(new WorktreeCatalogSnapshotClient())
