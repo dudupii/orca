@@ -1,3 +1,4 @@
+import type { TerminalBacklogEnd, TerminalBacklogTimers } from './bridge-terminal-output-backlog'
 import type { RpcClient } from '../transport/rpc-client'
 import type { BridgeRefusal } from './bridge/bridge-caps'
 import type { BridgeInitHost, BridgeInitRoute } from './bridge/bridge-envelope'
@@ -40,6 +41,30 @@ export type BridgeHostDiagnostic =
   /** The shell asked this host to open a screen the protocol does not allow. The host serves no
    *  session at all in that state: an `init` the page refuses is worse than no `init`. */
   | { kind: 'route-refused'; issue: string }
+  /** A page subscribed with `wantsBinary` on a session whose route was never granted the lane.
+   *  Local only: the subscription proceeds and its JSON events cross, so nothing crosses back and
+   *  this line is the only thing that can say why the frames never became binary. */
+  | { kind: 'binary-lane-refused'; id: string }
+  /** A screencast frame that would not fit the envelope or the stream's unacked window. Dropped
+   *  rather than ending the stream, so this line and the count beside it are the only evidence
+   *  the frame existed. `bytes` is the whole event, which is what was measured against the cap. */
+  | { kind: 'binary-frame-dropped'; id: string; bytes: number; dropped: number }
+  /**
+   * What one terminal stream's held output did, once the stream is retired.
+   *
+   * The only oracle there is for the coalescing rule: nothing crosses to the page saying how much
+   * was held or how many frames its bytes arrived inside, and `ended` is the only place the two
+   * ways a held stream dies are told apart — both reach the page as `overflow`, because a reason
+   * the page's reader has never heard of is a frame it drops.
+   */
+  | {
+      kind: 'terminal-backlog'
+      id: string
+      coalescedFrames: number
+      deliveredFrames: number
+      peakPendingBytes: number
+      ended: TerminalBacklogEnd | null
+    }
 
 export type BridgeHostOptions = {
   client: RpcClient
@@ -137,4 +162,20 @@ export type BridgeHostOptions = {
    */
   onRouteRefused: (issue: string) => void
   onDiagnostic?: (diagnostic: BridgeHostDiagnostic) => void
+  /**
+   * Every screencast frame this host has dropped, after each one.
+   *
+   * A total and not an event, because what reads it is a surface that shows a number: the
+   * diagnostic beside it is held to one line per host, so without this a stream losing a frame a
+   * second and a stream that lost one look the same.
+   */
+  onBinaryFramesDropped?: (total: number) => void
+  /**
+   * The timer a held terminal stream arms for the page's silence, injected only by tests.
+   *
+   * A real shell uses `setTimeout`; a test that waited the silence bound out would be twenty
+   * seconds long per case, and one that shortened the constant would be checking a number nothing
+   * ships.
+   */
+  terminalTimers?: TerminalBacklogTimers
 }
