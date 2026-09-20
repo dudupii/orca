@@ -92,7 +92,7 @@ describe('a removal that failed', () => {
         client: null,
         connState: 'connected',
         embedded: false,
-        fetchWorktrees: () => Promise.resolve(),
+        fetchWorktrees: () => Promise.resolve(undefined),
         forgetHostClient: () => {},
         hostCapabilities: [],
         hostId: 'host-a',
