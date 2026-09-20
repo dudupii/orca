@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+import type { RpcResponse } from '../transport/types'
 import { useMobileNativeChatDiscoveredSkills } from './use-mobile-native-chat-discovered-skills'
 
 // Every test client here answers through sendRequest alone; the rest of RpcClient is streaming
@@ -63,7 +64,8 @@ describe('useMobileNativeChatDiscoveredSkills', () => {
 
   it('discovers worktree skills for the agent and maps them to described rows', async () => {
     const skill = discoveredSkillRow()
-    const sendRequest = vi.fn(async () => ({
+    const sendRequest = vi.fn(async (): Promise<RpcResponse> => ({
+      id: '1',
       ok: true,
       result: { skills: [skill], sources: [discoveredSkillSourceRow()] },
       _meta: { runtimeId: 'runtime-1' }
@@ -79,7 +81,8 @@ describe('useMobileNativeChatDiscoveredSkills', () => {
   })
 
   it('namespaces a plugin-sourced skill the way the agent addresses it', async () => {
-    const sendRequest = vi.fn(async () => ({
+    const sendRequest = vi.fn(async (): Promise<RpcResponse> => ({
+      id: '1',
       ok: true,
       result: {
         skills: [
@@ -101,7 +104,8 @@ describe('useMobileNativeChatDiscoveredSkills', () => {
   })
 
   it('stays empty against a host without the method or on any failure', async () => {
-    const sendRequest = vi.fn(async () => ({
+    const sendRequest = vi.fn(async (): Promise<RpcResponse> => ({
+      id: '1',
       ok: false,
       error: { code: 'forbidden', message: 'Method not available to mobile clients' }
     }))
