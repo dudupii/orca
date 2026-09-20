@@ -19,7 +19,7 @@ export function useHostWorktreeActions(args: {
   client: RpcClient | null
   connState: ConnectionState
   embedded: boolean
-  fetchWorktrees: (options?: { allowDuringModal?: boolean }) => Promise<void>
+  fetchWorktrees: (options?: { allowDuringModal?: boolean }) => Promise<Worktree[] | undefined>
   forgetHostClient: ReturnType<typeof useForgetHostClient>
   hostCapabilities: readonly string[]
   hostId: string | undefined
@@ -222,6 +222,22 @@ export function useHostWorktreeActions(args: {
     [client, connState, hostId, navigateFromHostList]
   )
 
+  // Desktop parity for the standalone Add project: the handoff lands on the added repo's
+  // default checkout (main worktree), never a create-workspace form. A catalog with no main
+  // row for the repo leaves the user on the list, which by then shows the new project.
+  const handleProjectAdded = useCallback(
+    async (repo: MobileWorkspaceRepo) => {
+      const confirmed = await fetchWorktrees({ allowDuringModal: true })
+      const defaultCheckout = confirmed?.find(
+        (worktree) => worktree.repoId === repo.id && worktree.isMainWorktree
+      )
+      if (defaultCheckout) {
+        openWorktreeSession(defaultCheckout)
+      }
+    },
+    [fetchWorktrees, openWorktreeSession]
+  )
+
   const openFloatingWorkspace = useCallback(() => {
     // Why: no worktree.activate here — the floating sentinel has no worktree
     // record; session.tabs.list hydrates its host-owned tabs on open.
@@ -230,6 +246,7 @@ export function useHostWorktreeActions(args: {
 
   return {
     handleDeleteWorktree,
+    handleProjectAdded,
     handleRemoveHost,
     leaveHost,
     navigateFromHostList,
