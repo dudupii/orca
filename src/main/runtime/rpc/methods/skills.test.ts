@@ -368,6 +368,7 @@ describe('skill management RPC', () => {
 })
 
 describe('resolveDiscoveryTarget cwd backfill', () => {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: resolveDiscoveryTarget reads resolveProjectRuntimeForWorktree only; the rest of the runtime is unreachable from it.
   const runtime = {
     resolveProjectRuntimeForWorktree: vi.fn(() => undefined)
   } as unknown as Parameters<typeof resolveDiscoveryTarget>[1]

@@ -4,6 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
 import { useMobileNativeChatDiscoveredSkills } from './use-mobile-native-chat-discovered-skills'
 
+// Every test client here answers through sendRequest alone; the rest of RpcClient is streaming
+// and lifecycle the hook never touches.
+function rpcClientWith(sendRequest: RpcClient['sendRequest']): RpcClient {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: sendRequest is the only member useMobileNativeChatDiscoveredSkills reads.
+  return { sendRequest } as unknown as RpcClient
+}
+
 function discoveredSkillRow() {
   return {
     id: 'claude:deploy-check',
@@ -17,6 +24,20 @@ function discoveredSkillRow() {
     skillFilePath: '/repo/.claude/skills/deploy-check/SKILL.md',
     installed: true,
     updatedAt: null
+  }
+}
+
+// A source row as the host really sends it: the checked read requires every field
+// SkillDiscoverySource declares, so a partial fixture would fail as an incompatible reply.
+function discoveredSkillSourceRow() {
+  return {
+    id: 'repo:/repo/.claude/skills',
+    label: 'Project',
+    path: '/repo/.claude/skills',
+    sourceKind: 'repo' as const,
+    providers: ['claude' as const],
+    owner: 'claude',
+    exists: true
   }
 }
 
@@ -44,10 +65,10 @@ describe('useMobileNativeChatDiscoveredSkills', () => {
     const skill = discoveredSkillRow()
     const sendRequest = vi.fn(async () => ({
       ok: true,
-      result: { skills: [skill], sources: [{ path: '/repo/.claude/skills', owner: 'claude' }] },
+      result: { skills: [skill], sources: [discoveredSkillSourceRow()] },
       _meta: { runtimeId: 'runtime-1' }
     }))
-    render({ sendRequest } as unknown as RpcClient, 'claude')
+    render(rpcClientWith(sendRequest), 'claude')
 
     await vi.waitFor(() => expect(hook?.skillSuggestions.length).toBe(1))
     expect(hook!.skillSuggestions[0]).toEqual({
@@ -69,11 +90,11 @@ describe('useMobileNativeChatDiscoveredSkills', () => {
             sourceLabel: 'Claude plugin quiver'
           }
         ],
-        sources: [{ path: '/repo/.claude/skills', owner: 'claude' }]
+        sources: [discoveredSkillSourceRow()]
       },
       _meta: { runtimeId: 'runtime-1' }
     }))
-    render({ sendRequest } as unknown as RpcClient, 'claude')
+    render(rpcClientWith(sendRequest), 'claude')
 
     await vi.waitFor(() => expect(hook?.skillSuggestions.length).toBe(1))
     expect(hook!.skillSuggestions[0]).toMatchObject({ name: 'quiver:catchup' })
@@ -84,7 +105,7 @@ describe('useMobileNativeChatDiscoveredSkills', () => {
       ok: false,
       error: { code: 'forbidden', message: 'Method not available to mobile clients' }
     }))
-    render({ sendRequest } as unknown as RpcClient, 'claude')
+    render(rpcClientWith(sendRequest), 'claude')
 
     await act(async () => {
       await Promise.resolve()

@@ -5,7 +5,7 @@ import {
   discoveredSkillTokenName,
   isNativeChatSkillForAgent
 } from '../../../src/shared/native-chat-skill-visibility'
-import type { SkillDiscoveryResult } from '../../../src/shared/skills'
+import { nativeChatSkillDiscoveryRun } from './native-chat-skill-discovery-operation'
 
 /** Fetches the worktree's installed skills once per worktree/agent and maps
  *  them to described suggestion rows. Any failure — including a host that
@@ -27,11 +27,11 @@ export function useMobileNativeChatDiscoveredSkills(args: {
       return
     }
     void (async () => {
-      const response = await client.sendRequest('skills.discover', { worktreeId })
-      if (!response.ok || generationRef.current !== generation) {
+      const response = await nativeChatSkillDiscoveryRun.request(client, { worktreeId })
+      if (generationRef.current !== generation) {
         return
       }
-      const result = response.result as SkillDiscoveryResult
+      const result = nativeChatSkillDiscoveryRun.interpret(response)
       setSkillSuggestions(
         result.skills
           .filter((skill) => isNativeChatSkillForAgent(agent, skill, result))
