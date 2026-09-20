@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { dispatchMobileStructuredCommand } from './mobile-structured-composer-command'
-import type {
-  AgentSessionCancelResult,
-  AgentSessionSlashCommand
-} from '../../../src/shared/agent-session-wire'
+import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
 import {
   structuredAgentSessionSendBody,
   type StructuredAgentSessionAttachment
