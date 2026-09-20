@@ -13,19 +13,17 @@ import type {
   MobileWebShellFailureCause,
   MobileWebShellSessionState
 } from './mobile-web-shell-session-contract'
+import {
+  formatMobileWebShellDevFacts,
+  isDevelopmentBuild,
+  useMobileWebShellDroppedFrames
+} from './mobile-web-shell-dev-facts'
 import { useMobileWebShellBridge } from './use-mobile-web-shell-bridge'
 import type { MobileWebShellRuntime } from './mobile-web-shell-runtime'
-import { serveNativeClipboardVerb } from '../platform/native-clipboard'
+import { useNativeDeviceVerbs } from '../platform/use-native-device-verbs'
 import { useShellStackPop } from './use-shell-stack-pop'
 import { useMobileWebShellSession } from './use-mobile-web-shell-session'
 import { usePageHostSnapshot } from './use-page-host-snapshot'
-
-// Same guard as the Troubleshoot developer row: `__DEV__` is undefined outside the React Native
-// runtime, and the facts below are for whoever is bringing the shell up, not for a user.
-const isDevelopmentBuild = typeof __DEV__ !== 'undefined' && __DEV__
-
-/** Enough of a build id to tell two generations apart in a screenshot, and not enough to be one. */
-const BUILD_ID_PREFIX_LENGTH = 12
 
 function failureMessage(reason: MobileWebShellFailureCause): string {
   switch (reason) {
@@ -96,17 +94,25 @@ function Failed({
   )
 }
 
-/** Never the generation directory, never the whole build id, never the host id: this renders on a
- *  device someone may be screen-sharing, and none of those three tell them anything a prefix does
- *  not. */
-function DevFacts({ state }: { state: Extract<MobileWebShellSessionState, { kind: 'ready' }> }) {
-  if (!isDevelopmentBuild) {
+function DevFacts({
+  state,
+  droppedBinaryFrames
+}: {
+  state: Extract<MobileWebShellSessionState, { kind: 'ready' }>
+  droppedBinaryFrames: number
+}) {
+  if (!isDevelopmentBuild()) {
     return null
   }
   return (
     <View style={styles.devFacts} pointerEvents="none">
       <Text style={styles.devFactsText} testID="mobile-web-shell-dev-facts">
-        {`${state.buildId.slice(0, BUILD_ID_PREFIX_LENGTH)} · ${state.totalBytes} B · ${state.elapsedMs} ms`}
+        {formatMobileWebShellDevFacts({
+          buildId: state.buildId,
+          totalBytes: state.totalBytes,
+          elapsedMs: state.elapsedMs,
+          droppedBinaryFrames
+        })}
       </Text>
     </View>
   )
@@ -141,6 +147,7 @@ export function MobileWebShellScreen({
   const insets = useSafeAreaInsets()
   const router = useRouter()
   const popShellStack = useShellStackPop()
+  const { droppedBinaryFrames, reportDroppedBinaryFrames } = useMobileWebShellDroppedFrames()
   const {
     state,
     pageRoutes,
@@ -152,6 +159,9 @@ export function MobileWebShellScreen({
   } = useMobileWebShellSession({ hostId, routePathname: route.pathname, runtime })
   const { snapshot, unreadable, readStorage, refreshStorage, writeStorage } =
     usePageHostSnapshot(hostId)
+  // Declared before the bridge so the handler it is handed already belongs to this session: the
+  // media verbs hold staged files, and a registry born after the host would outlive the page.
+  const serveNativeVerb = useNativeDeviceVerbs(state.kind === 'ready' ? state.sessionId : null)
   const bridge = useMobileWebShellBridge({
     hostId,
     route,
@@ -192,7 +202,7 @@ export function MobileWebShellScreen({
       router.push(href)
     },
     // Answered on this device and never forwarded; the host holds it to the verb table first.
-    serveNativeVerb: serveNativeClipboardVerb,
+    serveNativeVerb,
     // Straight to the system handler. The envelope allowlisted the scheme before this ran, so the
     // only failure left is a device with nothing registered for it — a `mailto:` on a phone with no
     // mail account. Reported rather than swallowed: nothing crosses back for a notify, so this is
@@ -205,7 +215,10 @@ export function MobileWebShellScreen({
     },
     // The page's own Back goes nowhere: it holds the one history entry the entry wrote, so the only
     // stack to pop is this one.
-    onNavigateBack: popShellStack
+    onNavigateBack: popShellStack,
+    // A dropped screencast frame leaves no other trace on a device: the stream stays up by design
+    // and the diagnostic beside it prints once per host.
+    onBinaryFramesDropped: reportDroppedBinaryFrames
   })
 
   // A profile read that rejected never becomes a host, so the session would otherwise sit in
@@ -270,7 +283,7 @@ export function MobileWebShellScreen({
           }
         }}
       />
-      <DevFacts state={state} />
+      <DevFacts state={state} droppedBinaryFrames={droppedBinaryFrames} />
     </View>
   )
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MobileWebBundleRouteSchema } from '../../../src/shared/mobile-web-bundle/manifest-contract'
 import {
   implementedPageRoutes,
   matchesRoutePattern,
@@ -79,9 +80,78 @@ describe('the grants this app implements', () => {
       'navigate',
       'storage',
       'externalLink',
+      'screencastBinary',
       'native.clipboard.write',
-      'native.clipboard.read'
+      'native.clipboard.read',
+      'native.media.pick',
+      'native.media.read',
+      'native.media.release'
     ])
+  })
+
+  /**
+   * Every grant this shell advertises, run through the schema a desktop parses a manifest with.
+   *
+   * The schema itself, not a copy of its pattern: `bundled-mobile-web-bundle.ts` parses the whole
+   * manifest, so one grant name the pattern refuses is not a route that degrades to native — it is
+   * a bundle the phone rejects entire. A verb this shell serves and no manifest may name is a verb
+   * no route can ever be granted, which is the same as not having it.
+   */
+  it('names only grants a manifest route may actually carry', () => {
+    for (const grant of MOBILE_WEB_SHELL_GRANTS) {
+      expect(
+        MobileWebBundleRouteSchema.safeParse({ pathname: '/h/[hostId]', grants: [grant] }).success,
+        grant
+      ).toBe(true)
+    }
+  })
+
+  it('names every verb in the table there too, so the two lists cannot drift apart', () => {
+    // The grant list spreads the verb tuple today. Read both anyway: the spread is what makes them
+    // agree, and a build that stopped spreading would leave this the only thing that noticed.
+    expect(
+      MobileWebBundleRouteSchema.safeParse({
+        pathname: '/h/[hostId]',
+        grants: [...BRIDGE_NATIVE_VERB_NAMES]
+      }).success
+    ).toBe(true)
+  })
+
+  /** The route C7 will declare, served by a shell that has the lane. The name's shape is the host
+   *  contract's rule and is pinned there, beside the pattern that decides it. */
+  it('serves a route that needs the screencast lane', () => {
+    expect(
+      implementedPageRoutes([
+        { pathname: '/h/[hostId]/session/[worktreeId]', grants: ['navigate', 'screencastBinary'] }
+      ])
+    ).toEqual(['/h/[hostId]/session/[worktreeId]'])
+  })
+
+  /**
+   * The half the host cannot see, and the reason it does not have to.
+   *
+   * A session's list is a route's declared grants narrowed to what this shell implements, so a
+   * grant the shell lacks never reaches the host at all: granted-but-unimplemented and
+   * never-granted arrive there as the same absence, and the host's own rule reads one case.
+   * `bridge-host-screencast.test.ts` pins what it does with it.
+   */
+  it('drops a grant the route declared and this shell does not implement', () => {
+    const routes = [
+      { pathname: '/h/[hostId]/session/[worktreeId]', grants: ['navigate', 'aGrantFromTheFuture'] }
+    ]
+    expect(grantsForRoute(routes, '/h/host-1/session/wt-1')).toEqual(['navigate'])
+    expect(implementedPageRoutes(routes)).toEqual([])
+  })
+
+  it('resolves the screencast lane for a route that declares it', () => {
+    expect(
+      grantsForRoute(
+        [
+          { pathname: '/h/[hostId]/session/[worktreeId]', grants: ['navigate', 'screencastBinary'] }
+        ],
+        '/h/host-1/session/wt-1'
+      )
+    ).toEqual(['navigate', 'screencastBinary'])
   })
 })
 

@@ -42,8 +42,12 @@ describe('init and state', () => {
           'navigate',
           'storage',
           'externalLink',
+          'screencastBinary',
           'native.clipboard.write',
-          'native.clipboard.read'
+          'native.clipboard.read',
+          'native.media.pick',
+          'native.media.read',
+          'native.media.release'
         ]
       },
       route: ROUTE,
