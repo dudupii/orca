@@ -1,8 +1,9 @@
 name: Personal Release Build
 
-# Dupi's fork only: builds the personal integration branch's Android APK and Linux
-# desktop packages whenever a personal-* tag is pushed, and attaches them to that
-# tag's GitHub Release. Never runs on stablyai/orca (no personal-* tags there).
+# Dupi's fork only: builds the personal integration branch's Android APK and desktop
+# packages (Linux AppImage/deb, macOS dmg — unsigned, both architectures) whenever a
+# personal-* tag is pushed, and attaches them to that tag's GitHub Release. Never runs
+# on stablyai/orca (no personal-* tags there).
 on:
   push:
     tags:
@@ -77,7 +78,12 @@ jobs:
       # Same chain as a local build:linux (typecheck → relay → cli → vite → web →
       # mobile-web → electron-builder). CI runners have a clean tar/xz, so all
       # three targets build; only the deb and AppImage are shipped.
+      # EP_PUBLISH: on a tag push electron-builder detects CI + tag and tries to
+      # upload to GitHub Releases itself, failing without GH_TOKEN. The release
+      # job below owns uploads, so never publish from here.
       - name: Build Linux desktop packages
+        env:
+          EP_PUBLISH: never
         run: pnpm run build:linux
 
       - name: Upload AppImage artifact
@@ -92,8 +98,63 @@ jobs:
           name: personal-linux-deb
           path: dist/*.deb
 
+  # Mirrors the upstream mac release job's install/build recipe, minus signing:
+  # no CSC_LINK/Apple ID secrets here, so build:mac produces an unsigned local
+  # build (same as running build:mac on a personal Mac). Gatekeeper will ask
+  # once on first launch — right-click → Open, or clear the quarantine xattr.
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v2
+        with:
+          install: false
+
+      - name: Cache electron-builder downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-builder-mac-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-builder-mac-
+
+      # Why both CPUs: the mac config packages x64 and arm64 dmgs from this
+      # arm64 runner, so the native modules for both architectures must be
+      # installed (same flags as the upstream mac release job).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --cpu=current,x64,arm64
+
+      # Same chain as a local build:mac; the mac config builds dmg + zip for
+      # x64 and arm64 in one electron-builder run. EP_PUBLISH for the same
+      # reason as the linux job: the release job owns uploads.
+      - name: Build macOS packages
+        env:
+          EP_PUBLISH: never
+        run: pnpm run build:mac
+
+      - name: Upload dmg artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-macos-dmg
+          path: dist/orca-macos-*.dmg
+
   release:
-    needs: [android, linux]
+    needs: [android, linux, mac]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -121,4 +182,4 @@ jobs:
           fi
 
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
-            artifacts/*.apk artifacts/*.deb artifacts/*.AppImage
+            artifacts/*.apk artifacts/*.deb artifacts/*.AppImage artifacts/*.dmg
