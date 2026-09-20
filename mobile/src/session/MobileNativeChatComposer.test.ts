@@ -467,6 +467,7 @@ describe('MobileNativeChatComposer', () => {
     expect(texts).toContain('skill')
     expect(texts).not.toContain('/clear')
 
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
     const skillRow = renderer!.root.findAll(
       (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
     )[0] as { props: { onPress: () => void } }
@@ -530,6 +531,7 @@ describe('MobileNativeChatComposer', () => {
     expect(texts).toContain('Verify the deploy')
     expect(texts).toContain('skill')
 
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
     const skillRow = renderer!.root.findAll(
       (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
     )[0] as { props: { onPress: () => void } }
