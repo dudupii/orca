@@ -48,12 +48,16 @@ jobs:
       - name: Expo prebuild
         run: npx expo prebuild --platform android --no-install
 
-      # app.json's versionCode 18 never changes between personal releases, and
-      # Android treats a same-code APK as no update on some OEM installers, so
-      # each release needs a strictly higher code. Bash arithmetic, not a
-      # workflow expression: expressions have no + operator.
+      # app.json's versionCode (18) never changes between personal releases,
+      # and Android can treat a same-code APK as no update. prebuild writes the
+      # literal into build.gradle, and gradle's android.injected.version.code
+      # property does NOT override it from the command line, so patch the
+      # generated file directly: 1900 + run_number is strictly increasing.
+      - name: Give this build a unique versionCode
+        run: sed -i "s/^        versionCode .*/        versionCode $((1900 + GITHUB_RUN_NUMBER))/" android/app/build.gradle
+
       - name: Build Android release APK
-        run: cd android && ./gradlew assembleRelease -Pandroid.injected.version.code=$((1900 + GITHUB_RUN_NUMBER))
+        run: cd android && ./gradlew assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7
