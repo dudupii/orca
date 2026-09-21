@@ -17,8 +17,14 @@ jobs:
       contents: read
     # Baked into the release JS bundle by Metro (EXPO_PUBLIC_* inlining) so the
     # phone's About screen names the exact personal build it runs.
+    #
+    # versionCode: app.json's 18 never changes between personal releases, and
+    # Android refuses to treat a same-code APK as an update on some OEM
+    # installers. Injecting run_number keeps every personal release a strictly
+    # higher code (AGP honors android.injected.version.code over the manifest).
     env:
       EXPO_PUBLIC_ORCA_BUILD_VARIANT: dudupii/${{ github.ref_name }}
+      ANDROID_VERSION_CODE: ${{ 1900 + github.run_number }}
     defaults:
       run:
         working-directory: mobile
@@ -49,7 +55,7 @@ jobs:
         run: npx expo prebuild --platform android --no-install
 
       - name: Build Android release APK
-        run: cd android && ./gradlew assembleRelease
+        run: cd android && ./gradlew assembleRelease -Pandroid.injected.version.code=$ANDROID_VERSION_CODE
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7
