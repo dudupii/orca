@@ -85,7 +85,8 @@ export function MobileSessionActiveContent({
   const { skillSuggestions: nativeChatSkillSuggestions } = useMobileNativeChatDiscoveredSkills({
     client,
     worktreeId,
-    agent: nativeChatController.nativeChatAgent
+    // Loading/empty controllers carry no native-chat lane yet; the hook no-ops on null.
+    agent: nativeChatController?.nativeChatAgent ?? null
   })
   return showLoadingState ? (
     <View style={styles.emptyState}>
