@@ -59,6 +59,34 @@ export function mobileComposerSlashEntries(
   catalog: NativeChatComposerCatalog,
   discovered?: readonly SlashCommandSuggestion[]
 ): readonly SlashCommandSuggestion[] {
+  const { resolvedCommands, reportedSkills, discoveredSkills } = resolveMobileComposerMerge(
+    catalog,
+    discovered
+  )
+  return [...resolvedCommands, ...reportedSkills, ...discoveredSkills]
+}
+
+/** The names that stay commands after the skill merge. The composer's row
+ *  classification must key off this, not the raw catalog, so an unclassified
+ *  command promoted onto its skill row keeps the skill tag. */
+export function mobileComposerCommandNames(
+  catalog: NativeChatComposerCatalog,
+  discovered?: readonly SlashCommandSuggestion[]
+): ReadonlySet<string> {
+  return resolveMobileComposerMerge(catalog, discovered).commandNames
+}
+
+type MobileComposerMerge = {
+  resolvedCommands: readonly SlashCommandSuggestion[]
+  commandNames: ReadonlySet<string>
+  reportedSkills: readonly SlashCommandSuggestion[]
+  discoveredSkills: readonly SlashCommandSuggestion[]
+}
+
+function resolveMobileComposerMerge(
+  catalog: NativeChatComposerCatalog,
+  discovered?: readonly SlashCommandSuggestion[]
+): MobileComposerMerge {
   // Discovery can list one skill through several roots; keep one row per name,
   // preferring the root that carried a description.
   const discoveredByName = new Map<string, SlashCommandSuggestion>()
@@ -88,8 +116,21 @@ export function mobileComposerSlashEntries(
     (command) => !command.kindUnspecified || !skillNames.has(command.name)
   )
   const commandNames = new Set(resolvedCommands.map((command) => command.name))
-  const discoveredSkills = [...discoveredByName.values()].filter(
-    (entry) => !reportedSkillNames.has(entry.name) && !commandNames.has(entry.name)
+  // Desktop parity: once a report arrived, it is the authority on which skills
+  // the session actually loaded — a scanned root it ignored is not offered.
+  // An unclassified command that names an on-disk skill keeps its skill row;
+  // the report cannot classify what it did not load.
+  const reportArrived = catalog.sessionSkillNames !== undefined
+  const unclassifiedNames = new Set(
+    catalog.agentCommands
+      .filter((command) => command.kindUnspecified)
+      .map((command) => command.name)
   )
-  return [...resolvedCommands, ...reportedSkills, ...discoveredSkills]
+  const discoveredSkills = [...discoveredByName.values()].filter(
+    (entry) =>
+      !reportedSkillNames.has(entry.name) &&
+      !commandNames.has(entry.name) &&
+      (!reportArrived || unclassifiedNames.has(entry.name))
+  )
+  return { resolvedCommands, commandNames, reportedSkills, discoveredSkills }
 }

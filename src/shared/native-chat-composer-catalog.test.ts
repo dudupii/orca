@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  mobileComposerCommandNames,
   mobileComposerSlashEntries,
   nativeChatComposerCatalog
 } from './native-chat-composer-catalog'
@@ -96,7 +97,7 @@ describe('mobileComposerSlashEntries', () => {
 })
 
 describe('mobileComposerSlashEntries with discovered skills', () => {
-  it('appends discovered skills with descriptions, deduped by name', () => {
+  it('keeps a reported skill described from disk but drops a disk-only skill once a report arrived', () => {
     const catalog = nativeChatComposerCatalog('claude', {
       sessionCommands: [{ name: 'to-spec', kind: 'skill' }]
     })
@@ -104,9 +105,37 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
       { name: 'to-spec', description: 'Discovery duplicate' },
       { name: 'deploy-check', description: 'Verify the deploy' }
     ])
-    expect(entries).toEqual([
-      { name: 'to-spec', description: 'Discovery duplicate' },
+    expect(entries).toEqual([{ name: 'to-spec', description: 'Discovery duplicate' }])
+  })
+
+  it('offers every discovered skill while no report has arrived', () => {
+    const catalog = nativeChatComposerCatalog('claude')
+    const entries = mobileComposerSlashEntries(catalog, [
+      { name: 'to-spec', description: 'Turn the discussion into a spec' },
       { name: 'deploy-check', description: 'Verify the deploy' }
+    ])
+    // The curated PTY-lane commands lead; both disk skills still join them.
+    expect(entries).toContainEqual({
+      name: 'to-spec',
+      description: 'Turn the discussion into a spec'
+    })
+    expect(entries).toContainEqual({ name: 'deploy-check', description: 'Verify the deploy' })
+  })
+
+  it('keeps an on-disk skill an unclassified command names, even absent from the report', () => {
+    const catalog = nativeChatComposerCatalog('claude', {
+      sessionCommands: [
+        { name: 'clear', kind: 'command' },
+        { name: 'grill', kind: 'command', kindUnspecified: true }
+      ]
+    })
+    const entries = mobileComposerSlashEntries(catalog, [
+      { name: 'grill', description: 'Stress-test the plan' },
+      { name: 'deploy-check', description: 'Verify the deploy' }
+    ])
+    expect(entries).toEqual([
+      { name: 'clear', description: 'Clear conversation history' },
+      { name: 'grill', description: 'Stress-test the plan' }
     ])
   })
 
@@ -119,6 +148,26 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
     expect(entries.filter((entry) => entry.name === 'to-spec')).toEqual([
       { name: 'to-spec', description: 'Turn the discussion into a spec' }
     ])
+  })
+})
+
+describe('mobileComposerCommandNames', () => {
+  it('excludes an unclassified command that merged onto its skill row', () => {
+    const catalog = nativeChatComposerCatalog('claude', {
+      sessionCommands: [
+        { name: 'clear', kind: 'command' },
+        { name: 'grill', kind: 'command', kindUnspecified: true },
+        { name: 'grill', kind: 'skill' }
+      ]
+    })
+    expect(mobileComposerCommandNames(catalog, [{ name: 'grill' }])).toEqual(new Set(['clear']))
+  })
+
+  it('keeps an unclassified command that stayed a command row', () => {
+    const catalog = nativeChatComposerCatalog('claude', {
+      sessionCommands: [{ name: 'frobnicate', kind: 'command', kindUnspecified: true }]
+    })
+    expect(mobileComposerCommandNames(catalog)).toEqual(new Set(['frobnicate']))
   })
 })
 
