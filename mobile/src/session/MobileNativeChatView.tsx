@@ -27,6 +27,7 @@ import type { NativeChatTurnJournal } from '../../../src/shared/native-chat-turn
 import { colors } from '../theme/mobile-theme'
 import { styles } from './mobile-native-chat-view-styles'
 import { mobileNativeChatListFooter } from './mobile-native-chat-list-footer'
+import { mobileNativeChatListHeader } from './mobile-native-chat-list-header'
 import {
   buildMobileNativeChatTransientData,
   mobileNativeChatEmptyState,
@@ -323,6 +324,7 @@ export function MobileNativeChatView({
   const showLoading = status === 'loading' && messages.length === 0
 
   const lockReason = useSettledMobileNativeChatInputLock(inputLockReason)
+
   return (
     <View style={[styles.root, { paddingBottom: bottomPad }]}>
       {showLoading ? (
@@ -349,21 +351,11 @@ export function MobileNativeChatView({
               scrollEventThrottle={32}
               onContentSizeChange={pinToTailAfterContentResize}
               onLayout={pinToTail}
-              ListHeaderComponent={
-                hasMore ? (
-                  <Pressable
-                    style={styles.loadEarlier}
-                    onPress={loadEarlier}
-                    disabled={loadingEarlier}
-                  >
-                    {loadingEarlier ? (
-                      <ActivityIndicator size="small" color={colors.textMuted} />
-                    ) : (
-                      <Text style={styles.loadEarlierText}>Load earlier messages</Text>
-                    )}
-                  </Pressable>
-                ) : null
-              }
+              ListHeaderComponent={mobileNativeChatListHeader({
+                hasMore,
+                loadingEarlier,
+                onLoadEarlier: loadEarlier
+              })}
               ListFooterComponent={mobileNativeChatListFooter(
                 liveStatus,
                 turns.waitingRows,
