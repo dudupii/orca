@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  mobileComposerCommandNames,
+  mobileComposerMenuRows,
   mobileComposerSlashEntries,
   nativeChatComposerCatalog
 } from './native-chat-composer-catalog'
@@ -29,7 +29,9 @@ describe('nativeChatComposerCatalog lane selection', () => {
   })
 
   it('offers only host-supported conversation commands before any report arrives', () => {
-    const catalog = nativeChatComposerCatalog('claude', { conversationCommands: ['clear'] })
+    const catalog = nativeChatComposerCatalog('claude', {
+      conversationCommands: ['clear']
+    })
     expect(catalog.agentCommands.map((command) => command.name)).toEqual([
       'model',
       'effort',
@@ -67,7 +69,11 @@ describe('nativeChatComposerCatalog report authority', () => {
       sessionCommands: [{ name: 'clear', kind: 'command', kindUnspecified: true }]
     })
     expect(catalog.agentCommands).toEqual([
-      { name: 'clear', description: 'Clear conversation history', kindUnspecified: true }
+      {
+        name: 'clear',
+        description: 'Clear conversation history',
+        kindUnspecified: true
+      }
     ])
   })
 })
@@ -81,15 +87,17 @@ describe('mobileComposerSlashEntries', () => {
         { name: 'to-spec', kind: 'skill' }
       ]
     })
-    expect(mobileComposerSlashEntries(catalog).map((entry) => entry.name)).toEqual([
+    expect(mobileComposerSlashEntries(catalog, '/').map((entry) => entry.name)).toEqual([
       'clear',
       'to-spec'
     ])
   })
 
   it('returns the command tier alone while no skills were reported', () => {
-    const catalog = nativeChatComposerCatalog('claude', { conversationCommands: [] })
-    expect(mobileComposerSlashEntries(catalog).map((entry) => entry.name)).toEqual([
+    const catalog = nativeChatComposerCatalog('claude', {
+      conversationCommands: []
+    })
+    expect(mobileComposerSlashEntries(catalog, '/').map((entry) => entry.name)).toEqual([
       'model',
       'effort'
     ])
@@ -101,7 +109,7 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
     const catalog = nativeChatComposerCatalog('claude', {
       sessionCommands: [{ name: 'to-spec', kind: 'skill' }]
     })
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'to-spec', description: 'Discovery duplicate' },
       { name: 'deploy-check', description: 'Verify the deploy' }
     ])
@@ -110,7 +118,7 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
 
   it('offers every discovered skill while no report has arrived', () => {
     const catalog = nativeChatComposerCatalog('claude')
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'to-spec', description: 'Turn the discussion into a spec' },
       { name: 'deploy-check', description: 'Verify the deploy' }
     ])
@@ -119,7 +127,10 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
       name: 'to-spec',
       description: 'Turn the discussion into a spec'
     })
-    expect(entries).toContainEqual({ name: 'deploy-check', description: 'Verify the deploy' })
+    expect(entries).toContainEqual({
+      name: 'deploy-check',
+      description: 'Verify the deploy'
+    })
   })
 
   it('keeps an on-disk skill an unclassified command names, even absent from the report', () => {
@@ -129,7 +140,7 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
         { name: 'grill', kind: 'command', kindUnspecified: true }
       ]
     })
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'grill', description: 'Stress-test the plan' },
       { name: 'deploy-check', description: 'Verify the deploy' }
     ])
@@ -141,7 +152,7 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
 
   it('collapses a skill the discovery lists through several roots, keeping the described row', () => {
     const catalog = nativeChatComposerCatalog('claude')
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'to-spec' },
       { name: 'to-spec', description: 'Turn the discussion into a spec' }
     ])
@@ -151,8 +162,8 @@ describe('mobileComposerSlashEntries with discovered skills', () => {
   })
 })
 
-describe('mobileComposerCommandNames', () => {
-  it('excludes an unclassified command that merged onto its skill row', () => {
+describe('mobileComposerMenuRows', () => {
+  it('marks an unclassified command that merged onto its skill row as the skill', () => {
     const catalog = nativeChatComposerCatalog('claude', {
       sessionCommands: [
         { name: 'clear', kind: 'command' },
@@ -160,21 +171,59 @@ describe('mobileComposerCommandNames', () => {
         { name: 'grill', kind: 'skill' }
       ]
     })
-    expect(mobileComposerCommandNames(catalog, [{ name: 'grill' }])).toEqual(new Set(['clear']))
+    expect(mobileComposerMenuRows(catalog, '/', [{ name: 'grill' }])).toEqual([
+      {
+        kind: 'command',
+        entry: { name: 'clear', description: 'Clear conversation history' }
+      },
+      { kind: 'skill', entry: { name: 'grill' } }
+    ])
   })
 
-  it('keeps an unclassified command that stayed a command row', () => {
+  it('keeps an unclassified command that stayed a command row as a command', () => {
     const catalog = nativeChatComposerCatalog('claude', {
       sessionCommands: [{ name: 'frobnicate', kind: 'command', kindUnspecified: true }]
     })
-    expect(mobileComposerCommandNames(catalog)).toEqual(new Set(['frobnicate']))
+    expect(mobileComposerMenuRows(catalog, '/')).toEqual([
+      { kind: 'command', entry: { name: 'frobnicate', kindUnspecified: true } }
+    ])
+  })
+
+  it('keeps a curated command and a same-named PTY-lane skill as two rows under $', () => {
+    const catalog = nativeChatComposerCatalog('codex')
+    const reviewRows = mobileComposerMenuRows(catalog, '$', [
+      { name: 'review', description: 'Inspect the change' }
+    ]).filter((row) => row.entry.name === 'review')
+    expect(reviewRows).toEqual([
+      {
+        kind: 'command',
+        entry: { name: 'review', description: 'Review the current changes' }
+      },
+      {
+        kind: 'skill',
+        entry: { name: 'review', description: 'Inspect the change' }
+      }
+    ])
+  })
+
+  it('keeps only the command row for a shared-sigil name collision', () => {
+    const catalog = nativeChatComposerCatalog('codex')
+    const reviewRows = mobileComposerMenuRows(catalog, '/', [
+      { name: 'review', description: 'Inspect the change' }
+    ]).filter((row) => row.entry.name === 'review')
+    expect(reviewRows).toEqual([
+      {
+        kind: 'command',
+        entry: { name: 'review', description: 'Review the current changes' }
+      }
+    ])
   })
 })
 
 describe('mobileComposerSlashEntries with namespaced plugin skills', () => {
   it('keeps a plugin skill distinct from a same-named home skill', () => {
     const catalog = nativeChatComposerCatalog('claude')
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'grilling', description: 'Home copy' },
       { name: 'quiver:grilling', description: 'Plugin copy' }
     ])
@@ -190,7 +239,7 @@ describe('mobileComposerSlashEntries desktop parity', () => {
     const catalog = nativeChatComposerCatalog('claude', {
       sessionCommands: [{ name: 'to-spec', kind: 'skill' }]
     })
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'to-spec', description: 'Turn the discussion into a spec' }
     ])
     expect(entries).toEqual([{ name: 'to-spec', description: 'Turn the discussion into a spec' }])
@@ -204,7 +253,7 @@ describe('mobileComposerSlashEntries desktop parity', () => {
         { name: 'grill', kind: 'skill' }
       ]
     })
-    const entries = mobileComposerSlashEntries(catalog, [
+    const entries = mobileComposerSlashEntries(catalog, '/', [
       { name: 'grill', description: 'Stress-test the plan' }
     ])
     expect(entries).toEqual([
@@ -223,7 +272,7 @@ describe('mobileComposerSlashEntries unclassified without disk copy', () => {
         { name: 'grill', kind: 'skill' }
       ]
     })
-    expect(mobileComposerSlashEntries(catalog)).toEqual([
+    expect(mobileComposerSlashEntries(catalog, '/')).toEqual([
       { name: 'clear', description: 'Clear conversation history' },
       { name: 'grill' }
     ])

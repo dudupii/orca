@@ -42,12 +42,40 @@ export function nativeChatComposerCatalog(
     }
   }
   if (!source) {
-    return { agentCommands: getVerifiedNativeChatCommands(agent), sessionSkillNames: undefined }
+    return {
+      agentCommands: getVerifiedNativeChatCommands(agent),
+      sessionSkillNames: undefined
+    }
   }
   return {
     agentCommands: structuredSlashCommands(source.conversationCommands, agent),
     sessionSkillNames: undefined
   }
+}
+
+/** One entry of the mobile `/` menu with its kind attached — a command and a
+ *  skill can share a name when their sigils differ. */
+export type MobileComposerMenuRow =
+  | { kind: 'command'; entry: SlashCommandSuggestion }
+  | { kind: 'skill'; entry: SlashCommandSuggestion }
+
+export function mobileComposerMenuRows(
+  catalog: NativeChatComposerCatalog,
+  skillSigil: '/' | '$',
+  discovered?: readonly SlashCommandSuggestion[]
+): readonly MobileComposerMenuRow[] {
+  const { resolvedCommands, reportedSkills, discoveredSkills } = resolveMobileComposerMerge(
+    catalog,
+    skillSigil,
+    discovered
+  )
+  return [
+    ...resolvedCommands.map((entry) => ({ kind: 'command' as const, entry })),
+    ...[...reportedSkills, ...discoveredSkills].map((entry) => ({
+      kind: 'skill' as const,
+      entry
+    }))
+  ]
 }
 
 /** The mobile `/` menu renders one ranked list: commands first, then the
@@ -57,23 +85,10 @@ export function nativeChatComposerCatalog(
  *  it renders skills in the picker's own group instead. */
 export function mobileComposerSlashEntries(
   catalog: NativeChatComposerCatalog,
+  skillSigil: '/' | '$',
   discovered?: readonly SlashCommandSuggestion[]
 ): readonly SlashCommandSuggestion[] {
-  const { resolvedCommands, reportedSkills, discoveredSkills } = resolveMobileComposerMerge(
-    catalog,
-    discovered
-  )
-  return [...resolvedCommands, ...reportedSkills, ...discoveredSkills]
-}
-
-/** The names that stay commands after the skill merge. The composer's row
- *  classification must key off this, not the raw catalog, so an unclassified
- *  command promoted onto its skill row keeps the skill tag. */
-export function mobileComposerCommandNames(
-  catalog: NativeChatComposerCatalog,
-  discovered?: readonly SlashCommandSuggestion[]
-): ReadonlySet<string> {
-  return resolveMobileComposerMerge(catalog, discovered).commandNames
+  return mobileComposerMenuRows(catalog, skillSigil, discovered).map((row) => row.entry)
 }
 
 type MobileComposerMerge = {
@@ -85,8 +100,13 @@ type MobileComposerMerge = {
 
 function resolveMobileComposerMerge(
   catalog: NativeChatComposerCatalog,
+  skillSigil: '/' | '$',
   discovered?: readonly SlashCommandSuggestion[]
 ): MobileComposerMerge {
+  // Desktop parity: a name can only collide when both kinds invoke through the
+  // same sigil; where skills carry their own (`$review`), `/review` stays a
+  // distinct row.
+  const sharedSigil = skillSigil === '/'
   // Discovery can list one skill through several roots; keep one row per name,
   // preferring the root that carried a description.
   const discoveredByName = new Map<string, SlashCommandSuggestion>()
@@ -102,6 +122,7 @@ function resolveMobileComposerMerge(
   const reportedSkillNames = new Set(
     (catalog.sessionSkillNames ?? []).filter(
       (name) =>
+        !sharedSigil ||
         !catalog.agentCommands.some((command) => command.name === name && !command.kindUnspecified)
     )
   )
@@ -113,7 +134,7 @@ function resolveMobileComposerMerge(
   // command list.
   const skillNames = new Set([...reportedSkillNames, ...discoveredByName.keys()])
   const resolvedCommands = catalog.agentCommands.filter(
-    (command) => !command.kindUnspecified || !skillNames.has(command.name)
+    (command) => !(sharedSigil && command.kindUnspecified && skillNames.has(command.name))
   )
   const commandNames = new Set(resolvedCommands.map((command) => command.name))
   // Desktop parity: once a report arrived, it is the authority on which skills
@@ -129,7 +150,7 @@ function resolveMobileComposerMerge(
   const discoveredSkills = [...discoveredByName.values()].filter(
     (entry) =>
       !reportedSkillNames.has(entry.name) &&
-      !commandNames.has(entry.name) &&
+      !(sharedSigil && commandNames.has(entry.name)) &&
       (!reportArrived || unclassifiedNames.has(entry.name))
   )
   return { resolvedCommands, commandNames, reportedSkills, discoveredSkills }

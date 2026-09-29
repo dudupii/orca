@@ -6,8 +6,7 @@ import type { AgentSessionConversationCommand } from '../../../src/shared/agent-
 import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
 import type { SlashCommandSuggestion } from '../../../src/shared/native-chat-slash-commands'
 import {
-  mobileComposerCommandNames,
-  mobileComposerSlashEntries,
+  mobileComposerMenuRows,
   nativeChatComposerCatalog
 } from '../../../src/shared/native-chat-composer-catalog'
 import { getNativeChatAgentProfile } from '../../../src/shared/native-chat-agent-profiles'
@@ -108,9 +107,10 @@ export function MobileNativeChatComposer({
   // Transiently drives the native caret after a mid-text autocomplete insert,
   // then released on the next selection change so manual caret placement still
   // works (a permanently controlled `selection` breaks it in React Native).
-  const [pendingSelection, setPendingSelection] = useState<{ start: number; end: number } | null>(
-    null
-  )
+  const [pendingSelection, setPendingSelection] = useState<{
+    start: number
+    end: number
+  } | null>(null)
   const sendingRef = useRef(false)
   const mountedRef = useRef(true)
   const sendSurfaceIdRef = useRef(sendSurfaceId)
@@ -150,16 +150,15 @@ export function MobileNativeChatComposer({
           ? { sessionCommands, conversationCommands: structuredCommands }
           : undefined
       )
-      const commandNames = mobileComposerCommandNames(catalog, skillSuggestions)
+      // Why: the kind rides on the row — a command and a skill can share a
+      // name when their sigils differ, so names alone cannot classify.
+      const rows = mobileComposerMenuRows(catalog, skillSigil, skillSuggestions)
+      const kindByEntry = new Map(rows.map((row) => [row.entry, row.kind]))
       // Why: Codex's catalog is 45 commands and this list is a plain ScrollView
       // (~5 rows visible), so an uncapped `/` would mount every row and
       // re-reconcile them on each streaming tick right above the transcript.
-      return rankSlashCommandSuggestions(
-        mobileComposerSlashEntries(catalog, skillSuggestions),
-        trigger.query,
-        12
-      ).map((entry) =>
-        commandNames.has(entry.name)
+      return rankSlashCommandSuggestions([...kindByEntry.keys()], trigger.query, 12).map((entry) =>
+        kindByEntry.get(entry) === 'command'
           ? { kind: 'command' as const, command: entry }
           : { kind: 'skill' as const, skill: entry }
       )

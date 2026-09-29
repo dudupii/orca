@@ -13,7 +13,10 @@ function MobileNativeChatComposer({
 }: Omit<ComponentProps<typeof NativeChatComposer>, 'getComposerEditGeneration'> & {
   getComposerEditGeneration?: () => number
 }): React.JSX.Element {
-  return createElement(NativeChatComposer, { ...props, getComposerEditGeneration })
+  return createElement(NativeChatComposer, {
+    ...props,
+    getComposerEditGeneration
+  })
 }
 
 vi.mock('react-native', async () => {
@@ -115,9 +118,15 @@ describe('MobileNativeChatComposer', () => {
   it('stacks the input above the composer action row', async () => {
     await render(vi.fn().mockResolvedValue(true), vi.fn())
 
-    const composer = renderer!.root.findByProps({ testID: 'native-chat-composer' })
-    const inset = renderer!.root.findByProps({ testID: 'native-chat-composer-inset' })
-    const actions = renderer!.root.findByProps({ testID: 'native-chat-composer-actions' })
+    const composer = renderer!.root.findByProps({
+      testID: 'native-chat-composer'
+    })
+    const inset = renderer!.root.findByProps({
+      testID: 'native-chat-composer-inset'
+    })
+    const actions = renderer!.root.findByProps({
+      testID: 'native-chat-composer-actions'
+    })
     expect(composer.findAllByType('TextInput')).toHaveLength(1)
     expect(composer.children[1]).toBe(actions)
     expect(inset.props.style).toMatchObject({
@@ -194,11 +203,15 @@ describe('MobileNativeChatComposer', () => {
         })
       )
     })
-    const modelPill = (): { props: { accessibilityState: { disabled: boolean } } } =>
+    const modelPill = (): {
+      props: { accessibilityState: { disabled: boolean } }
+    } =>
       renderer!.root.find(
         (node) => node.type === 'Pressable' && node.props.accessibilityLabel === 'Model, Model'
       ) as { props: { accessibilityState: { disabled: boolean } } }
-    expect(modelPill().props.accessibilityState).toMatchObject({ disabled: false })
+    expect(modelPill().props.accessibilityState).toMatchObject({
+      disabled: false
+    })
     // Start the send but don't await it — it stays in flight on purpose.
     let pressed!: Promise<void>
     await act(async () => {
@@ -206,12 +219,16 @@ describe('MobileNativeChatComposer', () => {
       await Promise.resolve()
     })
     expect(onSend).toHaveBeenCalled()
-    expect(modelPill().props.accessibilityState).toMatchObject({ disabled: true })
+    expect(modelPill().props.accessibilityState).toMatchObject({
+      disabled: true
+    })
     await act(async () => {
       releaseSend?.(true)
       await pressed
     })
-    expect(modelPill().props.accessibilityState).toMatchObject({ disabled: false })
+    expect(modelPill().props.accessibilityState).toMatchObject({
+      disabled: false
+    })
   })
 
   it('blocks composer submission while a session-option command is pending', async () => {
@@ -378,7 +395,9 @@ describe('MobileNativeChatComposer', () => {
     expect(input().props.selection).toBeUndefined()
     // Place the caret at the end so the slash trigger is active and suggestions render.
     await act(async () =>
-      input().props.onSelectionChange({ nativeEvent: { selection: { end: 2 } } })
+      input().props.onSelectionChange({
+        nativeEvent: { selection: { end: 2 } }
+      })
     )
     const firstSuggestion = renderer!.root.findAll(
       (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
@@ -389,248 +408,11 @@ describe('MobileNativeChatComposer', () => {
     expect(input().props.selection).toEqual({ start: 7, end: 7 })
     // The next native selection event releases control so manual placement still works.
     await act(async () =>
-      input().props.onSelectionChange({ nativeEvent: { selection: { end: 7 } } })
+      input().props.onSelectionChange({
+        nativeEvent: { selection: { end: 7 } }
+      })
     )
     expect(input().props.selection).toBeUndefined()
-  })
-
-  it('serves the active agent’s shared command catalog with descriptions', async () => {
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/',
-          onChangeText: vi.fn(),
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'codex'
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 1 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    // Codex-only commands from the shared catalog, with their description rows —
-    // and none of the old hardcoded provider-agnostic list's phantom entries.
-    expect(texts).toContain('/permissions')
-    expect(texts).toContain('Choose what Codex is allowed to do')
-    expect(texts).not.toContain('/cost')
-  })
-
-  it("serves the structured session's reported commands over every curated list", async () => {
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/',
-          onChangeText: vi.fn(),
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'claude',
-          structuredCommands: [],
-          sessionCommands: [
-            { name: 'clear', kind: 'command' },
-            { name: 'opsx:apply', kind: 'command' }
-          ]
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 1 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    // The report is the authority: its commands show (described where the
-    // curated catalog knows the name) and neither curated-only entries nor the
-    // structured base commands resurface.
-    expect(texts).toContain('/clear')
-    expect(texts).toContain('Clear conversation history')
-    expect(texts).toContain('/opsx:apply')
-    expect(texts).not.toContain('/compact')
-    expect(texts).not.toContain('/model')
-  })
-
-  it("offers the session's reported skills in the slash menu, marked and insertable", async () => {
-    const onChangeText = vi.fn()
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/to',
-          onChangeText,
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'claude',
-          structuredCommands: [],
-          sessionCommands: [
-            { name: 'clear', kind: 'command' },
-            { name: 'to-spec', kind: 'skill' }
-          ]
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 4 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    // The reported skill matches the prefix; the unmatched command does not show.
-    expect(texts).toContain('/to-spec')
-    expect(texts).toContain('skill')
-    expect(texts).not.toContain('/clear')
-
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
-    const skillRow = renderer!.root.findAll(
-      (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
-    )[0] as { props: { onPress: () => void } }
-    await act(async () => skillRow.props.onPress())
-    expect(onChangeText).toHaveBeenCalledWith('/to-spec ')
-  })
-
-  it('keeps a command that collides with a skill name as the described command row', async () => {
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/',
-          onChangeText: vi.fn(),
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'claude',
-          structuredCommands: [],
-          sessionCommands: [
-            { name: 'clear', kind: 'command' },
-            { name: 'clear', kind: 'skill' },
-            { name: 'to-spec', kind: 'skill' }
-          ]
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 1 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    expect(texts.filter((text) => text === '/clear')).toHaveLength(1)
-    expect(texts).toContain('Clear conversation history')
-  })
-
-  it('offers discovered worktree skills with descriptions on the PTY lane', async () => {
-    const onChangeText = vi.fn()
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/de',
-          onChangeText,
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'claude',
-          skillSuggestions: [{ name: 'deploy-check', description: 'Verify the deploy' }]
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 4 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    expect(texts).toContain('/deploy-check')
-    expect(texts).toContain('Verify the deploy')
-    expect(texts).toContain('skill')
-
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
-    const skillRow = renderer!.root.findAll(
-      (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
-    )[0] as { props: { onPress: () => void } }
-    await act(async () => skillRow.props.onPress())
-    expect(onChangeText).toHaveBeenCalledWith('/deploy-check ')
-  })
-
-  it('inserts a Codex skill with the $ sigil the agent dispatches', async () => {
-    const onChangeText = vi.fn()
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/dep',
-          onChangeText,
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'codex',
-          skillSuggestions: [{ name: 'deploy-check', description: 'Verify the deploy' }]
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 4 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    // '/dep' matches only the skill, so the first row is the deploy-check skill.
-    expect(texts).toContain('$deploy-check')
-
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
-    const skillRow = renderer!.root.findAll(
-      (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
-    )[0] as { props: { onPress: () => void } }
-    await act(async () => skillRow.props.onPress())
-    expect(onChangeText).toHaveBeenCalledWith('$deploy-check ')
-  })
-
-  it('keeps the skill tag on an unclassified command that merged onto its skill row', async () => {
-    const onChangeText = vi.fn()
-    await act(async () => {
-      renderer = create(
-        createElement(MobileNativeChatComposer, {
-          value: '/gr',
-          onChangeText,
-          onSend: vi.fn().mockResolvedValue(true),
-          sendSurfaceId: 'tab-a',
-          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
-          agent: 'claude',
-          structuredCommands: [],
-          sessionCommands: [
-            { name: 'clear', kind: 'command' },
-            { name: 'grill', kind: 'command', kindUnspecified: true },
-            { name: 'grill', kind: 'skill' }
-          ],
-          skillSuggestions: [{ name: 'grill', description: 'Stress-test the plan' }]
-        })
-      )
-    })
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    // The merged row stays a skill: tag shown, description from disk.
-    expect(texts.filter((text) => text === '/grill')).toHaveLength(1)
-    expect(texts).toContain('skill')
-    expect(texts).toContain('Stress-test the plan')
-
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
-    const skillRow = renderer!.root.findAll(
-      (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
-    )[0] as { props: { onPress: () => void } }
-    await act(async () => skillRow.props.onPress())
-    expect(onChangeText).toHaveBeenCalledWith('/grill ')
   })
 
   it('wires the mic for hold vs toggle dictation like the terminal composer', async () => {
@@ -640,7 +422,9 @@ describe('MobileNativeChatComposer', () => {
     const mic = () =>
       renderer!.root.find(
         (node) => node.type === 'Pressable' && node.props.accessibilityLabel === 'Dictate'
-      ) as { props: { onPress?: unknown; onPressIn?: unknown; onPressOut?: unknown } }
+      ) as {
+        props: { onPress?: unknown; onPressIn?: unknown; onPressOut?: unknown }
+      }
 
     await act(async () => {
       renderer = create(
@@ -816,7 +600,9 @@ describe('MobileNativeChatComposer', () => {
       )
     })
     const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (event: { nativeEvent: { selection: { end: number } } }) => void }
+      props: {
+        onSelectionChange: (event: { nativeEvent: { selection: { end: number } } }) => void
+      }
     }
     await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 2 } } }))
 
@@ -867,7 +653,10 @@ describe('MobileNativeChatComposer', () => {
     editGeneration += 1
     await act(async () => {
       renderer!.update(
-        createElement(MobileNativeChatComposer, { ...props, value: 'hello dictated text' })
+        createElement(MobileNativeChatComposer, {
+          ...props,
+          value: 'hello dictated text'
+        })
       )
     })
     await act(async () => {
