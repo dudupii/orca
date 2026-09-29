@@ -6,9 +6,11 @@ import type { AgentSessionConversationCommand } from '../../../src/shared/agent-
 import type { AgentSessionSlashCommand } from '../../../src/shared/agent-session-wire'
 import type { SlashCommandSuggestion } from '../../../src/shared/native-chat-slash-commands'
 import {
+  mobileComposerCommandNames,
   mobileComposerSlashEntries,
   nativeChatComposerCatalog
 } from '../../../src/shared/native-chat-composer-catalog'
+import { getNativeChatAgentProfile } from '../../../src/shared/native-chat-agent-profiles'
 import {
   applyAutocomplete,
   detectAutocompleteTrigger,
@@ -132,6 +134,8 @@ export function MobileNativeChatComposer({
     !sessionOptionDispatching
 
   const trigger = useMemo(() => detectAutocompleteTrigger(value, cursor), [value, cursor])
+  // Codex dispatches skills with `$`; every other profiled agent uses `/`.
+  const skillSigil = getNativeChatAgentProfile(agent)?.skillPrefix ?? '/'
   const suggestions = useMemo<ComposerSuggestion[]>(() => {
     if (!trigger) {
       return []
@@ -146,7 +150,7 @@ export function MobileNativeChatComposer({
           ? { sessionCommands, conversationCommands: structuredCommands }
           : undefined
       )
-      const commandNames = new Set(catalog.agentCommands.map((command) => command.name))
+      const commandNames = mobileComposerCommandNames(catalog, skillSuggestions)
       // Why: Codex's catalog is 45 commands and this list is a plain ScrollView
       // (~5 rows visible), so an uncapped `/` would mount every row and
       // re-reconcile them on each streaming tick right above the transcript.
@@ -191,7 +195,7 @@ export function MobileNativeChatComposer({
     const { text: nextText, cursor: nextCursor } = applyAutocomplete(
       value,
       trigger,
-      composerSuggestionInsertText(suggestion)
+      composerSuggestionInsertText(suggestion, skillSigil)
     )
     onChangeText(nextText)
     setCursor(nextCursor)
@@ -232,7 +236,11 @@ export function MobileNativeChatComposer({
   return (
     <View>
       {suggestions.length > 0 ? (
-        <MobileNativeChatComposerSuggestions suggestions={suggestions} onPick={pickSuggestion} />
+        <MobileNativeChatComposerSuggestions
+          suggestions={suggestions}
+          skillSigil={skillSigil}
+          onPick={pickSuggestion}
+        />
       ) : null}
       {attachments.length > 0 ? (
         <MobileNativeChatComposerAttachments

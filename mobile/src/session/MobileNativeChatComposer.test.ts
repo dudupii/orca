@@ -559,6 +559,80 @@ describe('MobileNativeChatComposer', () => {
     expect(onChangeText).toHaveBeenCalledWith('/deploy-check ')
   })
 
+  it('inserts a Codex skill with the $ sigil the agent dispatches', async () => {
+    const onChangeText = vi.fn()
+    await act(async () => {
+      renderer = create(
+        createElement(MobileNativeChatComposer, {
+          value: '/dep',
+          onChangeText,
+          onSend: vi.fn().mockResolvedValue(true),
+          sendSurfaceId: 'tab-a',
+          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
+          agent: 'codex',
+          skillSuggestions: [{ name: 'deploy-check', description: 'Verify the deploy' }]
+        })
+      )
+    })
+    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
+      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
+    }
+    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 4 } } }))
+    const texts = renderer!.root
+      .findAll((node) => node.type === 'Text')
+      .map((node) => (node.props as { children?: unknown }).children)
+    // '/dep' matches only the skill, so the first row is the deploy-check skill.
+    expect(texts).toContain('$deploy-check')
+
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
+    const skillRow = renderer!.root.findAll(
+      (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
+    )[0] as { props: { onPress: () => void } }
+    await act(async () => skillRow.props.onPress())
+    expect(onChangeText).toHaveBeenCalledWith('$deploy-check ')
+  })
+
+  it('keeps the skill tag on an unclassified command that merged onto its skill row', async () => {
+    const onChangeText = vi.fn()
+    await act(async () => {
+      renderer = create(
+        createElement(MobileNativeChatComposer, {
+          value: '/gr',
+          onChangeText,
+          onSend: vi.fn().mockResolvedValue(true),
+          sendSurfaceId: 'tab-a',
+          getSendCompletionGeneration: getCurrentSendCompletionGeneration,
+          agent: 'claude',
+          structuredCommands: [],
+          sessionCommands: [
+            { name: 'clear', kind: 'command' },
+            { name: 'grill', kind: 'command', kindUnspecified: true },
+            { name: 'grill', kind: 'skill' }
+          ],
+          skillSuggestions: [{ name: 'grill', description: 'Stress-test the plan' }]
+        })
+      )
+    })
+    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
+      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
+    }
+    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
+    const texts = renderer!.root
+      .findAll((node) => node.type === 'Text')
+      .map((node) => (node.props as { children?: unknown }).children)
+    // The merged row stays a skill: tag shown, description from disk.
+    expect(texts.filter((text) => text === '/grill')).toHaveLength(1)
+    expect(texts).toContain('skill')
+    expect(texts).toContain('Stress-test the plan')
+
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: findAll returns the generic test node; only props.onPress is invoked on it.
+    const skillRow = renderer!.root.findAll(
+      (node) => node.type === 'Pressable' && !node.props.accessibilityLabel
+    )[0] as { props: { onPress: () => void } }
+    await act(async () => skillRow.props.onPress())
+    expect(onChangeText).toHaveBeenCalledWith('/grill ')
+  })
+
   it('wires the mic for hold vs toggle dictation like the terminal composer', async () => {
     const onMicPress = vi.fn()
     const onMicPressIn = vi.fn()

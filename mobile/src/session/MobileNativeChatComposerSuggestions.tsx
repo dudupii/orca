@@ -17,19 +17,28 @@ export function composerSuggestionKey(suggestion: ComposerSuggestion): string {
   return suggestion.kind === 'skill' ? `skill:${suggestion.skill.name}` : `file:${suggestion.path}`
 }
 
-/** The text the suggestion inserts at the trigger span. */
-export function composerSuggestionInsertText(suggestion: ComposerSuggestion): string {
+/** The text the suggestion inserts at the trigger span. Commands always take
+ *  `/`; a skill takes the agent's own sigil (Codex dispatches `$skill`). */
+export function composerSuggestionInsertText(
+  suggestion: ComposerSuggestion,
+  skillSigil: '/' | '$'
+): string {
   if (suggestion.kind === 'command') {
     return `/${suggestion.command.name}`
   }
-  return suggestion.kind === 'skill' ? `/${suggestion.skill.name}` : `@${suggestion.path}`
+  return suggestion.kind === 'skill'
+    ? `${skillSigil}${suggestion.skill.name}`
+    : `@${suggestion.path}`
 }
 
 export function MobileNativeChatComposerSuggestions({
   suggestions,
+  skillSigil,
   onPick
 }: {
   suggestions: readonly ComposerSuggestion[]
+  /** The sigil a skill pick inserts (per-agent; commands always use `/`). */
+  skillSigil: '/' | '$'
   onPick: (suggestion: ComposerSuggestion) => void
 }): React.JSX.Element {
   return (
@@ -44,7 +53,7 @@ export function MobileNativeChatComposerSuggestions({
           >
             <View style={styles.suggestionTitle}>
               <Text style={styles.suggestionText} numberOfLines={1}>
-                {composerSuggestionInsertText(suggestion)}
+                {composerSuggestionInsertText(suggestion, skillSigil)}
               </Text>
               {suggestion.kind === 'skill' ? <Text style={styles.skillTag}>skill</Text> : null}
             </View>
