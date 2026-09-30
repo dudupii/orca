@@ -280,6 +280,8 @@ export function useMobileNativeChatController(args: {
     onSendResolved
   )
 
+  const sessionCommands = activeChatStructured ? structuredNativeChat.sessionCommands : undefined
+
   return {
     isTabChatView,
     toggleTabChatView,
@@ -296,9 +298,7 @@ export function useMobileNativeChatController(args: {
     nativeChatStructured: activeChatStructured,
     /** Structured lane: the session's reported command surface (undefined until
      *  the first report), feeding the composer's `/` menu. */
-    nativeChatSessionCommands: activeChatStructured
-      ? structuredNativeChat.sessionCommands
-      : undefined,
+    nativeChatSessionCommands: sessionCommands,
     nativeChatAgentWorking,
     nativeChatTurnIndicator: activeChatStructured ? structuredNativeChat.turnIndicator : null,
     nativeChatWorkingStartedAt: activeChatStructured ? structuredNativeChat.workingStartedAt : null,
