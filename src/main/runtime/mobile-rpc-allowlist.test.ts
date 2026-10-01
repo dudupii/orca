@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ALL_RPC_METHODS } from './rpc/methods'
+import { MOBILE_REPO_RPC_METHOD_ALLOWLIST } from './runtime-rpc/runtime-rpc-mobile-repo-method-allowlist'
 import { MOBILE_SKILLS_RPC_METHOD_ALLOWLIST } from './runtime-rpc/runtime-rpc-mobile-skill-method-allowlist'
 
 const MOBILE_DYNAMIC_RPC_METHODS = [
@@ -112,7 +113,8 @@ function mobileRpcAllowlist(): Set<string> {
   }
   return new Set([
     ...[...allowlist[1]!.matchAll(/'([^']+)'/g)].map((match) => match[1]!),
-    ...MOBILE_SKILLS_RPC_METHOD_ALLOWLIST
+    ...MOBILE_SKILLS_RPC_METHOD_ALLOWLIST,
+    ...MOBILE_REPO_RPC_METHOD_ALLOWLIST
   ])
 }
 

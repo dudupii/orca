@@ -1,5 +1,7 @@
 import { AGENT_SESSION_BACKGROUND_TASK_CHILD_VIEWS_CAPABILITY } from './agent-session-background-task-child-views-capability'
 import { REMOTE_SERVER_UPDATE_CAPABILITY } from './remote-server-update'
+import { TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY } from './terminal-create-idempotency'
+import { WORKTREE_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY } from './worktree-create-idempotency'
 import {
   SKILL_BUNDLE_INSTALL_CAPABILITY,
   SKILL_DELETE_CAPABILITY,
@@ -111,14 +113,7 @@ export const TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY = 'terminal.paired-parki
 // Why: older hosts lack the targeted settings RPCs and strip agentPrompt from
 // terminal creation, so mobile must hide Quick Commands unless both are present.
 export const TERMINAL_QUICK_COMMANDS_RUNTIME_CAPABILITY = 'terminal.quick-commands.v1' as const
-// Why: older hosts strip worktree.create's clientMutationId, so mobile must only
-// replay ambiguous cutovers when the host advertises idempotent create support;
-// status.worktreeCreateIdempotency carries the optional host retention policy.
-export const WORKTREE_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
-  'worktree.create-idempotency.v1' as const
-// Why: repo.add/create/clone were desktop-only RPCs; mobile gates its Add project
-// entry on this capability so an older host (no allowlisted methods, required
-// destination/parentPath) never receives a call it would reject.
+// Why: mobile gates its Add project entry on this; older hosts reject those calls outright.
 export const REPO_ADD_PROJECT_MOBILE_RUNTIME_CAPABILITY = 'repo.add-project-mobile.v1' as const
 // Scope of the claim: a hook that RUNS and fails cannot delete the checkout. It does not promise
 // the hook was found — an SSH host whose orca.yaml cannot be read answers "no hook" and the removal
@@ -133,9 +128,6 @@ export const WORKTREE_ARCHIVE_FAILURE_BLOCKING_RUNTIME_CAPABILITY =
   'worktree.archive-failure-blocking.v1' as const
 export const CODEX_RESET_CREDIT_RUNTIME_CAPABILITY = 'accounts.codex-reset-credit.v1' as const
 export const ACCOUNT_IMPORT_RUNTIME_CAPABILITY = 'accounts.import-host-credentials.v1' as const
-// Why: older hosts cannot reconcile terminal.create's mutation after losing the reply, so clients may only retry unknown outcomes when advertised.
-export const TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
-  'terminal.create-idempotency.v2' as const
 // Why: an older host strips terminal.create's unknown `shell` and answers with a terminal running
 // the host default shell. That reply is indistinguishable from success, so a client asking for a
 // shell must refuse rather than create the wrong one.
