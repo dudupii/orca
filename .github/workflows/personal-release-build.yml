@@ -87,6 +87,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Why: build:desktop now ends in build:mobile-web, whose esbuild resolves
+      # React Native and Expo from mobile/node_modules (upstream release jobs
+      # install mobile deps for the same reason).
+      - uses: ./.github/actions/install-mobile-dependencies
+
       # Same chain as a local build:linux (typecheck → relay → cli → vite → web →
       # mobile-web → electron-builder). CI runners have a clean tar/xz, so all
       # three targets build; only the deb and AppImage are shipped.
@@ -148,6 +153,10 @@ jobs:
       # installed (same flags as the upstream mac release job).
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --cpu=current,x64,arm64
+
+      # Why: electron-builder's beforePack needs out/mobile-web, whose bundle
+      # resolves React Native and Expo from mobile/node_modules.
+      - uses: ./.github/actions/install-mobile-dependencies
 
       # Same chain as a local build:mac; the mac config builds dmg + zip for
       # x64 and arm64 in one electron-builder run. --publish never for the
