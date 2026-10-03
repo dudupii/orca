@@ -17,6 +17,7 @@ type Props = {
   lineColumn: MobileFilePreviewLineColumn | null
   imageWidth: number
   imageHeight: number
+  markdownImageSources: Record<string, string>
   onDraftChange: (content: string) => void
   onImageError: () => void
   /** Null where the only retry is a re-dial this document cannot make. */
@@ -84,6 +85,7 @@ export function MobileFilePreviewBody({ preview, ...options }: Props) {
         truncated={preview.truncated}
         byteLength={preview.byteLength}
         initialLine={options.lineColumn?.line}
+        imageSources={options.markdownImageSources}
       />
     )
   }

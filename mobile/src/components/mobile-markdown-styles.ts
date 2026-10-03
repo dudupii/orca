@@ -89,6 +89,21 @@ export const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary
   },
+  markdownImageFrame: {
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radii.input,
+    overflow: 'hidden'
+  },
+  markdownImageSizing: {
+    width: '100%',
+    height: 180
+  },
+  markdownInlineImage: {
+    width: 100,
+    height: 130,
+    marginVertical: 2
+  },
   table: {
     borderTopWidth: 1,
     borderLeftWidth: 1,
