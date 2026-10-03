@@ -102,4 +102,18 @@ describe('MobileFileMarkdownPreview', () => {
     await updatePreview(renderer, { ...baseProps, relativePath: 'notes/second.md', initialLine: 8 })
     expect(isSelected(renderer, 'View Markdown source')).toBe(true)
   })
+
+  it('forwards resolved image sources to the markdown renderer', async () => {
+    const imageSources = { 'images/a.png': 'data:image/png;base64,AAA' }
+    renderer = await renderPreview({
+      relativePath: 'docs/list.md',
+      content: '# Doc',
+      truncated: false,
+      byteLength: 5,
+      imageSources
+    })
+    const markdown = renderer.root.findAll((node) => String(node.type) === 'MobileMarkdown')
+    expect(markdown).toHaveLength(1)
+    expect(markdown[0]!.props.imageSources).toBe(imageSources)
+  })
 })
