@@ -48,9 +48,15 @@ describe('MobileMarkdown file links', () => {
     renderer = null
   })
 
-  function render(content: string, imageSources?: Record<string, string>): ReactTestRenderer {
+  function render(
+    content: string,
+    imageSources?: Record<string, string>,
+    onOpenImage?: (rawSrc: string) => void
+  ): ReactTestRenderer {
     act(() => {
-      renderer = create(createElement(MobileMarkdown, { content, onOpenFile, imageSources }))
+      renderer = create(
+        createElement(MobileMarkdown, { content, onOpenFile, imageSources, onOpenImage })
+      )
     })
     return renderer!
   }
@@ -194,6 +200,22 @@ describe('MobileMarkdown file links', () => {
       expect(images(tree)).toHaveLength(0)
       pressByText(tree, 'shot')
       expect(onOpenFile).toHaveBeenCalledWith('docs/shot.png')
+    })
+
+    it('routes a tapped image to the dedicated image handler instead of the file opener', () => {
+      const onOpenImage = vi.fn()
+      const tree = render('![shot](docs/shot.png)', sources, onOpenImage)
+      pressImage(images(tree)[0]!)
+      expect(onOpenImage).toHaveBeenCalledWith('docs/shot.png')
+      expect(onOpenFile).not.toHaveBeenCalled()
+    })
+
+    it('routes an unresolved inline image fallback to the dedicated image handler', () => {
+      const onOpenImage = vi.fn()
+      const tree = render('see ![shot](docs/shot.png) here', undefined, onOpenImage)
+      pressByText(tree, 'shot')
+      expect(onOpenImage).toHaveBeenCalledWith('docs/shot.png')
+      expect(onOpenFile).not.toHaveBeenCalled()
     })
   })
 })

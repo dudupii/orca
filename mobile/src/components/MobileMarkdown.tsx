@@ -45,6 +45,9 @@ type Props = {
   /** Authored image src → data URL, resolved by the owner; an image whose src has an
    *  entry renders as a real image instead of the tappable fallback text. */
   imageSources?: Record<string, string>
+  /** Image taps prefer this with the authored src (resolved against the document by
+   *  the owner); without it, image taps route the src as a file href. */
+  onOpenImage?: (rawSrc: string) => void
 }
 
 const MAX_TABLE_ROWS = 40
@@ -73,6 +76,20 @@ function openMarkdownHref(href: string, onOpenFile?: (pathText: string) => void)
   if (route.kind === 'file' && onOpenFile) {
     onOpenFile(route.pathText)
   }
+}
+
+// A tapped image goes to the dedicated src-keyed handler when the owner resolves srcs
+// itself; otherwise the src routes as a href like any file link.
+function openMarkdownImage(
+  rawSrc: string,
+  onOpenFile?: (pathText: string) => void,
+  onOpenImage?: (rawSrc: string) => void
+): void {
+  if (onOpenImage) {
+    onOpenImage(rawSrc)
+    return
+  }
+  openMarkdownHref(rawSrc, onOpenFile)
 }
 
 // Render a plain (non-token) text run, splitting out tappable file paths when
@@ -108,7 +125,8 @@ function renderTextRun(
 function renderInline(
   text: string,
   onOpenFile?: (pathText: string) => void,
-  imageSources?: Record<string, string>
+  imageSources?: Record<string, string>,
+  onOpenImage?: (rawSrc: string) => void
 ): ReactNode[] {
   const parts: ReactNode[] = []
   const pattern = createMarkdownInlineMatcher(
@@ -142,14 +160,17 @@ function renderInline(
       const dataUri = imageSources?.[image[2]!]
       parts.push(
         dataUri ? (
-          <MarkdownText key={key} onPress={() => openMarkdownHref(image[2]!, onOpenFile)}>
+          <MarkdownText
+            key={key}
+            onPress={() => openMarkdownImage(image[2]!, onOpenFile, onOpenImage)}
+          >
             <MarkdownInlineImage uri={dataUri} alt={image[1] ?? ''} />
           </MarkdownText>
         ) : (
           <MarkdownText
             key={key}
             style={styles.link}
-            onPress={() => openMarkdownHref(image[2]!, onOpenFile)}
+            onPress={() => openMarkdownImage(image[2]!, onOpenFile, onOpenImage)}
           >
             {image[1] || 'image'}
           </MarkdownText>
@@ -231,7 +252,8 @@ function MobileMarkdownContent({
   rangeSelectable = false,
   textScale = 1,
   onOpenFile,
-  imageSources
+  imageSources,
+  onOpenImage
 }: Props) {
   const text = content?.trim() ?? ''
   const previewText = useMemo(() => normalizeMobileMarkdownPreviewHtml(text), [text])
@@ -261,7 +283,7 @@ function MobileMarkdownContent({
               selectable
               style={[styles.heading, block.level <= 2 ? styles.headingLarge : null]}
             >
-              {renderInline(block.text, onOpenFile, imageSources)}
+              {renderInline(block.text, onOpenFile, imageSources, onOpenImage)}
             </MarkdownText>
           )
         }
@@ -269,7 +291,7 @@ function MobileMarkdownContent({
           return (
             <View key={index} style={styles.quote}>
               <MarkdownText selectable style={styles.quoteText}>
-                {renderInline(block.text, onOpenFile, imageSources)}
+                {renderInline(block.text, onOpenFile, imageSources, onOpenImage)}
               </MarkdownText>
             </View>
           )
@@ -305,7 +327,7 @@ function MobileMarkdownContent({
             <Pressable
               key={index}
               style={styles.imageFrame}
-              onPress={() => openMarkdownHref(block.url, onOpenFile)}
+              onPress={() => openMarkdownImage(block.url, onOpenFile, onOpenImage)}
             >
               <NativeText style={styles.link}>{block.alt || 'Open image'}</NativeText>
               <NativeText style={styles.imageCaption} numberOfLines={1}>
@@ -329,7 +351,7 @@ function MobileMarkdownContent({
                       selectable
                       style={[styles.tableCell, styles.tableHeader]}
                     >
-                      {renderInline(header, onOpenFile, imageSources)}
+                      {renderInline(header, onOpenFile, imageSources, onOpenImage)}
                     </MarkdownText>
                   ))}
                 </View>
@@ -337,7 +359,7 @@ function MobileMarkdownContent({
                   <View key={rowIndex} style={styles.tableRow}>
                     {visibleHeaders.map((_, cellIndex) => (
                       <MarkdownText key={cellIndex} selectable style={styles.tableCell}>
-                        {renderInline(row[cellIndex] ?? '', onOpenFile, imageSources)}
+                        {renderInline(row[cellIndex] ?? '', onOpenFile, imageSources, onOpenImage)}
                       </MarkdownText>
                     ))}
                   </View>
@@ -368,7 +390,7 @@ function MobileMarkdownContent({
                         : '[ ]'}
                   </NativeText>
                   <MarkdownText selectable style={[styles.listText, listScale]}>
-                    {renderInline(item.text, onOpenFile, imageSources)}
+                    {renderInline(item.text, onOpenFile, imageSources, onOpenImage)}
                   </MarkdownText>
                 </View>
               ))}
@@ -386,7 +408,7 @@ function MobileMarkdownContent({
               key={index}
               uri={standaloneUri}
               alt={standaloneMatch[1] ?? ''}
-              onPress={() => openMarkdownHref(standaloneMatch[2]!, onOpenFile)}
+              onPress={() => openMarkdownImage(standaloneMatch[2]!, onOpenFile, onOpenImage)}
             />
           )
         }
@@ -399,7 +421,7 @@ function MobileMarkdownContent({
             {block.text.split('\n').map((line, lineIndex) => (
               <Fragment key={lineIndex}>
                 {lineIndex > 0 ? '\n' : null}
-                {renderInline(line, onOpenFile, imageSources)}
+                {renderInline(line, onOpenFile, imageSources, onOpenImage)}
               </Fragment>
             ))}
           </MarkdownText>

@@ -7,7 +7,10 @@ import { getWorktreeLabel } from '../session/worktree-label'
 import { colors, spacing } from '../theme/mobile-theme'
 import { useForceReconnect, useHostClient } from '../transport/client-context'
 import { connectionRetryAction } from '../transport/connection-retry-action'
-import { readMarkdownImageSources } from '../session/markdown-relative-image-srcs'
+import {
+  readMarkdownImageSources,
+  resolveMarkdownRelativeImagePath
+} from '../session/markdown-relative-image-srcs'
 import {
   loadMobileFilePreview,
   previewError,
@@ -20,6 +23,7 @@ import { MobileFilePreviewBody } from './MobileFilePreviewBody'
 import { MobileFileMediaHandoff } from './MobileFileMediaHandoff'
 import { mediaHandoffMimeFor } from './mobile-file-media-handoff'
 import {
+  createMobileFilePreviewHref,
   displayNameFromPreviewPath,
   type MobileFilePreviewRouteState
 } from './mobile-file-preview-route'
@@ -200,6 +204,30 @@ export function MobileFilePreviewScreen({ route }: Props) {
     }
   }, [client, connState, preview, previewSource])
 
+  // A tapped markdown image pushes its own preview route: the image viewer, which pinch-zooms.
+  const openMarkdownImage = useCallback(
+    (rawSrc: string) => {
+      if (previewParams == null || previewSource?.source !== 'worktree') {
+        return
+      }
+      const relativePath = resolveMarkdownRelativeImagePath(rawSrc, previewSource.relativePath)
+      if (!relativePath) {
+        return
+      }
+      router.push(
+        createMobileFilePreviewHref({
+          hostId: previewParams.hostId,
+          worktreeId: previewSource.worktreeId,
+          source: 'worktree',
+          relativePath,
+          name: displayNameFromPreviewPath(relativePath),
+          ...(previewParams?.worktreeName ? { worktreeName: previewParams.worktreeName } : {})
+        })
+      )
+    },
+    [previewParams, previewSource, router]
+  )
+
   const retry = useMemo(
     () =>
       connectionRetryAction({
@@ -323,6 +351,7 @@ export function MobileFilePreviewScreen({ route }: Props) {
           imageWidth={Math.max(1, width - spacing.md * 2)}
           imageHeight={Math.max(240, height - 160)}
           markdownImageSources={markdownImageSources}
+          onOpenImage={openMarkdownImage}
           onDraftChange={setDraftContent}
           onImageError={() =>
             setPreview({ status: 'error', message: 'Unable to load preview', reconnect: false })
