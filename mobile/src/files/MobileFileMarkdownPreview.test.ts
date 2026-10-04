@@ -116,4 +116,18 @@ describe('MobileFileMarkdownPreview', () => {
     expect(markdown).toHaveLength(1)
     expect(markdown[0]!.props.imageSources).toBe(imageSources)
   })
+
+  it('forwards the image-tap handler to the markdown renderer', async () => {
+    const onOpenImage = (rawSrc: string) => rawSrc
+    renderer = await renderPreview({
+      relativePath: 'docs/list.md',
+      content: '# Doc',
+      truncated: false,
+      byteLength: 5,
+      onOpenImage
+    })
+    const markdown = renderer.root.findAll((node) => String(node.type) === 'MobileMarkdown')
+    expect(markdown).toHaveLength(1)
+    expect(markdown[0]!.props.onOpenImage).toBe(onOpenImage)
+  })
 })

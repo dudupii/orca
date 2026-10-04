@@ -9,12 +9,21 @@ const seams = vi.hoisted(
     client: { sendRequest: () => void }
     imageReads: ImageReadArgs[]
     imageSources: Record<string, string>
-    markdownPreviewProps: Array<{ imageSources?: Record<string, string> }>
+    markdownPreviewProps: Array<{
+      imageSources?: Record<string, string>
+      onOpenImage?: (rawSrc: string) => void
+    }>
+    routePush: (href: unknown) => void
+    pushedRoutes: unknown[]
   } => ({
     client: { sendRequest: () => {} },
     imageReads: [],
     imageSources: {},
-    markdownPreviewProps: []
+    markdownPreviewProps: [],
+    routePush: (href: unknown) => {
+      seams.pushedRoutes.push(href)
+    },
+    pushedRoutes: []
   })
 )
 
@@ -34,7 +43,7 @@ vi.mock('react-native', () => ({
 vi.mock('react-native-safe-area-context', () => ({ SafeAreaView: 'SafeAreaView' }))
 vi.mock('lucide-react-native', () => ({ ChevronLeft: 'Icon', Save: 'Icon' }))
 vi.mock('../navigation/route-handoff', () => ({
-  useRouteHandoff: () => ({ back: () => {}, canGoBack: () => false })
+  useRouteHandoff: () => ({ back: () => {}, canGoBack: () => false, push: seams.routePush })
 }))
 vi.mock('../components/ConfirmModal', () => ({ ConfirmModal: () => null }))
 vi.mock('./MobileFilePreviewSourceText', () => ({
@@ -63,7 +72,8 @@ vi.mock('./mobile-file-preview-request', () => ({
   previewError: (message: string) => ({ status: 'error', message, reconnect: false }),
   saveMobileTerminalArtifactPreview: () => Promise.resolve({ status: 'saved' })
 }))
-vi.mock('../session/markdown-relative-image-srcs', () => ({
+vi.mock('../session/markdown-relative-image-srcs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../session/markdown-relative-image-srcs')>()),
   readMarkdownImageSources: (...args: ImageReadArgs) => {
     seams.imageReads.push(args)
     return Promise.resolve(seams.imageSources)
@@ -95,6 +105,7 @@ describe('the file preview markdown image resolution', () => {
     seams.imageReads = []
     seams.imageSources = {}
     seams.markdownPreviewProps = []
+    seams.pushedRoutes = []
   })
 
   afterEach(() => {
@@ -126,5 +137,41 @@ describe('the file preview markdown image resolution', () => {
     await render(ARTIFACT_ROUTE)
 
     expect(seams.imageReads).toEqual([])
+  })
+
+  it('pushes a zoomable preview route for a tapped image, resolved against the document', async () => {
+    seams.imageSources = { 'images/shot.png': 'data:image/png;base64,AAA' }
+    await render(WORKTREE_ROUTE)
+
+    const onOpenImage = seams.markdownPreviewProps.at(-1)?.onOpenImage
+    expect(onOpenImage).toBeTypeOf('function')
+    act(() => {
+      onOpenImage!('images/shot.png')
+    })
+
+    expect(seams.pushedRoutes).toEqual([
+      {
+        pathname: '/h/[hostId]/files/preview/[worktreeId]',
+        params: {
+          hostId: 'host-a',
+          worktreeId: 'wt-1',
+          source: 'worktree',
+          relativePath: 'docs/images/shot.png',
+          name: 'shot.png'
+        }
+      }
+    ])
+  })
+
+  it('ignores an image tap whose src climbs out of the worktree', async () => {
+    await render(WORKTREE_ROUTE)
+
+    const onOpenImage = seams.markdownPreviewProps.at(-1)?.onOpenImage
+    expect(onOpenImage).toBeTypeOf('function')
+    act(() => {
+      onOpenImage!('../../../outside.png')
+    })
+
+    expect(seams.pushedRoutes).toEqual([])
   })
 })

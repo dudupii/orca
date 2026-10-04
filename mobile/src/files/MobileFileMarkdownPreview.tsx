@@ -16,6 +16,7 @@ type Props = {
   byteLength: number
   initialLine?: number
   imageSources?: Record<string, string>
+  onOpenImage?: (rawSrc: string) => void
 }
 
 export function MobileFileMarkdownPreview({
@@ -24,7 +25,8 @@ export function MobileFileMarkdownPreview({
   truncated,
   byteLength,
   initialLine,
-  imageSources
+  imageSources,
+  onOpenImage
 }: Props) {
   const [mode, setMode] = useState<'preview' | 'source'>(() => (initialLine ? 'source' : 'preview'))
   const [previousRelativePath, setPreviousRelativePath] = useState(relativePath)
@@ -72,7 +74,7 @@ export function MobileFileMarkdownPreview({
       {mode === 'preview' ? (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.markdownContent}>
           {truncated ? <MobileFilePreviewTruncatedNote byteLength={byteLength} /> : null}
-          <MobileMarkdown content={content} imageSources={imageSources} />
+          <MobileMarkdown content={content} imageSources={imageSources} onOpenImage={onOpenImage} />
         </ScrollView>
       ) : (
         <MobileFilePreviewSourceText

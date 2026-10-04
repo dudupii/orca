@@ -18,6 +18,7 @@ type Props = {
   imageWidth: number
   imageHeight: number
   markdownImageSources: Record<string, string>
+  onOpenImage: (rawSrc: string) => void
   onDraftChange: (content: string) => void
   onImageError: () => void
   /** Null where the only retry is a re-dial this document cannot make. */
@@ -86,6 +87,7 @@ export function MobileFilePreviewBody({ preview, ...options }: Props) {
         byteLength={preview.byteLength}
         initialLine={options.lineColumn?.line}
         imageSources={options.markdownImageSources}
+        onOpenImage={options.onOpenImage}
       />
     )
   }
