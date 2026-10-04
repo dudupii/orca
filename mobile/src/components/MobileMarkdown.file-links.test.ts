@@ -217,5 +217,20 @@ describe('MobileMarkdown file links', () => {
       expect(onOpenImage).toHaveBeenCalledWith('docs/shot.png')
       expect(onOpenFile).not.toHaveBeenCalled()
     })
+
+    it('keeps an external image on the system browser even with the image handler', () => {
+      const onOpenImage = vi.fn()
+      const tree = render('![chart](https://example.com/chart.png)', undefined, onOpenImage)
+      // An external standalone image parses as an image block: the handler sits on the Pressable.
+      const frame = tree.root.find(
+        (node) => node.type === ('Pressable' as never) && typeof node.props.onPress === 'function'
+      )
+      act(() => {
+        frame.props.onPress()
+      })
+      expect(openURL).toHaveBeenCalledWith('https://example.com/chart.png')
+      expect(onOpenImage).not.toHaveBeenCalled()
+      expect(onOpenFile).not.toHaveBeenCalled()
+    })
   })
 })

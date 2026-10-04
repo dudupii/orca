@@ -219,6 +219,23 @@ describe('the bundled rich Markdown editor document', () => {
     expect(posted).toContainEqual({ type: 'openLink', url: 'https://example.com/docs' })
   })
 
+  it('reports a tapped relative image to the host with its authored src', () => {
+    const { posted, handle } = evaluateBundle()
+    handle.setMarkdown('![shot](images/shot.png)', 1)
+    posted.length = 0
+    document.querySelector('#editor img')!.dispatchEvent(new Event('click', { bubbles: true }))
+    expect(posted).toEqual([{ type: 'openImage', src: 'images/shot.png' }])
+  })
+
+  it('routes a tapped external image as a link, keeping the display swap out of it', () => {
+    const { posted, handle } = evaluateBundle()
+    handle.setMarkdown('![chart](https://example.com/chart.png)', 1)
+    handle.setImageSources({ 'https://example.com/chart.png': 'data:image/png;base64,AAA' })
+    posted.length = 0
+    document.querySelector('#editor img')!.dispatchEvent(new Event('click', { bubbles: true }))
+    expect(posted).toEqual([{ type: 'openLink', url: 'https://example.com/chart.png' }])
+  })
+
   it('is the same bytes wherever its generator was run from', () => {
     // The artifact is committed by a postinstall run whose working directory is whatever the
     // installer happened to be in, and every case above compares it with a build made here. So the

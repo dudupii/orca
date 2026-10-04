@@ -24,6 +24,11 @@ const INLINE_IMAGE_SRC = /^!\[[^\]\n]*\]\(([^)\n]+)\)$/
 
 const EXTERNAL_SRC = /^[a-z][a-z0-9+.-]*:/i
 
+/** True for srcs no worktree file can back: schemed URLs and protocol-relative ones. */
+export function isExternalMarkdownImageSrc(src: string): boolean {
+  return EXTERNAL_SRC.test(src) || src.startsWith('//')
+}
+
 /**
  * What the editor's `<img>` can render, next to what a file tab's RN `<Image>` can. SVG is the
  * difference: the shared classifier excludes it because `<Image>` cannot decode it, while the

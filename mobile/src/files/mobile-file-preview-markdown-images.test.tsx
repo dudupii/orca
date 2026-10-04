@@ -174,4 +174,16 @@ describe('the file preview markdown image resolution', () => {
 
     expect(seams.pushedRoutes).toEqual([])
   })
+
+  it('ignores an image tap whose src is an external URL', async () => {
+    await render(WORKTREE_ROUTE)
+
+    const onOpenImage = seams.markdownPreviewProps.at(-1)?.onOpenImage
+    expect(onOpenImage).toBeTypeOf('function')
+    act(() => {
+      onOpenImage!('https://example.com/shot.png')
+    })
+
+    expect(seams.pushedRoutes).toEqual([])
+  })
 })
