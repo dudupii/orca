@@ -59,6 +59,7 @@ export function MobileSessionActiveContent({
     notifyTerminalCellBoxChange,
     handleFileTap,
     handleNativeChatFileTap,
+    handleMarkdownImageTap,
     handleTerminalOpenUrl,
     handleTerminalInput,
     handleTerminalQueryReply,
@@ -124,6 +125,7 @@ export function MobileSessionActiveContent({
         onSave={() => void saveMarkdownTab(activeMarkdownTab)}
         onCopy={() => void copyMarkdownLocalContent(activeMarkdownTab.id)}
         onDiscard={() => discardMarkdownLocalContent(activeMarkdownTab)}
+        onOpenImage={handleMarkdownImageTap}
         keyboardLift={keyboardLift}
       />
       {toastMessage && (

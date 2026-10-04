@@ -45,6 +45,7 @@ function MobileRichMarkdownEditorInner(
     onChange,
     onKeyboardInsetChange,
     onOpenLink,
+    onOpenImage,
     imageSources
   }: MobileRichMarkdownEditorComponentProps,
   ref: ForwardedRef<MobileRichMarkdownEditorHandle>
@@ -95,6 +96,7 @@ function MobileRichMarkdownEditorInner(
     onChange,
     onKeyboardInsetChange,
     onOpenLink: openLink,
+    onOpenImage,
     imageSources,
     transport
   })

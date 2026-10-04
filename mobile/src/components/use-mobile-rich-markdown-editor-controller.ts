@@ -38,6 +38,7 @@ export function useMobileRichMarkdownEditorController({
   onChange,
   onKeyboardInsetChange,
   onOpenLink,
+  onOpenImage,
   imageSources,
   transport
 }: MobileRichMarkdownEditorProps & { transport: MobileRichMarkdownEditorTransport }) {
@@ -105,6 +106,10 @@ export function useMobileRichMarkdownEditorController({
         }
         return
       }
+      if (message.type === 'openImage' && typeof message.src === 'string') {
+        onOpenImage?.(message.src)
+        return
+      }
       if (message.type === 'keyboardInset' && typeof message.bottom === 'number') {
         const bottom = normalizeMobileRichMarkdownKeyboardInset(message.bottom)
         if (bottom !== null) {
@@ -119,6 +124,7 @@ export function useMobileRichMarkdownEditorController({
       imageSources,
       onChange,
       onKeyboardInsetChange,
+      onOpenImage,
       onOpenLink,
       transport
     ]

@@ -7,10 +7,8 @@ import { getWorktreeLabel } from '../session/worktree-label'
 import { colors, spacing } from '../theme/mobile-theme'
 import { useForceReconnect, useHostClient } from '../transport/client-context'
 import { connectionRetryAction } from '../transport/connection-retry-action'
-import {
-  readMarkdownImageSources,
-  resolveMarkdownRelativeImagePath
-} from '../session/markdown-relative-image-srcs'
+import { readMarkdownImageSources } from '../session/markdown-relative-image-srcs'
+import { markdownImageTapPreviewHref } from '../session/markdown-image-tap-preview'
 import {
   loadMobileFilePreview,
   previewError,
@@ -23,7 +21,6 @@ import { MobileFilePreviewBody } from './MobileFilePreviewBody'
 import { MobileFileMediaHandoff } from './MobileFileMediaHandoff'
 import { mediaHandoffMimeFor } from './mobile-file-media-handoff'
 import {
-  createMobileFilePreviewHref,
   displayNameFromPreviewPath,
   type MobileFilePreviewRouteState
 } from './mobile-file-preview-route'
@@ -210,20 +207,14 @@ export function MobileFilePreviewScreen({ route }: Props) {
       if (previewParams == null || previewSource?.source !== 'worktree') {
         return
       }
-      const relativePath = resolveMarkdownRelativeImagePath(rawSrc, previewSource.relativePath)
-      if (!relativePath) {
-        return
+      const href = markdownImageTapPreviewHref(rawSrc, previewSource.relativePath, {
+        hostId: previewParams.hostId,
+        worktreeId: previewSource.worktreeId,
+        worktreeName: previewParams.worktreeName
+      })
+      if (href) {
+        router.push(href)
       }
-      router.push(
-        createMobileFilePreviewHref({
-          hostId: previewParams.hostId,
-          worktreeId: previewSource.worktreeId,
-          source: 'worktree',
-          relativePath,
-          name: displayNameFromPreviewPath(relativePath),
-          ...(previewParams?.worktreeName ? { worktreeName: previewParams.worktreeName } : {})
-        })
-      )
     },
     [previewParams, previewSource, router]
   )

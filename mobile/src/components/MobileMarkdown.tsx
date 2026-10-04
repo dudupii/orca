@@ -1,4 +1,3 @@
-import { openExternalLink } from '../platform/external-link'
 import { createMarkdownInlineMatcher, type MarkdownInlineMatch } from './markdown-inline-matcher'
 import { MarkdownImageView, MarkdownInlineImage } from './markdown-image-view'
 import { MobileSelectableText } from './MobileSelectableText'
@@ -20,7 +19,7 @@ import {
   isFilePathCodeSpan,
   normalizeFilePath
 } from './markdown-file-path-detection'
-import { routeMarkdownHref } from './markdown-href-routing'
+import { openMarkdownHref, openMarkdownImage } from './markdown-href-routing'
 import {
   isIntrawordUnderscoreToken,
   trimAutolinkTrailingPunctuation
@@ -61,35 +60,6 @@ const MarkdownTextContext = createContext<ComponentType<TextProps>>(NativeText)
 function MarkdownText(props: TextProps): React.JSX.Element {
   const TextComponent = useContext(MarkdownTextContext)
   return createElement(TextComponent, props)
-}
-
-// Web/mail hrefs open the system handler; file-target hrefs (file: URIs and
-// scheme-less paths — the entire desktop file-link contract) go to onOpenFile.
-function openMarkdownHref(href: string, onOpenFile?: (pathText: string) => void): void {
-  const route = routeMarkdownHref(href)
-  if (route.kind === 'web') {
-    // The seam, not react-native's `Linking`: this module is in the tasks page closure, and inside
-    // the shell's WebView `openURL` resolves without opening anything.
-    openExternalLink(route.url)
-    return
-  }
-  if (route.kind === 'file' && onOpenFile) {
-    onOpenFile(route.pathText)
-  }
-}
-
-// A tapped image goes to the dedicated src-keyed handler when the owner resolves srcs
-// itself; otherwise the src routes as a href like any file link.
-function openMarkdownImage(
-  rawSrc: string,
-  onOpenFile?: (pathText: string) => void,
-  onOpenImage?: (rawSrc: string) => void
-): void {
-  if (onOpenImage) {
-    onOpenImage(rawSrc)
-    return
-  }
-  openMarkdownHref(rawSrc, onOpenFile)
 }
 
 // Render a plain (non-token) text run, splitting out tappable file paths when
