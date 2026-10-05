@@ -4,6 +4,10 @@ import {
   fileTabImageRead,
   type MobileFileTabDocRpcSender
 } from '../files/mobile-file-tab-doc-operations'
+import {
+  createMobileFilePreviewHref,
+  displayNameFromPreviewPath
+} from '../files/mobile-file-preview-route'
 
 /**
  * Repository-relative images for the markdown editor.
@@ -139,4 +143,37 @@ export async function readMarkdownImageSources(
       })
   )
   return sources
+}
+
+export type MarkdownImageTapTarget = {
+  hostId: string
+  worktreeId: string
+  worktreeName?: string
+}
+
+/**
+ * The zoomable image-preview href for a tapped markdown image, resolved against the document's
+ * worktree-relative path — or null when the src has no worktree file behind it (external URL,
+ * anchor-only src, or a climb out of the worktree).
+ */
+export function markdownImageTapPreviewHref(
+  rawSrc: string,
+  markdownRelativePath: string,
+  target: MarkdownImageTapTarget
+): ReturnType<typeof createMobileFilePreviewHref> | null {
+  if (isExternalMarkdownImageSrc(rawSrc)) {
+    return null
+  }
+  const relativePath = resolveMarkdownRelativeImagePath(rawSrc, markdownRelativePath)
+  if (!relativePath) {
+    return null
+  }
+  return createMobileFilePreviewHref({
+    hostId: target.hostId,
+    worktreeId: target.worktreeId,
+    source: 'worktree',
+    relativePath,
+    name: displayNameFromPreviewPath(relativePath),
+    ...(target.worktreeName ? { worktreeName: target.worktreeName } : {})
+  })
 }
