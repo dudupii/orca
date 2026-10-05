@@ -4,7 +4,7 @@ import { useRouteHandoff } from '../navigation/route-handoff'
 import { useMobileFileTapHandlers } from './use-mobile-file-tap-handlers'
 import { resolveMobileNativeChatFileSessionId } from './mobile-native-chat-eligibility'
 import { activateOpenedSourceControlDiffTab } from './opened-mobile-session-tab'
-import { markdownImageTapPreviewHref } from './markdown-image-tap-preview'
+import { markdownImageTapPreviewHref } from './markdown-relative-image-srcs'
 import type { MobileSessionTab } from './mobile-session-route-types'
 import type { MobileSessionTerminalSendActionsModel } from './use-mobile-session-terminal-send-actions'
 

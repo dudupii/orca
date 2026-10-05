@@ -7,8 +7,10 @@ import { getWorktreeLabel } from '../session/worktree-label'
 import { colors, spacing } from '../theme/mobile-theme'
 import { useForceReconnect, useHostClient } from '../transport/client-context'
 import { connectionRetryAction } from '../transport/connection-retry-action'
-import { readMarkdownImageSources } from '../session/markdown-relative-image-srcs'
-import { markdownImageTapPreviewHref } from '../session/markdown-image-tap-preview'
+import {
+  markdownImageTapPreviewHref,
+  readMarkdownImageSources
+} from '../session/markdown-relative-image-srcs'
 import {
   loadMobileFilePreview,
   previewError,
