@@ -139,8 +139,8 @@ export const filePreviewStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.editorSurface
   },
-  imageScrollContent: {
-    flexGrow: 1,
+  imageFrame: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.md
