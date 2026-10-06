@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { Image, Pressable } from 'react-native'
-import { styles } from './mobile-markdown-styles'
+import {
+  MARKDOWN_INLINE_IMAGE_HEIGHT,
+  MARKDOWN_INLINE_IMAGE_WIDTH,
+  styles
+} from './mobile-markdown-styles'
 
 type BlockProps = {
   uri: string
@@ -38,14 +42,24 @@ export function MarkdownImageView({ uri, alt, onPress }: BlockProps) {
 type InlineProps = {
   uri: string
   alt: string
+  /** Pinch-driven multiplier from the document's textScale; 1 leaves the sheet size alone. */
+  sizeScale?: number
 }
 
 /** A fixed-size thumbnail for images inline in prose and table cells. */
-export function MarkdownInlineImage({ uri, alt }: InlineProps) {
+export function MarkdownInlineImage({ uri, alt, sizeScale = 1 }: InlineProps) {
   return (
     <Image
       source={{ uri }}
-      style={styles.markdownInlineImage}
+      style={
+        sizeScale !== 1
+          ? {
+              width: MARKDOWN_INLINE_IMAGE_WIDTH * sizeScale,
+              height: MARKDOWN_INLINE_IMAGE_HEIGHT * sizeScale,
+              marginVertical: 2
+            }
+          : styles.markdownInlineImage
+      }
       resizeMode="contain"
       accessibilityLabel={alt || 'image'}
     />
