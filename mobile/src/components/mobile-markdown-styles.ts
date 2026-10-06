@@ -1,6 +1,10 @@
 import { StyleSheet } from 'react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 
+/** Base of the inline image thumbnail, kept beside the sheet so the pinch scale never drifts from it. */
+export const MARKDOWN_INLINE_IMAGE_WIDTH = 100
+export const MARKDOWN_INLINE_IMAGE_HEIGHT = 130
+
 export const styles = StyleSheet.create({
   root: {
     gap: spacing.sm
@@ -100,8 +104,8 @@ export const styles = StyleSheet.create({
     height: 180
   },
   markdownInlineImage: {
-    width: 100,
-    height: 130,
+    width: MARKDOWN_INLINE_IMAGE_WIDTH,
+    height: MARKDOWN_INLINE_IMAGE_HEIGHT,
     marginVertical: 2
   },
   table: {
