@@ -35,10 +35,11 @@ import { closeStructuredAgentSessionChild } from './structured-agent-session-clo
 import { retireSettledStructuredWorkerTab } from './structured-agent-session-tab-retirement'
 import type { WorktreePtyHostFence } from './worktree-pty-host-fence'
 import type { OrcaRuntimeService } from './orca-runtime'
+import type { StructuredAgentId } from '../../shared/agent-session-provider-handle'
 
 export type StructuredSessionInWorkspace = {
   sessionId: string
-  agent: 'claude' | 'codex'
+  agent: StructuredAgentId
 }
 
 export type UnclosedStructuredSession = StructuredSessionInWorkspace & {
@@ -336,12 +337,14 @@ export async function retireStructuredSessionTabsForWorktree(
  * proved after that close had already rolled the hide back.
  */
 async function dropDurableChatTabReference(sessionId: string): Promise<void> {
+  const host = getStructuredAgentSessionHost()
   try {
-    await getStructuredAgentSessionHost()?.setSessionTabVisibility?.(sessionId, false)
+    await host?.setSessionTabVisibility?.(sessionId, false)
   } catch (error) {
-    console.warn(
-      `[worktree-teardown] could not drop the chat tab reference for ${sessionId}`,
+    host?.deps.logger.warn('dropping a removed workspace chat tab reference failed', {
+      scope: 'teardown-tab-drop',
+      sessionId,
       error
-    )
+    })
   }
 }

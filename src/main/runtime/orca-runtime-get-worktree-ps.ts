@@ -14,6 +14,7 @@ import { compareWorktreePs } from './runtime-worktree-status-projection'
 import type { Repo } from '../../shared/repo-types'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
 import { ensureStructuredAgentSessionHost as installStructuredAgentSessionHost } from './structured-agent-session-runtime'
+import { createStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import { maybeAutoRenameWorkspaceOnFirstStructuredTurn } from '../agent-hooks/first-work-structured-session-rename'
 import { firstWorkRenameDeps } from '../agent-hooks/first-work-rename-runtime'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
@@ -25,6 +26,7 @@ import { nativeChatShellEnvironmentPolicy } from '../../shared/native-chat-shell
 import { claudeStructuredPermissionModeForSettings } from '../claude/claude-structured-permission-mode'
 import { codexStructuredPermissionPolicyForSettings } from '../codex/codex-structured-permission-policy'
 import { claudeStructuredAuthPolicyForSettings } from '../claude-accounts/claude-structured-auth-policy'
+import { claudeThinkingDisplaySupport } from '../claude/claude-thinking-display-support'
 
 export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVisibleReadProbe {
   async getWorktreePs(
@@ -77,6 +79,7 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVis
       tabs: this.tabs,
       session,
       getPaneKey: (leaf) => this.makeRuntimePaneKey(leaf),
+      getTitleDisplayClear: (ptyId) => this.getPtyTitleDisplayClear(ptyId),
       getSummary: (summaryMap, pathIndex, missingIds, worktreeId) =>
         this.getSummaryForRuntimeWorktreeId(summaryMap, pathIndex, missingIds, worktreeId)
     })
@@ -142,6 +145,8 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVis
       stateDirectory: getProfileUserDataPath(),
       hostId: LOCAL_EXECUTION_HOST_ID,
       claimKeyId: this.agentSessionClaimSigner.keyId,
+      // The host's local trace file (the desktop's or orcad's own), plus the console.
+      logger: createStructuredAgentSessionLogger(),
       // Resolves folder workspaces as well as git worktrees, so a chat session
       // in a plain folder lands in the folder rather than failing to resolve.
       resolveWorkspacePath: async (workspaceId) =>
@@ -150,6 +155,8 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVis
         resolveTuiAgentLaunchEnv('codex', this.requireStore().getSettings().agentDefaultEnv),
       resolveClaudeLaunchEnv: () =>
         resolveTuiAgentLaunchEnv('claude', this.requireStore().getSettings().agentDefaultEnv),
+      // Wired only here, so a test runtime never runs a real `claude --version`.
+      claudeThinkingDisplay: claudeThinkingDisplaySupport,
       resolveShellEnvironmentPolicy: () =>
         nativeChatShellEnvironmentPolicy(this.requireStore().getSettings()),
       resolveClaudeAuthPolicy: () =>

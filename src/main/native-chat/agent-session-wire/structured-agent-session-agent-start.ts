@@ -27,7 +27,12 @@ import { terminalOwnerRefusalMessage } from '../../../shared/agent-session-legac
 import type { StructuredAgentSessionAttachContext } from './structured-agent-session-attach-context'
 import { attachStructuredAgentSessionUnderSerialize } from './structured-agent-session-attach-orchestration'
 import { failedCreateRefusal } from './structured-agent-session-failed-create-refusal'
-import { adapterSupportsRecord } from './structured-agent-session-provider-support'
+import { hostCanStartRecord } from './structured-agent-session-provider-support'
+import {
+  joinClosingStructuredAgentSessionChild,
+  releaseLeaseOfEndedStructuredAgentSessionChild
+} from './structured-agent-session-child-close'
+export { joinClosingStructuredAgentSessionChild }
 import {
   structuredAgentSessionResumeOperationId,
   structuredAgentSessionResumeParams
@@ -58,6 +63,12 @@ export async function ensureStructuredAgentSessionAgent(
   sessionId: string,
   startedFor?: string
 ): Promise<StructuredAgentSessionResumeOutcome> {
+  // A child a stop began closing takes no input, and none may start beside it: the start waits on
+  // that close, and is refused while its exit stays unverifiable.
+  const closed = await joinClosingStructuredAgentSessionChild(context, sessionId)
+  if (!closed.ok) {
+    return closed
+  }
   if (context.sessions.get(sessionId)?.child) {
     return { ok: true }
   }
@@ -79,7 +90,11 @@ export function ensureStructuredAgentSessionAgentForOperation(
 ): Promise<StructuredAgentSessionResumeOutcome> {
   return ensureStructuredAgentSessionAgent(context, sessionId).catch((error: unknown) => {
     // The error is Orca's own and goes to the log; the refusal says only that the start failed.
-    console.warn('[agent-session] starting the agent for an operation failed:', error)
+    context.deps.logger.warn('starting the agent for an operation failed', {
+      scope: 'operation-agent-start',
+      sessionId,
+      error
+    })
     return {
       ok: false,
       refusal: refuseUnclassified(
@@ -104,6 +119,9 @@ async function startStructuredAgentSessionAgent(
     return { ok: false, refusal: unreconciled }
   }
   await context.runtimeState.resolveRecovery(sessionId)
+  // A start needs the lease released; a release the exit's own wind-down could not write is
+  // re-derived from this host's proof of that exit, never refused on.
+  await releaseLeaseOfEndedStructuredAgentSessionChild(context, sessionId)
   const record = context.deps.store.getRecord(sessionId)
   if (!record) {
     return refuseResume(
@@ -112,7 +130,7 @@ async function startStructuredAgentSessionAgent(
       'No structured session exists by that id.'
     )
   }
-  if (!adapterSupportsRecord(context.deps.adapter, record)) {
+  if (!hostCanStartRecord(context.deps, record)) {
     return refuseResume(
       'structured_agent_session_unsupported',
       { reason: 'hostUnsupported' },
