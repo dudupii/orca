@@ -66,7 +66,7 @@ vi.mock('../components/ConfirmModal', () => ({ ConfirmModal: () => null }))
 vi.mock('./MobileFilePreviewSourceText', () => ({
   MobileFilePreviewSourceText: () => null
 }))
-vi.mock('./MobileFileMediaHandoff', () => ({ MobileFileMediaHandoff: () => null }))
+vi.mock('./MobileFileMediaPreview', () => ({ MobileFileMediaPreview: () => null }))
 vi.mock('./MobileFileMarkdownPreview', () => ({
   MobileFileMarkdownPreview: (props: { imageSources?: Record<string, string> }) => {
     seams.markdownPreviewProps.push(props)
