@@ -1,3 +1,5 @@
+import { MobileFileMediaPreview } from './MobileFileMediaPreview'
+import type { MobileFilePreviewRpcSender } from './mobile-file-preview-operations'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { colors } from '../theme/mobile-theme'
 import type { MobileFilePreviewResult } from './mobile-file-preview-request'
@@ -10,6 +12,7 @@ import { filePreviewStyles as styles } from './mobile-file-preview-styles'
 
 type Props = {
   preview: MobileFilePreviewResult
+  client?: MobileFilePreviewRpcSender | null
   relativePath: string
   title: string
   editable: boolean
@@ -54,6 +57,15 @@ export function MobileFilePreviewBody({ preview, ...options }: Props) {
       <View style={styles.state}>
         <Text style={styles.stateText}>Empty file</Text>
       </View>
+    )
+  }
+  if (preview.kind === 'media') {
+    return (
+      <MobileFileMediaPreview
+        media={preview.media}
+        client={options.client ?? null}
+        title={options.title}
+      />
     )
   }
   if (preview.kind === 'image') {

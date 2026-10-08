@@ -1,15 +1,15 @@
-import { Fragment, memo, useContext, useMemo } from 'react'
+import { Fragment, memo, useContext, useMemo, type ReactNode } from 'react'
 import { Pressable, ScrollView, Text as NativeText, View } from 'react-native'
 import { INLINE_TEXT_SELECTION } from './inline-text-selection'
 import { MarkdownImageView } from './markdown-image-view'
 import { renderInline } from './markdown-inline-render'
 import { MarkdownText, MarkdownTextContext, type MarkdownTextSetup } from './markdown-text'
 import { MobileSelectableText } from './MobileSelectableText'
-import { normalizeMobileMarkdownPreviewHtml } from './mobile-markdown-preview-html'
 import { styles } from './mobile-markdown-styles'
 import { openMarkdownImage } from './markdown-href-routing'
 import { isMobileMermaidLanguage } from './mobile-mermaid-language'
-import { parseMobileMarkdown } from './mobile-markdown-parser'
+import { useMobileMarkdownBlocks } from './use-mobile-markdown-blocks'
+import type { NativeChatVisualDirective } from '../../../src/shared/native-chat-visual-directive'
 import { MermaidDiagram } from './pr-sidebar/MermaidDiagram'
 
 type Props = {
@@ -34,6 +34,9 @@ type Props = {
   /** Image taps prefer this with the authored src (resolved against the document by
    *  the owner); without it, image taps route the src as a file href. */
   onOpenImage?: (rawSrc: string) => void
+  /** Native-chat assistant prose only: renders `::orca-visual{...}` directive lines. Without it,
+   *  a directive line is ordinary text. Must be referentially stable (this component is memoized). */
+  renderVisual?: (directive: NativeChatVisualDirective, index: number) => ReactNode
 }
 
 const MAX_TABLE_ROWS = 40
@@ -50,14 +53,14 @@ function MobileMarkdownContent({
   textScale = 1,
   onOpenFile,
   imageSources,
-  onOpenImage
+  onOpenImage,
+  renderVisual
 }: Props) {
   // Interactive children own their touches and must forward the row action.
   const setup = useContext(MarkdownTextContext)
   const rowLongPress = setup.androidTranscript ? setup.onLongPress : undefined
   const text = content?.trim() ?? ''
-  const previewText = useMemo(() => normalizeMobileMarkdownPreviewHtml(text), [text])
-  const blocks = useMemo(() => parseMobileMarkdown(previewText), [previewText])
+  const { blocks, directives } = useMobileMarkdownBlocks(text, renderVisual !== undefined)
   // Scale every text size; inline spans inherit fontSize from the wrapping Text.
   const scaled = (
     size: number,
@@ -82,6 +85,14 @@ function MobileMarkdownContent({
   return (
     <View style={styles.root}>
       {blocks.map((block, index) => {
+        if (block.type === 'visual') {
+          const directive = directives[block.index]
+          return directive && renderVisual ? (
+            <Fragment key={`visual:${block.index}:${directive.file}`}>
+              {renderVisual(directive, block.index)}
+            </Fragment>
+          ) : null
+        }
         if (block.type === 'heading') {
           return (
             <MarkdownText
