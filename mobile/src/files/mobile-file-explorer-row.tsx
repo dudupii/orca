@@ -1,4 +1,3 @@
-import { classifyMobileArtifact } from '../session/mobile-artifact-kind'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import {
   ChevronDown,

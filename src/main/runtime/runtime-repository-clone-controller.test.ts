@@ -59,9 +59,9 @@ const makeController = (repos: Repo[], workspaceDir: string): RuntimeRepositoryC
   })
 
 describe('RuntimeRepositoryCloneController default destination', () => {
-  // Every case proves the resolved destination through the idempotency-by-path
-  // hit: the controller returns the existing row only when the clone path it
-  // derived (destination + repo name from the URL) matches that row.
+  // Every case proves the resolved destination through the saved-project collision:
+  // the controller derives clone path = destination + repo name from the URL, and
+  // the row it finds there is the one the reuse check names in its rejection.
 
   it('derives the destination from the workspace directory when absent', async () => {
     const existing = repoAt('/home/li/orca/example-repo')
@@ -69,7 +69,7 @@ describe('RuntimeRepositoryCloneController default destination', () => {
 
     await expect(
       controller.clone('https://github.com/example/example-repo.git', undefined)
-    ).resolves.toBe(existing)
+    ).rejects.toThrow('already an Orca project at /home/li/orca/example-repo')
   })
 
   it('treats a blank destination as absent', async () => {
@@ -78,7 +78,7 @@ describe('RuntimeRepositoryCloneController default destination', () => {
 
     await expect(
       controller.clone('https://github.com/example/example-repo.git', '   ')
-    ).resolves.toBe(existing)
+    ).rejects.toThrow('already an Orca project at /home/li/orca/example-repo')
   })
 
   it('falls back to the home projects directory without a usable workspace directory', async () => {
@@ -87,7 +87,9 @@ describe('RuntimeRepositoryCloneController default destination', () => {
 
     await expect(
       controller.clone('https://github.com/example/example-repo.git', undefined)
-    ).resolves.toBe(existing)
+    ).rejects.toThrow(
+      `already an Orca project at ${join(homedir(), 'orca', 'projects', 'example-repo')}`
+    )
   })
 
   it('honors an explicit destination over the default', async () => {
@@ -97,6 +99,6 @@ describe('RuntimeRepositoryCloneController default destination', () => {
 
     await expect(
       controller.clone('https://github.com/example/example-repo.git', '/srv/custom')
-    ).resolves.toBe(explicitRow)
+    ).rejects.toThrow('already an Orca project at /srv/custom/example-repo')
   })
 })

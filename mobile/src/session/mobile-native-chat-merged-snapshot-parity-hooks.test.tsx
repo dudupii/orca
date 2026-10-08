@@ -216,6 +216,7 @@ async function mountPhone(): Promise<Phone> {
     } as unknown as MobileNativeChatController
     return createElement(MobileNativeChatOverlay, {
       controller,
+      skillSuggestions: [],
       onOpenFile: () => {},
       images: OVERLAY_IMAGES,
       onMicPress: () => {},

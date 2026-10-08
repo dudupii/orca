@@ -228,6 +228,7 @@ function Harness(props: HarnessProps) {
     onMicPressIn: vi.fn(),
     micActive: false,
     dictationMode: 'toggle',
+    skillSuggestions: [],
     inputLockReason: connState === 'connected' ? null : 'disconnected',
     sendErrorMessage: null,
     onClearSendError: vi.fn(),
