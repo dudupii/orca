@@ -60,7 +60,16 @@ describe('mobile-file-preview-navigation', () => {
     expect(scheduleClose).toHaveBeenCalledWith(expect.any(Function), 0)
   })
 
-  it('opens text, raster image, and OS-handoff (PDF/media) rows while keeping other binaries disabled', () => {
+  it.each(['mp4', 'MOV', 'm4v', 'webm', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus'])(
+    'opens %s files from the explorer',
+    (extension) => {
+      expect(
+        canPreviewMobileFileRow({ kind: 'binary', relativePath: `media/demo.${extension}` })
+      ).toBe(true)
+    }
+  )
+
+  it('opens text, raster image, OS-handoff PDF, and media rows while keeping other binaries disabled', () => {
     expect(canPreviewMobileFileRow({ kind: 'text', relativePath: 'src/app.ts' })).toBe(true)
     expect(canPreviewMobileFileRow({ kind: 'binary', relativePath: 'assets/logo.webp' })).toBe(true)
     expect(canPreviewMobileFileRow({ kind: 'binary', relativePath: 'docs/demo.mp4' })).toBe(true)

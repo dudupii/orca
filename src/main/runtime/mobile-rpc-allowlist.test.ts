@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ALL_RPC_METHODS } from './rpc/methods'
+import { MOBILE_RPC_METHOD_ALLOWLIST } from './runtime-rpc/runtime-rpc-mobile-method-allowlist'
 import { MOBILE_REPO_RPC_METHOD_ALLOWLIST } from './runtime-rpc/runtime-rpc-mobile-repo-method-allowlist'
 import { MOBILE_SKILLS_RPC_METHOD_ALLOWLIST } from './runtime-rpc/runtime-rpc-mobile-skill-method-allowlist'
 
@@ -102,17 +103,9 @@ function mobileRpcMethods(): string[] {
   return [...new Set([...mobileLiteralRpcMethods(), ...MOBILE_DYNAMIC_RPC_METHODS])].sort()
 }
 
-function mobileRpcAllowlist(): Set<string> {
-  const source = readFileSync(
-    join(process.cwd(), 'src/main/runtime/runtime-rpc/runtime-rpc-mobile-method-allowlist.ts'),
-    'utf8'
-  )
-  const allowlist = source.match(/const MOBILE_RPC_METHOD_ALLOWLIST = new Set\(\[([\s\S]*?)\]\)/)
-  if (!allowlist) {
-    throw new Error('MOBILE_RPC_METHOD_ALLOWLIST not found')
-  }
+function mobileRpcAllowlist(): ReadonlySet<string> {
   return new Set([
-    ...[...allowlist[1]!.matchAll(/'([^']+)'/g)].map((match) => match[1]!),
+    ...MOBILE_RPC_METHOD_ALLOWLIST,
     ...MOBILE_SKILLS_RPC_METHOD_ALLOWLIST,
     ...MOBILE_REPO_RPC_METHOD_ALLOWLIST
   ])
@@ -182,6 +175,8 @@ describe('mobile RPC allowlist', () => {
       'agentSession.history',
       'agentSession.subscribe',
       'agentSession.unsubscribe',
+      'agentSession.subscribeStatus',
+      'agentSession.readVisual',
       'agentSession.hold',
       'agentSession.release'
     ])

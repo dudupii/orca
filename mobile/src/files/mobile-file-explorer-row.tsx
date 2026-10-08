@@ -1,3 +1,4 @@
+import { classifyMobileArtifact } from '../session/mobile-artifact-kind'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import {
   ChevronDown,
@@ -83,9 +84,8 @@ function TreeRow(props: {
   const { item, expanded, onPreviewFile, onToggleDirectory } = props
   const isDirectory = item.kind === 'directory'
   const isExpanded = expanded.has(item.relativePath)
-  // Images render in the mobile viewer (via files.readPreview) and PDF/media
-  // binaries open the OS handoff screen, so both are openable rows; only other
-  // binaries are unavailable.
+  // Images render in the mobile viewer (via files.readPreview), PDF binaries open
+  // the OS handoff screen, and media binaries the player; other binaries are unavailable.
   const previewable =
     item.kind !== 'directory' &&
     canPreviewMobileFileRow({ kind: item.kind, relativePath: item.relativePath })

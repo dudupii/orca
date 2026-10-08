@@ -1,3 +1,4 @@
+import { mobileFileMediaMime } from './mobile-file-media'
 import { classifyMobileArtifact } from '../session/mobile-artifact-kind'
 import { mediaHandoffMimeFor } from './mobile-file-media-handoff'
 import { defaultScheduleTimer } from '../transport/timer-scheduler'
@@ -38,10 +39,11 @@ export function canPreviewMobileFileRow(item: {
   if (item.kind === 'text') {
     return true
   }
-  // Raster images render in the viewer; PDF/media binaries open the OS handoff
-  // screen. Both are tappable rows — anything else stays unavailable.
+  // Raster images render in the viewer; PDF binaries open the OS handoff screen
+  // and media binaries the player. All are tappable rows — anything else stays unavailable.
   return (
     classifyMobileArtifact(item.relativePath) === 'image' ||
-    mediaHandoffMimeFor(item.relativePath) !== null
+    mediaHandoffMimeFor(item.relativePath) !== null ||
+    mobileFileMediaMime(item.relativePath) !== null
   )
 }
