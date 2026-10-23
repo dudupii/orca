@@ -1,9 +1,9 @@
 name: Personal Release Build
 
-# Dupi's fork only: builds the personal integration branch's Android APK and desktop
-# packages (Linux AppImage/deb, macOS dmg — unsigned, both architectures) whenever a
-# personal-* tag is pushed, and attaches them to that tag's GitHub Release. Never runs
-# on stablyai/orca (no personal-* tags there).
+# Dupi's fork only: builds the personal integration branch's Android APK, desktop
+# packages (Linux AppImage/deb, macOS dmg — unsigned, both architectures) and an
+# unsigned iOS IPA whenever a personal-* tag is pushed, and attaches them to that
+# tag's GitHub Release. Never runs on stablyai/orca (no personal-* tags there).
 on:
   push:
     tags:
@@ -170,8 +170,71 @@ jobs:
           name: personal-macos-dmg
           path: dist/orca-macos-*.dmg
 
+  # Unsigned IPA: no Apple signing secrets on this fork, so the archive skips
+  # codesigning entirely and the IPA is signed at install time with the user's
+  # own Apple ID (Sideloadly/AltStore). A free Apple ID's signature expires
+  # after 7 days, so a new sign — not a new build — is what re-enables the app.
+  ios:
+    runs-on: macos-26
+    # Expo SDK 55's expo-modules-core needs the Swift 6 toolchain, which means
+    # Xcode 26.x — same requirement as the upstream mobile-ios-release job.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      EXPO_PUBLIC_ORCA_BUILD_VARIANT: dudupii/${{ github.ref_name }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.5'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v2
+        with:
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Expo prebuild
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Install CocoaPods
+        run: npx pod-install ios
+
+      # CODE_SIGNING_ALLOWED=NO archives without touching any keychain; the
+      # .app inside the .xcarchive is then zipped into an IPA layout as-is.
+      - name: Archive and package unsigned IPA
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace ios/Orca.xcworkspace -scheme Orca \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath build/Orca.xcarchive archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=
+          mkdir -p build/Payload
+          cp -R build/Orca.xcarchive/Products/Applications/Orca.app build/Payload/
+          (cd build && zip -qry Orca-ios-unsigned.ipa Payload)
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-ios-ipa
+          path: mobile/build/Orca-ios-unsigned.ipa
+
   release:
-    needs: [android, linux, mac]
+    needs: [android, linux, mac, ios]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -199,4 +262,5 @@ jobs:
           fi
 
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
-            artifacts/*.apk artifacts/*.deb artifacts/*.AppImage artifacts/*.dmg
+            artifacts/*.apk artifacts/*.deb artifacts/*.AppImage artifacts/*.dmg \
+            artifacts/*.ipa
