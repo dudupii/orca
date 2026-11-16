@@ -1,12 +1,12 @@
 import type { IDisposable } from '@xterm/xterm'
 import {
-  encodeImeCommitForKitty,
   encodeImeReleaseForKitty,
   type ImeCommitReleaseObligation,
   type ImeReleaseKeyEvent
 } from './terminal-ime-kitty-commit-encoding'
 import { getLayoutCharacterForCode } from '../../../../lib/keyboard-layout/layout-base-character'
 import { installTerminalImeRetainedHangulCommit } from './terminal-ime-retained-hangul-commit'
+import { encodeRepairedImeCommit } from './terminal-ime-stale-shift-commit'
 
 // Claim plain printable keydowns so native input commits supply substituted text before xterm can cancel it; Linux fcitx4 candidate picks need the same path (#28213). Match key length, never source identity or character tables.
 
@@ -288,12 +288,8 @@ export function installTerminalImeNativeTextForwarder(args: {
       return
     }
     if (event.data) {
-      // Read mutable flags once at commit so the release matches the press’s negotiation.
-      const encoding = encodeImeCommitForKitty(commit.press, args.getKittyKeyboardFlags?.() ?? 0, {
-        committedText: event.data,
-        layoutCharacterForCode: getLayoutCharacterForCode
-      })
-      args.sendInput(encoding.report ?? event.data)
+      const encoding = encodeRepairedImeCommit(commit.press, args.getKittyKeyboardFlags, event.data)
+      args.sendInput(encoding.report ?? encoding.committedText)
       settleCommit(commit, encoding.release)
     } else {
       settleCommit(commit, null)
