@@ -129,6 +129,9 @@ jobs:
       contents: read
     env:
       NODE_OPTIONS: --max-old-space-size=4096
+      # Hosted 3-vCPU arm64 runners cold-translate the x64 helper past the
+      # verifier's default 20s budget; upstream never sees this on 6-vCPU runners.
+      ORCA_TERMINAL_HOST_BOOT_TIMEOUT_MS: '90000'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
