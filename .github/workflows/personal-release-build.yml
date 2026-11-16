@@ -118,7 +118,12 @@ jobs:
   # build (same as running build:mac on a personal Mac). Gatekeeper will ask
   # once on first launch — right-click → Open, or clear the quarantine xattr.
   mac:
-    runs-on: macos-latest
+    # Pin macOS 15: upstream runs every mac packaging job (release/daily/hourly/
+    # adhoc) on macOS 15 runners, and the afterPack x64-terminal-host PTY gate
+    # (required in CI) is only proven there. macos-latest now resolves to
+    # macos-26, where the gate's 20s Rosetta boot budget timed out (run
+    # 43791338874). iOS deliberately stays on macos-26 for its toolchain.
+    runs-on: macos-15
     timeout-minutes: 120
     permissions:
       contents: read
