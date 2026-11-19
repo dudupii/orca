@@ -5,8 +5,8 @@ import { condenseReplyForReadout } from './fallback-prose-extractor'
  * speaking — framed by idle before the session starts and the terminal closed after a
  * close-tab exit. Speech during speaking is a barge-in: playback stops and the loop
  * re-enters listening, but speech inside the AEC-tail window after any playback stop is
- * echo, not the user, and is refused. Time comes only from event timestamps or the
- * injected clock; later platform tickets bind this machine and never extend its table.
+ * echo, not the user, and is refused. Time comes only from the injected clock; later
+ * platform tickets bind this machine and never extend its table.
  */
 export type VoiceLoopRoute = 'idle' | 'listening' | 'thinking' | 'speaking' | 'closed'
 
@@ -36,14 +36,14 @@ export const defaultVoiceLoopThresholds: VoiceLoopThresholds = {
 }
 
 export type VoiceLoopEvent =
-  | { type: 'start'; micExclusiveInUse?: boolean; at?: number }
-  | { type: 'speech'; text: string; at?: number }
-  | { type: 'silence'; at?: number }
-  | { type: 'send'; at?: number }
-  | { type: 'reply'; text: string; at?: number }
-  | { type: 'playbackEnd'; at?: number }
-  | { type: 'visibility'; foreground: boolean; at?: number }
-  | { type: 'closeTab'; at?: number }
+  | { type: 'start'; micExclusiveInUse?: boolean }
+  | { type: 'speech'; text: string }
+  | { type: 'silence' }
+  | { type: 'send' }
+  | { type: 'reply'; text: string }
+  | { type: 'playbackEnd' }
+  | { type: 'visibility'; foreground: boolean }
+  | { type: 'closeTab' }
 
 export type VoiceLoopEffect =
   | { kind: 'send'; text: string }
@@ -89,7 +89,7 @@ export function voiceLoopTransition(
     return refused(state, 'closed')
   }
   const thresholds = { ...defaultVoiceLoopThresholds, ...deps.thresholds }
-  const at = event.at ?? deps.now()
+  const at = deps.now()
   switch (event.type) {
     case 'start': {
       if (state.route !== 'idle') {

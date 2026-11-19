@@ -11,18 +11,32 @@ import {
 
 const thresholds = { silenceWindowMs: 1000, aecTailMs: 200 }
 
-function machine(now: () => number = () => 0) {
-  return createVoiceLoopMachine({ now, thresholds })
+/** The one time authority in tests: advance it, then dispatch untimestamped events. */
+function fakeClock(startAt = 0) {
+  let t = startAt
+  return {
+    now: () => t,
+    advanceTo: (ms: number): void => {
+      t = ms
+    }
+  }
+}
+
+function machine(clock = fakeClock()) {
+  return createVoiceLoopMachine({ now: clock.now, thresholds })
 }
 
 /** A machine driven to `speaking`, one utterance already sent and one reply playing. */
 function speakingMachine() {
-  const m = machine()
-  m.dispatch({ type: 'start', at: 0 })
-  m.dispatch({ type: 'speech', at: 0, text: 'hello there' })
-  m.dispatch({ type: 'silence', at: 1000 })
-  m.dispatch({ type: 'reply', at: 1100, text: 'One. Two. Three. Four.' })
-  return m
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'hello there' })
+  clock.advanceTo(1000)
+  m.dispatch({ type: 'silence' })
+  clock.advanceTo(1100)
+  m.dispatch({ type: 'reply', text: 'One. Two. Three. Four.' })
+  return { m, clock }
 }
 
 const routeStates: Record<VoiceLoopRoute, VoiceLoopState> = {
@@ -132,11 +146,11 @@ const routingRows: RouteRow[] = [
 it.each(routingRows)(
   '$route + $event.type',
   ({ route, event, nextRoute, refusal, effectKinds }) => {
-    const outcome = voiceLoopTransition(
-      routeStates[route],
-      { ...event, at: 500 },
-      { now: () => 0, thresholds }
-    )
+    const clock = fakeClock(500)
+    const outcome = voiceLoopTransition(routeStates[route], event, {
+      now: clock.now,
+      thresholds
+    })
 
     if (refusal) {
       expect(outcome.accepted).toBe(false)
@@ -153,112 +167,141 @@ it.each(routingRows)(
 )
 
 it('walks the full loop: listen, merge, auto-send, speak condensed, return to listening', () => {
-  const m = machine()
-  m.dispatch({ type: 'start', at: 0 })
-  const heard = m.dispatch({ type: 'speech', at: 0, text: "what's" })
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  const heard = m.dispatch({ type: 'speech', text: "what's" })
   expect(heard.state.buffer).toEqual(["what's"])
-  m.dispatch({ type: 'speech', at: 400, text: 'the time' })
-  expect(m.dispatch({ type: 'silence', at: 1399 }).effects).toEqual([])
-  const sent = m.dispatch({ type: 'silence', at: 1400 })
+  clock.advanceTo(400)
+  m.dispatch({ type: 'speech', text: 'the time' })
+  clock.advanceTo(1399)
+  expect(m.dispatch({ type: 'silence' }).effects).toEqual([])
+  clock.advanceTo(1400)
+  const sent = m.dispatch({ type: 'silence' })
   expect(sent.effects).toEqual([{ kind: 'send', text: "what's the time" }])
   expect(sent.state.route).toBe('thinking')
+  clock.advanceTo(1500)
   const spoken = m.dispatch({
     type: 'reply',
-    at: 1500,
     text: 'It is noon. Grab an umbrella. Rain is likely. This sentence is cut.'
   })
   expect(spoken.effects).toEqual([
     { kind: 'speak', text: 'It is noon. Grab an umbrella. Rain is likely.' }
   ])
   expect(spoken.state.route).toBe('speaking')
-  expect(m.dispatch({ type: 'playbackEnd', at: 4000 }).state.route).toBe('listening')
-  m.dispatch({ type: 'speech', at: 4300, text: 'next question' })
-  const again = m.dispatch({ type: 'silence', at: 5300 })
+  clock.advanceTo(4000)
+  expect(m.dispatch({ type: 'playbackEnd' }).state.route).toBe('listening')
+  clock.advanceTo(4300)
+  m.dispatch({ type: 'speech', text: 'next question' })
+  clock.advanceTo(5300)
+  const again = m.dispatch({ type: 'silence' })
   expect(again.effects).toEqual([{ kind: 'send', text: 'next question' }])
 })
 
 it('merges speech separated by pauses shorter than the silence window', () => {
-  const m = machine()
-  m.dispatch({ type: 'start', at: 0 })
-  m.dispatch({ type: 'speech', at: 0, text: 'alpha' })
-  m.dispatch({ type: 'silence', at: 999 })
-  m.dispatch({ type: 'speech', at: 1000, text: 'beta' })
-  const sent = m.dispatch({ type: 'silence', at: 2000 })
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'alpha' })
+  clock.advanceTo(999)
+  m.dispatch({ type: 'silence' })
+  clock.advanceTo(1000)
+  m.dispatch({ type: 'speech', text: 'beta' })
+  clock.advanceTo(2000)
+  const sent = m.dispatch({ type: 'silence' })
   expect(sent.effects).toEqual([{ kind: 'send', text: 'alpha beta' }])
 })
 
 it('sends on demand and refuses to send an empty buffer', () => {
-  const m = machine()
-  m.dispatch({ type: 'start', at: 0 })
-  expect(m.dispatch({ type: 'send', at: 100 }).refusal).toBe('empty-send')
-  m.dispatch({ type: 'speech', at: 100, text: 'go now' })
-  const sent = m.dispatch({ type: 'send', at: 200 })
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  clock.advanceTo(100)
+  expect(m.dispatch({ type: 'send' }).refusal).toBe('empty-send')
+  m.dispatch({ type: 'speech', text: 'go now' })
+  clock.advanceTo(200)
+  const sent = m.dispatch({ type: 'send' })
   expect(sent.effects).toEqual([{ kind: 'send', text: 'go now' }])
   expect(sent.state.route).toBe('thinking')
 })
 
 it('rejects a start while an exclusive mic session is active instead of queuing it', () => {
-  const m = machine()
-  const refused = m.dispatch({ type: 'start', at: 0, micExclusiveInUse: true })
+  const clock = fakeClock()
+  const m = machine(clock)
+  const refused = m.dispatch({ type: 'start', micExclusiveInUse: true })
   expect(refused.accepted).toBe(false)
   expect(refused.refusal).toBe('mic-exclusive')
   expect(refused.effects).toEqual([])
   expect(refused.state.route).toBe('idle')
-  expect(m.dispatch({ type: 'speech', at: 1, text: 'hi' }).refusal).toBe('unexpected-event')
-  expect(m.dispatch({ type: 'start', at: 2 }).state.route).toBe('listening')
+  clock.advanceTo(1)
+  expect(m.dispatch({ type: 'speech', text: 'hi' }).refusal).toBe('unexpected-event')
+  clock.advanceTo(2)
+  expect(m.dispatch({ type: 'start' }).state.route).toBe('listening')
 })
 
 it('barges in on speech during playback and drops echo inside the AEC-tail window', () => {
-  const m = speakingMachine()
-  const barged = m.dispatch({ type: 'speech', at: 1200, text: 'wait' })
+  const { m, clock } = speakingMachine()
+  clock.advanceTo(1200)
+  const barged = m.dispatch({ type: 'speech', text: 'wait' })
   expect(barged.effects).toEqual([{ kind: 'stopPlayback' }])
   expect(barged.state.route).toBe('listening')
   expect(barged.state.buffer).toEqual(['wait'])
-  expect(m.dispatch({ type: 'speech', at: 1399, text: 'echo of the readout' }).refusal).toBe('echo')
+  clock.advanceTo(1399)
+  expect(m.dispatch({ type: 'speech', text: 'echo of the readout' }).refusal).toBe('echo')
   expect(m.getState().buffer).toEqual(['wait'])
-  expect(m.dispatch({ type: 'speech', at: 1400, text: 'actually' }).accepted).toBe(true)
-  const sent = m.dispatch({ type: 'silence', at: 2400 })
+  clock.advanceTo(1400)
+  expect(m.dispatch({ type: 'speech', text: 'actually' }).accepted).toBe(true)
+  clock.advanceTo(2400)
+  const sent = m.dispatch({ type: 'silence' })
   expect(sent.effects).toEqual([{ kind: 'send', text: 'wait actually' }])
 })
 
 it('gates speech after a natural playback end the same way', () => {
-  const m = speakingMachine()
-  expect(m.dispatch({ type: 'playbackEnd', at: 1200 }).state.route).toBe('listening')
-  expect(m.dispatch({ type: 'speech', at: 1399, text: 'echo' }).refusal).toBe('echo')
-  expect(m.dispatch({ type: 'speech', at: 1400, text: 'follow-up' }).accepted).toBe(true)
+  const { m, clock } = speakingMachine()
+  clock.advanceTo(1200)
+  expect(m.dispatch({ type: 'playbackEnd' }).state.route).toBe('listening')
+  clock.advanceTo(1399)
+  expect(m.dispatch({ type: 'speech', text: 'echo' }).refusal).toBe('echo')
+  clock.advanceTo(1400)
+  expect(m.dispatch({ type: 'speech', text: 'follow-up' }).accepted).toBe(true)
 })
 
 it('stops playback when backgrounded mid-readout and resumes listening on return', () => {
-  const m = speakingMachine()
-  const hidden = m.dispatch({ type: 'visibility', at: 1200, foreground: false })
+  const { m, clock } = speakingMachine()
+  clock.advanceTo(1200)
+  const hidden = m.dispatch({ type: 'visibility', foreground: false })
   expect(hidden.effects).toEqual([{ kind: 'stopPlayback' }])
   expect(hidden.state).toMatchObject({ route: 'listening', visibility: 'background' })
-  expect(m.dispatch({ type: 'speech', at: 1399, text: 'echo' }).refusal).toBe('echo')
-  expect(m.dispatch({ type: 'speech', at: 1400, text: 'still here' }).accepted).toBe(true)
-  const back = m.dispatch({ type: 'visibility', at: 1500, foreground: true })
+  clock.advanceTo(1399)
+  expect(m.dispatch({ type: 'speech', text: 'echo' }).refusal).toBe('echo')
+  clock.advanceTo(1400)
+  expect(m.dispatch({ type: 'speech', text: 'still here' }).accepted).toBe(true)
+  clock.advanceTo(1500)
+  const back = m.dispatch({ type: 'visibility', foreground: true })
   expect(back.state).toMatchObject({ route: 'listening', visibility: 'foreground' })
-  expect(m.dispatch({ type: 'silence', at: 2400 }).effects).toEqual([
-    { kind: 'send', text: 'still here' }
-  ])
+  clock.advanceTo(2400)
+  expect(m.dispatch({ type: 'silence' }).effects).toEqual([{ kind: 'send', text: 'still here' }])
 })
 
 it('exits on close-tab mid-readout and refuses everything afterwards', () => {
-  const m = speakingMachine()
-  const closed = m.dispatch({ type: 'closeTab', at: 1200 })
+  const { m, clock } = speakingMachine()
+  clock.advanceTo(1200)
+  const closed = m.dispatch({ type: 'closeTab' })
   expect(closed.state.route).toBe('closed')
   expect(closed.effects).toEqual([])
-  expect(m.dispatch({ type: 'speech', at: 1300, text: 'hello' }).refusal).toBe('closed')
-  expect(m.dispatch({ type: 'start', at: 1300 }).refusal).toBe('closed')
-  expect(m.dispatch({ type: 'reply', at: 1300, text: 'hi' }).refusal).toBe('closed')
+  clock.advanceTo(1300)
+  expect(m.dispatch({ type: 'speech', text: 'hello' }).refusal).toBe('closed')
+  expect(m.dispatch({ type: 'start' }).refusal).toBe('closed')
+  expect(m.dispatch({ type: 'reply', text: 'hi' }).refusal).toBe('closed')
 })
 
-it('stamps untimestamped events from the injected clock', () => {
-  let t = 5_000
-  const m = machine(() => t)
+it('auto-sends from a clock that starts away from zero', () => {
+  const clock = fakeClock(5_000)
+  const m = machine(clock)
   expect(m.dispatch({ type: 'start' }).state.route).toBe('listening')
   m.dispatch({ type: 'speech', text: 'clock driven' })
-  t += 999
+  clock.advanceTo(5_999)
   expect(m.dispatch({ type: 'silence' }).effects).toEqual([])
-  t += 1
+  clock.advanceTo(6_000)
   expect(m.dispatch({ type: 'silence' }).effects).toEqual([{ kind: 'send', text: 'clock driven' }])
 })
