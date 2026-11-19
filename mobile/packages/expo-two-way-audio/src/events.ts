@@ -1,5 +1,6 @@
 import ExpoTwoWayAudioModule from './ExpoTwoWayAudioModule'
 import type { SpeechDownloadProgressEvent, SpeechErrorEvent, SpeechTextEvent } from './speech'
+import type { TtsDoneEvent, TtsErrorEvent } from './tts'
 
 export interface MicrophoneDataEvent {
   data: Uint8Array
@@ -25,6 +26,8 @@ export interface ExpoTwoWayAudioEventMap {
   onSpeechText: SpeechTextEvent
   onSpeechError: SpeechErrorEvent
   onSpeechDownloadProgress: SpeechDownloadProgressEvent
+  onTtsDone: TtsDoneEvent
+  onTtsError: TtsErrorEvent
 }
 
 export type MicrophoneDataCallback = (event: MicrophoneDataEvent) => void
