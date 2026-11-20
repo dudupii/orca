@@ -119,6 +119,12 @@ export class VoiceLoopShell {
     this.armedSpeech = true
     this.deps.holdScreen()
     this.screenHeld = true
+    if (this.foreground.isBackgrounded()) {
+      // The app left while the recognizer was arming: the loop comes up already paused, its
+      // microphone and reads waiting for the return.
+      this.beginLoop()
+      return
+    }
     const micOpen = await this.deps.openMic()
     if (this.exited) {
       // The exit before the open could not release what had not opened; the late open is ours.
@@ -133,12 +139,23 @@ export class VoiceLoopShell {
       this.settleClosed()
       return
     }
+    if (this.foreground.isBackgrounded()) {
+      // A leave won the race with the open: the capture it started must not run away with the app.
+      this.deps.closeMic()
+      this.beginLoop()
+      return
+    }
     this.micOpened = true
+    this.beginLoop()
+    this.scheduleRead()
+  }
+
+  /** Marks the loop up: started, the machine's start accepted, the first view published. */
+  private beginLoop(): void {
     this.starting = false
     this.started = true
     this.machine.dispatch({ type: 'start' })
     this.publish()
-    this.scheduleRead()
   }
 
   /** A tap on the waiting utterance cancels its send; a waiting steer is handed to the turn now. */
@@ -170,7 +187,8 @@ export class VoiceLoopShell {
    * The app left or came back. The machine's visibility moves first — its table stops a speaking
    * loop outright — and the loop's platforms follow the foreground policy: away closes the
    * microphone and suspends the reads; the restore sounds its chime, plays what waited and only
-   * then reopens the microphone.
+   * then reopens the microphone. The policy tracks the app even before the loop is up, so a
+   * startup racing a leave reconciles with the window that leave opened.
    */
   setForeground(foreground: boolean): void {
     if (this.exited) {
@@ -184,7 +202,15 @@ export class VoiceLoopShell {
       }
       this.publish()
     }
+    if (!foreground) {
+      // The window opens with the leave itself, started loop or not: a startup racing it reconciles.
+      this.foreground.background(this.machine.getState().route)
+    }
     if (!this.started) {
+      // Nothing platform-side is open yet; a return while the startup runs just closes the window.
+      if (foreground) {
+        this.foreground.restore()
+      }
       return
     }
     if (foreground) {
@@ -195,7 +221,6 @@ export class VoiceLoopShell {
   }
 
   private pause(): void {
-    this.foreground.background(this.machine.getState().route)
     if (this.readTimer !== null) {
       clearTimeout(this.readTimer)
       this.readTimer = null

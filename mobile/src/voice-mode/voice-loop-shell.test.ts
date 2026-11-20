@@ -764,4 +764,87 @@ describe('VoiceLoopShell', () => {
     expect(harness.deps.openMic).toHaveBeenCalledOnce()
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it('a leave while the recognizer start is pending brings the loop up paused: no mic, no reads, until the return', async () => {
+    let resolveStart: (armed: { started: boolean; busy: boolean }) => void = () => {}
+    const startSpeech = vi.fn(
+      () =>
+        new Promise<{ started: boolean; busy: boolean }>((resolve) => {
+          resolveStart = resolve
+        })
+    )
+    const harness = createHarness({ startSpeech })
+    const starting = harness.shell.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    harness.shell.setForeground(false)
+    resolveStart({ started: true, busy: false })
+    await starting
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS * 5)
+    // The loop is up and listening, but held: no microphone opened and nothing polled while away.
+    expect(harness.deps.openMic).not.toHaveBeenCalled()
+    expect(harness.deps.readSpeech).not.toHaveBeenCalled()
+    expect(harness.views.at(-1)?.route).toBe('listening')
+
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(harness.deps.openMic).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(harness.deps.readSpeech).toHaveBeenCalledOnce()
+  })
+
+  it('a leave while the startup open is pending closes the late open and holds the loop for the return', async () => {
+    let resolveOpen: (opened: boolean) => void = () => {}
+    const openMic = vi
+      .fn(async () => true)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveOpen = resolve
+          })
+      )
+    const harness = createHarness({ openMic })
+    const starting = harness.shell.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(openMic).toHaveBeenCalledOnce()
+
+    harness.shell.setForeground(false)
+    resolveOpen(true)
+    await starting
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS * 5)
+    // The open won its race with the leave: the capture it started is closed, the reads suspended.
+    expect(harness.deps.closeMic).toHaveBeenCalledOnce()
+    expect(harness.deps.readSpeech).not.toHaveBeenCalled()
+    expect(harness.views.at(-1)?.route).toBe('listening')
+
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(openMic).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBeGreaterThan(0)
+  })
+
+  it('a return while the startup open is still pending lets it land: the mic opens and the reads run', async () => {
+    let resolveOpen: (opened: boolean) => void = () => {}
+    const openMic = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveOpen = resolve
+        })
+    )
+    const harness = createHarness({ openMic })
+    const starting = harness.shell.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The away window opens and closes again while the open is still in flight.
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(true)
+    resolveOpen(true)
+    await starting
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+
+    // The loop came up in the foreground: the open is adopted, not closed, and the reads poll.
+    expect(harness.deps.closeMic).not.toHaveBeenCalled()
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBeGreaterThan(0)
+  })
 })
