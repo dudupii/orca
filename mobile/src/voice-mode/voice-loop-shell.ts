@@ -305,6 +305,7 @@ export class VoiceLoopShell {
     // The wait came due with no chat seam bound: hold the words in the machine; the rebind arms them again.
     if (this.deps.chatBound?.() === false) {
       this.view = { ...this.view, pending: null }
+      this.publish()
       return
     }
     const generation = this.generation
