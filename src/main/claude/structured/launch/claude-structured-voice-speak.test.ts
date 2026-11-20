@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { agentSessionRecordFixture } from '../../../native-chat/testing/agent-session-record-test-fixture'
 import { createClaudeStructuredLaunchResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { voiceSpeakBriefingPromptAppend } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
 
 const SESSION_ID = 'session-voice-1'
 const IDENTITY = { sessionId: SESSION_ID } as Parameters<
@@ -14,6 +13,25 @@ const INJECTION: VoiceSpeakLaunchInjection = {
   serverUrl: 'http://127.0.0.1:45123/mcp',
   token: 'token-1'
 }
+
+/**
+ * The exact briefings these tests expect a voice-capable spawn to append, hardcoded in full
+ * rather than rebuilt through the builder they judge: a builder that drops the session
+ * sentence, interpolates the wrong session id, or drifts on wording fails against these
+ * literals instead of moving the expectations with it.
+ */
+const OWN_SESSION_BRIEFING =
+  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
+  'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
+  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
+  "worth hearing aloud. This conversation's session id is session-voice-1: pass it as the " +
+  'session argument on every `speak` call so the briefing plays only here.'
+const OTHER_SESSION_BRIEFING =
+  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
+  'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
+  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
+  "worth hearing aloud. This conversation's session id is session-voice-2: pass it as the " +
+  'session argument on every `speak` call so the briefing plays only here.'
 
 function resolverDeps(
   voiceDeps: {
@@ -55,7 +73,7 @@ describe('claude structured launch: voice.speak.v1 injection', () => {
     expect(launch.options.systemPrompt).toEqual({
       type: 'preset',
       preset: 'claude_code',
-      append: voiceSpeakBriefingPromptAppend(SESSION_ID)
+      append: OWN_SESSION_BRIEFING
     })
   })
 
@@ -67,9 +85,8 @@ describe('claude structured launch: voice.speak.v1 injection', () => {
     expect(spoken.options.systemPrompt).toEqual({
       type: 'preset',
       preset: 'claude_code',
-      append: voiceSpeakBriefingPromptAppend(other)
+      append: OTHER_SESSION_BRIEFING
     })
-    expect(JSON.stringify(spoken.options.systemPrompt)).not.toContain(SESSION_ID)
   })
 
   it('keeps the no-capability spawn byte-identical: a null injection changes nothing exactly', async () => {
