@@ -1,4 +1,5 @@
-// The session hook's side of the loop: who owns the recognizer, how a failed entry unwinds, and that no reply poll outlives its shell.
+// The binder's side of the loop: who owns the recognizer, how a failed entry unwinds, that no
+// reply poll outlives the page, and the readout's outcomes — all through the page's host.
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,10 +13,15 @@ import type {
   BridgeSpeechRead,
   BridgeSpeechStartResult
 } from '../mobile-web-shell/bridge/native-capabilities/bridge-speech-verbs'
-import type { MobileDictationHost } from '../dictation/mobile-dictation-host-context'
+import type { RpcClient } from '../transport/rpc/rpc-client-contract'
+import type { NativeChatMessage } from '../../../src/shared/native-chat/native-chat-types'
 import { MobileDictationHostContext } from '../dictation/mobile-dictation-host-context'
+import type { MobileDictationHost } from '../dictation/mobile-dictation-host-context'
 import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
 import { createMobileDictationMeter } from '../hooks/mobile-dictation-meter'
+import type { MobileSessionController } from '../session/use-mobile-session-controller'
+
+type SpeakBroadcast = { text: string; lang: string | null; session: string | null }
 
 type Seam = {
   calls: string[]
@@ -30,6 +36,7 @@ type Seam = {
   ttsSpeakCalls: { text: string; locale: string | null }[]
   ttsStopCalls: number
   sendOutcome: MobileNativeChatSendOutcome
+  speakSink: ((broadcast: SpeakBroadcast) => void) | null
 }
 
 const seam = vi.hoisted((): Seam => ({
@@ -44,7 +51,8 @@ const seam = vi.hoisted((): Seam => ({
   ttsStatus: 'done',
   ttsSpeakCalls: [],
   ttsStopCalls: 0,
-  sendOutcome: 'accepted'
+  sendOutcome: 'accepted',
+  speakSink: null
 }))
 
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
@@ -138,6 +146,25 @@ vi.mock('../storage/voice-mode-settings', () => ({
   saveVoiceModeFallbackReadout: vi.fn(async () => {})
 }))
 
+vi.mock('expo-router', () => ({
+  useFocusEffect: () => {},
+  useRouter: () => ({ push: () => {} }),
+  useNavigation: () => undefined
+}))
+
+vi.mock('./speak-broadcast', () => ({
+  subscribeToSpeakBroadcasts: (
+    _client: RpcClient,
+    onBroadcast: (broadcast: SpeakBroadcast) => void
+  ) => {
+    seam.speakSink = onBroadcast
+    return () => {
+      seam.speakSink = null
+    }
+  }
+}))
+
+import { MobileVoiceModeHostProvider } from './voice-mode-host'
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import { loadVoiceModeBargeIn, loadVoiceModeFallbackReadout } from '../storage/voice-mode-settings'
@@ -171,7 +198,7 @@ type Harness = {
   sendWithOutcome: ReturnType<typeof vi.fn>
   setDictationBusy: (busy: boolean) => void
   setTurnActive: (active: boolean) => void
-  broadcast: (broadcast: { text: string; lang: string | null; session: string | null }) => void
+  broadcast: (broadcast: SpeakBroadcast) => void
   subscriptionLive: () => boolean
   unmount: () => void
 }
@@ -191,7 +218,7 @@ function mountVoiceMode(): Harness {
     ): Promise<MobileNativeChatSendOutcome> => seam.sendOutcome
   )
   let dictation = fakeDictation(false)
-  const host: MobileDictationHost = {
+  const dictationHost: MobileDictationHost = {
     owner: null,
     start: vi.fn(async () => {}),
     stop: vi.fn(),
@@ -203,39 +230,49 @@ function mountVoiceMode(): Harness {
     getIdleDictation: () => dictation,
     getUnderway: () => dictation.isStarting || dictation.isRecording || dictation.isProcessing
   }
-  let voiceMode: MobileSessionVoiceMode | null = null
-  let speakSink:
-    | ((broadcast: { text: string; lang: string | null; session: string | null }) => void)
-    | null = null
-  function Probe(): null {
-    voiceMode = useMobileSessionVoiceMode(showToast, {
+  // The binder reads a slice of the controller; its chat state answers live the way the real
+  // controller's refs do, so no rerender is needed to move the seam's truth.
+  const controller = {
+    hostId: 'host-1',
+    worktreeId: 'wt-1',
+    client: {} as RpcClient,
+    showToast,
+    worktreeResolution: 'present',
+    sessionTabs: [],
+    activeSessionTab: null,
+    nativeChatController: {
       handleNativeChatSend: send,
-      // The production seam shape: steering is the chat's send verb carrying the steer intent.
-      steer: (text) =>
-        sendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
-          (outcome) => ({ steered: outcome !== 'rejected' })
-        ),
-      nativeChatTurnActive: seam.turnActive,
-      showNativeChat: true,
-      subscribeSpeakBroadcasts: (onBroadcast) => {
-        speakSink = onBroadcast
-        return () => {
-          speakSink = null
-        }
+      handleNativeChatSendWithOutcome: sendWithOutcome,
+      get nativeChatTurnActive() {
+        return seam.turnActive
       },
-      latestReplyText: () => seam.replyText
-    })
+      get nativeChatSession() {
+        const reply: NativeChatMessage = {
+          id: 'reply',
+          role: 'assistant',
+          blocks: [{ type: 'text', text: seam.replyText }],
+          timestamp: 1,
+          source: 'transcript'
+        }
+        return { messages: [reply] }
+      }
+    }
+  } as unknown as MobileSessionController
+  let voiceMode: MobileSessionVoiceMode | null = null
+  function Probe(): null {
+    voiceMode = useMobileSessionVoiceMode(controller)
     return null
   }
   let renderer: ReactTestRenderer
-  const render = () => {
-    act(() => {
-      renderer = create(
-        createElement(MobileDictationHostContext.Provider, { value: host }, createElement(Probe))
+  act(() => {
+    renderer = create(
+      createElement(
+        MobileDictationHostContext.Provider,
+        { value: dictationHost },
+        createElement(MobileVoiceModeHostProvider, null, createElement(Probe))
       )
-    })
-  }
-  render()
+    )
+  })
   return {
     voiceMode: () => {
       if (voiceMode === null) {
@@ -251,18 +288,13 @@ function mountVoiceMode(): Harness {
     },
     setTurnActive: (active) => {
       seam.turnActive = active
-      act(() => {
-        renderer.update(
-          createElement(MobileDictationHostContext.Provider, { value: host }, createElement(Probe))
-        )
-      })
     },
     broadcast: (broadcast) => {
       act(() => {
-        speakSink?.(broadcast)
+        seam.speakSink?.(broadcast)
       })
     },
-    subscriptionLive: () => speakSink !== null,
+    subscriptionLive: () => seam.speakSink !== null,
     unmount: () => act(() => renderer.unmount())
   }
 }
@@ -301,6 +333,7 @@ describe('useMobileSessionVoiceMode', () => {
     seam.ttsSpeakCalls.length = 0
     seam.ttsStopCalls = 0
     seam.sendOutcome = 'accepted'
+    seam.speakSink = null
   })
 
   afterEach(() => {
@@ -399,7 +432,7 @@ describe('useMobileSessionVoiceMode', () => {
     expect(harness.send).toHaveBeenCalledOnce()
   })
 
-  it('unmounting with a reply poll live clears it and resolves the waiting send', async () => {
+  it('unmounting the page with a reply poll live clears it and resolves the waiting send', async () => {
     seam.turnActive = true
     const harness = mountVoiceMode()
     await speakAndCommit(harness)
@@ -407,7 +440,9 @@ describe('useMobileSessionVoiceMode', () => {
 
     harness.unmount()
     expect(vi.getTimerCount()).toBe(0)
-    await vi.advanceTimersByTimeAsync(60_000)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
   })
 
   it('speaks the reply text the chat holds when its turn settles and no briefing arrived', async () => {
@@ -473,14 +508,14 @@ describe('useMobileSessionVoiceMode', () => {
     expect(seam.ttsSpeakCalls).toEqual([])
   })
 
-  it('stays silent for the fallback reply when it was saved off after the mount load', async () => {
+  it('stays silent for the fallback reply when it was saved off after the mount', async () => {
     seam.turnActive = true
     seam.replyText = 'A reply the setting now mutes.'
     const harness = mountVoiceMode()
     await act(async () => {
       await flushEntry()
     })
-    // The mount-time load already answered true; a save made since then is what the next start must read.
+    // Each start reads the toggles anew, so a save made since the last loop is in force for this one.
     vi.mocked(loadVoiceModeFallbackReadout).mockResolvedValue(false)
     await act(async () => {
       harness.voiceMode().start()

@@ -1,29 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useDictationCapture } from '../platform/audio-capture/dictation-capture'
-import type { DictationCaptureOpen } from '../platform/audio-capture/dictation-capture-contract'
-import { nativeMicrophoneScreenLock } from '../platform/audio-capture/native-audio-device'
-import { useOnDeviceSpeech } from '../platform/speech/on-device-speech'
-import { useOnDeviceTts } from '../platform/tts/on-device-tts'
-import { useMobileDictationHost } from '../dictation/mobile-dictation-host-context'
-import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
 import {
-  loadVoiceModeBargeIn,
-  loadVoiceModeFallbackReadout,
-  loadVoiceModeResponseDelaySeconds
-} from '../storage/voice-mode-settings'
-import { voiceModeCopy } from './voice-mode-copy'
-import { createVoiceReadout } from './voice-readout'
-import type { VoiceReadout, VoiceSpeakBroadcast } from './voice-readout-contract'
-import { VoiceLoopShell } from './voice-loop-shell'
-import type { VoiceLoopSendOutcome, VoiceLoopView } from './voice-loop-shell-contract'
-
-// How long a send may wait for its turn to start before the loop resumes listening.
-const TURN_START_GRACE_MS = 10_000
-// A turn that never settles must not hold the loop in thinking forever.
-const TURN_SETTLE_TIMEOUT_MS = 10 * 60_000
-const TURN_SETTLE_POLL_MS = 250
-
-const IDLE_VIEW: VoiceLoopView = { route: 'idle', transcript: '', pending: null, reply: null }
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react'
+import { useFocusEffect, useNavigation } from 'expo-router'
+import { HOST_SESSION_ROUTE } from '../navigation/host-stack-navigation'
+import {
+  useWorkspaceExecutionHost,
+  workspaceRouteHref
+} from '../navigation/workspace-execution-host'
+import { latestNativeChatReplyText } from '../../../src/shared/native-chat/native-chat-streaming'
+import { notificationPaneTab, mobileSessionTabPaneKey } from '../session/tabs/notification-pane-tab'
+import { shouldBounceMissingWorktree } from '../session/use-missing-worktree-bounce'
+import type { MobileSessionController } from '../session/use-mobile-session-controller'
+import { mobileVoiceSessionKey, useMobileVoiceModeHost } from './voice-mode-host-context'
+import type { MobileVoiceModeChatSeam } from './voice-mode-host-context'
+import type { VoiceLoopView } from './voice-loop-shell-contract'
 
 export type MobileSessionVoiceMode = {
   view: VoiceLoopView
@@ -34,270 +29,133 @@ export type MobileSessionVoiceMode = {
   exit: () => void
 }
 
-/** The chat seams the loop rides: sending, steering the running turn, the chat's visibility, its latest reply, and the host's speak broadcasts. */
-export type VoiceModeChatSeam = {
-  handleNativeChatSend: (text: string, images?: string[]) => Promise<boolean>
-  /** Reroutes the running turn with a mid-turn utterance; false reports the chat refused it. */
-  steer: (text: string) => Promise<{ steered: boolean }>
-  nativeChatTurnActive: boolean
-  showNativeChat: boolean
-  /** The host's speak broadcasts, the same notifications stream the push path reads. */
-  subscribeSpeakBroadcasts: (onBroadcast: (broadcast: VoiceSpeakBroadcast) => void) => () => void
-  /** The chat's latest reply text, sampled when a turn settles. */
-  latestReplyText: () => string
-}
-
-// One recognizer per phone: busy while the page's dictation is starting, recording or finishing.
-function dictationHoldsRecognizer(dictation: UseMobileDictationResult): boolean {
-  return dictation.isStarting || dictation.isRecording || dictation.isProcessing
-}
-
-// A reply poll stops when its turn settles; this clears and settles every live poll at once.
-type ReplyWait = {
-  readonly settle: () => void
-}
-
-// The session screen's side of voice mode: one loop over the chat's send seam, left when the chat hides.
+/**
+ * The session screen's side of voice mode: one loop owned by the page's host, outliving this
+ * screen. While the screen stands it binds its chat's seam — sends, steering, the latest reply —
+ * and registers itself as the loop's way back; unbinding holds the loop's words for the rebind.
+ * The loop ends when its owning tab closes or its worktree bounces, never because the chat hid.
+ */
 export function useMobileSessionVoiceMode(
-  showToast: (message: string) => void,
-  chat: VoiceModeChatSeam
+  controller: MobileSessionController
 ): MobileSessionVoiceMode {
-  const speech = useOnDeviceSpeech()
-  const tts = useOnDeviceTts()
-  const capture = useDictationCapture()
-  const dictationHost = useMobileDictationHost()
-  const [view, setView] = useState<VoiceLoopView>(IDLE_VIEW)
-  const [shell, setShell] = useState<VoiceLoopShell | null>(null)
-  const shellRef = useRef<VoiceLoopShell | null>(null)
-  const speechRef = useRef(speech)
-  const ttsRef = useRef(tts)
-  const captureRef = useRef(capture)
-  const sendChatRef = useRef((text: string) => chat.handleNativeChatSend(text))
-  const steerChatRef = useRef((text: string) => chat.steer(text))
-  const turnActiveRef = useRef(chat.nativeChatTurnActive)
-  const dictationHostRef = useRef(dictationHost)
-  const delaySecondsRef = useRef(1.5)
-  const chatVisibleRef = useRef(chat.showNativeChat)
-  // The loop the entry is still loading settings for; a second entry in that window must not stack.
-  const startingLoopRef = useRef(false)
-  const mountedRef = useRef(true)
-  const latestReplyTextRef = useRef<() => string>(() => '')
-  const subscribeSpeakRef = useRef<(typeof chat)['subscribeSpeakBroadcasts']>(() => () => undefined)
-  // The loop's one playback owner; its broadcasts land here while the loop runs.
-  const readoutRef = useRef<VoiceReadout | null>(null)
-  const unsubscribeSpeakRef = useRef<(() => void) | null>(null)
-  // Reply polls belong to one loop: ending the loop settles them, so no timer outlives the shell.
-  const replyWaitsRef = useRef(new Set<ReplyWait>())
+  const host = useMobileVoiceModeHost()
+  const executionHost = useWorkspaceExecutionHost()
+  const { hostId, worktreeId, client, showToast } = controller
+  const sessionKey = mobileVoiceSessionKey(hostId, executionHost, worktreeId)
+  const [instance] = useState(() => ({}))
+  // The screen's own navigation: bringing it back pops what was pushed over it, never another session's screen.
+  const navigation = useNavigation()
+  const navigationRef = useRef(navigation)
+  useLayoutEffect(() => {
+    navigationRef.current = navigation
+  })
+  const [inFront, setInFront] = useState(true)
+  useFocusEffect(
+    useCallback(() => {
+      setInFront(true)
+      return () => setInFront(false)
+    }, [])
+  )
+  const live = useSyncExternalStore(host.subscribe, host.getLive)
+  const owner = live.owner
+  // Before any loop exists this screen is the one in front; once one does, only its session's is.
+  const shown = inFront && (owner === null || owner.sessionKey === sessionKey)
 
+  // The chat's seam, stable for the screen's life; its readers stay live through the controller ref.
+  const controllerRef = useRef(controller)
   useEffect(() => {
-    speechRef.current = speech
-    ttsRef.current = tts
-    captureRef.current = capture
-    sendChatRef.current = (text: string) => chat.handleNativeChatSend(text)
-    steerChatRef.current = (text: string) => chat.steer(text)
-    turnActiveRef.current = chat.nativeChatTurnActive
-    dictationHostRef.current = dictationHost
-    latestReplyTextRef.current = chat.latestReplyText
-    subscribeSpeakRef.current = chat.subscribeSpeakBroadcasts
-    chatVisibleRef.current = chat.showNativeChat
-  }, [speech, tts, capture, chat, dictationHost])
+    controllerRef.current = controller
+  })
+  const [seam] = useState<MobileVoiceModeChatSeam>(() => ({
+    send: (text: string) => controllerRef.current.nativeChatController.handleNativeChatSend(text),
+    // Steering rides the chat's send verb with the intent that reroutes the running turn, never queueing.
+    steer: (text) =>
+      controllerRef.current.nativeChatController
+        .handleNativeChatSendWithOutcome(text, undefined, undefined, undefined, undefined, {
+          steer: true
+        })
+        .then((outcome) => ({ steered: outcome !== 'rejected' })),
+    turnActive: () => controllerRef.current.nativeChatController.nativeChatTurnActive,
+    latestReplyText: () =>
+      latestNativeChatReplyText(
+        controllerRef.current.nativeChatController.nativeChatSession.messages
+      )
+  }))
 
+  const screenRef = useRef({ shown, toast: showToast })
+  useLayoutEffect(() => {
+    screenRef.current = { shown, toast: showToast }
+  })
+  // Register the screen: the loop's notices toast through it, and its chat comes back to the front through it.
+  useEffect(
+    () =>
+      host.attachScreen({
+        instance,
+        sessionKey,
+        shown: () => screenRef.current.shown,
+        bringToFront: (paneKey) => {
+          const current = navigationRef.current
+          // From this screen POP_TO starts at this route (the dispatch's source), so it stops here; merge keeps its params and swaps the pane.
+          current?.dispatch({
+            type: 'POP_TO',
+            payload: {
+              name: HOST_SESSION_ROUTE,
+              params: paneKey ? { paneKey } : undefined,
+              merge: true
+            },
+            target: current.getState()?.key
+          })
+        },
+        toast: (message) => screenRef.current.toast(message)
+      }),
+    [host, instance, sessionKey]
+  )
+
+  // Bind the seam while this screen stands; a rebound screen's different client re-runs the loop's speak subscription.
+  useEffect(
+    () => host.bindChat({ instance, sessionKey, client, seam }),
+    [host, instance, sessionKey, client, seam]
+  )
+
+  // The loop's chat is gone — its owning tab closed, or its worktree bounced — so the loop ends, not outlives it.
   useEffect(() => {
-    void loadVoiceModeResponseDelaySeconds().then((seconds) => {
-      delaySecondsRef.current = seconds
-    })
-  }, [])
-
-  const settleReplyWaits = useCallback(() => {
-    for (const wait of replyWaitsRef.current) {
-      wait.settle()
+    if (owner === null || owner.sessionKey !== sessionKey) {
+      return
     }
-  }, [])
-
-  const stopSpeakSubscription = useCallback(() => {
-    unsubscribeSpeakRef.current?.()
-    unsubscribeSpeakRef.current = null
-  }, [])
-
-  // The reply renders in the chat behind the overlay: wait out the turn the send started, then
-  // hold its latest text out for the readout to speak.
-  const awaitReply = (owner: VoiceLoopShell): Promise<string> =>
-    new Promise((resolve) => {
-      let sawActive = turnActiveRef.current
-      const startedAt = Date.now()
-      const settle = () => {
-        clearInterval(poller)
-        replyWaitsRef.current.delete(wait)
-        resolve(latestReplyTextRef.current())
-      }
-      const wait: ReplyWait = { settle }
-      const poller = setInterval(() => {
-        // The loop that asked is gone; nothing of its turn is worth waiting for.
-        if (shellRef.current !== owner) {
-          settle()
-          return
-        }
-        if (!turnActiveRef.current && (sawActive || Date.now() - startedAt > TURN_START_GRACE_MS)) {
-          settle()
-          return
-        }
-        if (turnActiveRef.current) {
-          sawActive = true
-        }
-        if (Date.now() - startedAt > TURN_SETTLE_TIMEOUT_MS) {
-          settle()
-        }
-      }, TURN_SETTLE_POLL_MS)
-      replyWaitsRef.current.add(wait)
-    })
+    if (shouldBounceMissingWorktree(worktreeId, controller.worktreeResolution)) {
+      host.exit()
+      return
+    }
+    if (
+      owner.paneKey !== undefined &&
+      !notificationPaneTab(controller.sessionTabs, owner.paneKey)
+    ) {
+      host.exit()
+    }
+  }, [owner, sessionKey, host, worktreeId, controller.worktreeResolution, controller.sessionTabs])
 
   const start = useCallback(() => {
-    if (shellRef.current !== null || startingLoopRef.current) {
-      return
-    }
-    if (speechRef.current === null) {
-      showToast(voiceModeCopy.notice('mic-unavailable'))
-      return
-    }
-    startingLoopRef.current = true
-    void (async () => {
-      // Each loop loads the persisted speaking toggles as it starts — not at the hook's mount — so a
-      // save made since the last loop, or one this phone had not read yet, is in force for this one.
-      // The loads answer unreadable storage with the defaults instead of rejecting, so this always runs.
-      const [bargeIn, fallbackReadout] = await Promise.all([
-        loadVoiceModeBargeIn(),
-        loadVoiceModeFallbackReadout()
-      ])
-      startingLoopRef.current = false
-      // The chat hid or the hook unmounted while the settings loaded; no loop may begin after either.
-      if (!mountedRef.current || !chatVisibleRef.current) {
-        return
-      }
-      // The speaking side's single owner for this loop; a shell without the tts verb stays silent, never broken.
-      const readout = createVoiceReadout({ playback: ttsRef.current })
-      readoutRef.current = readout
-      unsubscribeSpeakRef.current = subscribeSpeakRef.current((broadcast) => {
-        readoutRef.current?.briefingArrived(broadcast)
-      })
-      const next = new VoiceLoopShell({
-        now: Date.now,
-        // The page's dictation holds the recognizer wherever it started; voice mode refuses it, never steals it.
-        startSpeech: async () => {
-          if (dictationHoldsRecognizer(dictationHostRef.current.getDictation())) {
-            return { started: false, busy: true }
-          }
-          try {
-            const started = await speechRef.current!.start()
-            return started.started
-              ? { started: true, busy: false }
-              : { started: false, busy: started.reason === 'busy' }
-          } catch {
-            // A bridge refusal rejects; a start that cannot even ask reports unavailable, not busy.
-            return { started: false, busy: false }
-          }
-        },
-        cancelSpeech: () => speechRef.current?.cancel(),
-        readSpeech: () => speechRef.current!.read(),
-        openMic: async () => {
-          let opened: DictationCaptureOpen
-          try {
-            opened = await captureRef.current.open()
-          } catch {
-            // The capture contract lets a bridge refusal reject; that is a refused open here.
-            return false
-          }
-          if (!opened.ok) {
-            return false
-          }
-          try {
-            if (!captureRef.current.begin()) {
-              void captureRef.current.end()
-              return false
-            }
-          } catch {
-            // Native recording can throw part-way; treat it like a refused begin so the microphone is released.
-            void captureRef.current.end()
-            return false
-          }
-          return true
-        },
-        closeMic: () => {
-          try {
-            void captureRef.current.end()
-          } catch (err) {
-            // Cleanup must keep going when a synchronous seam throws, or the mic would leak.
-            console.error('Failed to close the voice-mode microphone', err)
-          }
-        },
-        holdScreen: () => nativeMicrophoneScreenLock.hold(),
-        releaseScreen: () => nativeMicrophoneScreenLock.release(),
-        readout,
-        // Both toggles are fixed for this loop's life: a change applies to the loop after this one.
-        bargeIn,
-        fallbackReadout,
-        send: async (text): Promise<VoiceLoopSendOutcome> => {
-          const accepted = await sendChatRef.current(text)
-          if (!accepted) {
-            return { sent: false }
-          }
-          return { sent: true, reply: await awaitReply(next) }
-        },
-        // A mid-turn utterance reroutes the turn the send started; idle speech still only ever sends.
-        steer: (text) => steerChatRef.current(text),
-        responseDelayMs: () => delaySecondsRef.current * 1000,
-        onState: setView,
-        onNotice: (notice) => showToast(voiceModeCopy.notice(notice))
-      })
-      shellRef.current = next
-      setShell(next)
-      void next.start()
-    })()
-  }, [showToast])
-
-  const tapPending = useCallback(() => shellRef.current?.tapPending(), [])
-  const stopSpeaking = useCallback(() => shellRef.current?.stopSpeaking(), [])
-  const exit = useCallback(() => {
-    shellRef.current?.exit()
-    settleReplyWaits()
-    stopSpeakSubscription()
-  }, [settleReplyWaits, stopSpeakSubscription])
-
-  // Leaving the chat tab ends the loop; the machine settles and the mic and screen release.
-  useEffect(() => {
-    if (shellRef.current !== null && !chat.showNativeChat) {
-      exit()
-    }
-  }, [chat.showNativeChat, exit])
-
-  // A closed loop is dropped so the next long press starts a fresh one; nothing of it may leak.
-  useEffect(() => {
-    if (shell !== null && view.route === 'closed') {
-      shell.dispose()
-      shellRef.current = null
-      setShell(null)
-      settleReplyWaits()
-      stopSpeakSubscription()
-    }
-  }, [shell, view.route, settleReplyWaits, stopSpeakSubscription])
-
-  useEffect(() => {
-    // A remount (StrictMode runs this twice) is live again; only a real teardown ends entry for good.
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      shellRef.current?.dispose()
-      shellRef.current = null
-      settleReplyWaits()
-      stopSpeakSubscription()
-    }
-  }, [settleReplyWaits, stopSpeakSubscription])
+    const active = controllerRef.current
+    const paneKey = mobileSessionTabPaneKey(active.activeSessionTab)
+    host.start({
+      instance,
+      sessionKey,
+      client: active.client,
+      href: workspaceRouteHref(
+        `/h/${encodeURIComponent(hostId)}/session/${encodeURIComponent(worktreeId)}${paneKey ? `?paneKey=${encodeURIComponent(paneKey)}` : ''}`,
+        executionHost
+      ),
+      paneKey,
+      title: active.activeSessionTab?.title ?? ''
+    })
+  }, [host, instance, sessionKey, hostId, worktreeId, executionHost])
 
   return {
-    view,
-    entryAvailable: speech !== null,
+    view: live.view,
+    entryAvailable: live.entryAvailable,
     start,
-    tapPending,
-    stopSpeaking,
-    exit
+    tapPending: host.tapPending,
+    stopSpeaking: host.stopSpeaking,
+    exit: host.exit
   }
 }
