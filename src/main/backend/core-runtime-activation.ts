@@ -286,6 +286,8 @@ export async function activateBackendRuntime(
   worktreeRemovalLifetime.resume(() => runtime.finishInterruptedWorktreeRemovals())
   startOrcadSchedulers(runtime, profileStore, registerCleanup)
   startOrcadDesktopPushService(runtime, rpc)
+  const { startOrcadSpeakEndpoint } = await import('../orcad/host-runtime/orcad-speak-endpoint')
+  startOrcadSpeakEndpoint(runtime, runtimeUserDataPath)
   console.error(`[orcad] ${describeOrcadBindExposure(bindHost)}`)
 
   const readiness = await buildOrcadServeReadiness({

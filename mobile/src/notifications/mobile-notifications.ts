@@ -117,6 +117,14 @@ export function subscribeToDesktopNotifications(client: RpcClient, hostId: strin
       void dismissHostPushNotification(event, hostId).catch(() => {})
     }
     if (!disposed && event.type === 'notification') {
+      if (event.source === 'speak') {
+        // Voice playback lands in a later ticket; this records the broadcast's arrival at the phone edge.
+        console.log('[speak] Broadcast arrived', {
+          text: event.body,
+          lang: event.speakLang,
+          session: event.speakSession
+        })
+      }
       void present(event).catch((error: unknown) => {
         console.warn('[push] Live notification presentation failed', error)
       })
