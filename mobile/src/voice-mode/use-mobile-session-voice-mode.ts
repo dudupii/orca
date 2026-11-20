@@ -37,6 +37,7 @@ export function useMobileSessionVoiceMode(
   controller: MobileSessionController
 ): MobileSessionVoiceMode {
   const host = useMobileVoiceModeHost()
+  const { attachScreen, bindChat, refresh } = host
   const executionHost = useWorkspaceExecutionHost()
   const { hostId, worktreeId, client, showToast } = controller
   const sessionKey = mobileVoiceSessionKey(hostId, executionHost, worktreeId)
@@ -86,7 +87,7 @@ export function useMobileSessionVoiceMode(
   // Register the screen: the loop's notices toast through it, and its chat comes back to the front through it.
   useEffect(
     () =>
-      host.attachScreen({
+      attachScreen({
         instance,
         sessionKey,
         shown: () => screenRef.current.shown,
@@ -105,14 +106,17 @@ export function useMobileSessionVoiceMode(
         },
         toast: (message) => screenRef.current.toast(message)
       }),
-    [host, instance, sessionKey]
+    [attachScreen, instance, sessionKey]
   )
 
   // Bind the seam while this screen stands; a rebound screen's different client re-runs the loop's speak subscription.
   useEffect(
-    () => host.bindChat({ instance, sessionKey, client, seam }),
-    [host, instance, sessionKey, client, seam]
+    () => bindChat({ instance, sessionKey, client, seam }),
+    [bindChat, instance, sessionKey, client, seam]
   )
+
+  // The pill reads shown() on the host's render.
+  useEffect(() => refresh(), [refresh, shown])
 
   const start = useCallback(() => {
     const active = controllerRef.current

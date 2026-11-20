@@ -33,10 +33,12 @@ import {
 } from './voice-mode-owner-liveness'
 import {
   MobileVoiceModeHostContext,
+  MobileVoiceModePillContext,
   type MobileVoiceModeChatBinding,
   type MobileVoiceModeHost,
   type MobileVoiceModeLive,
   type MobileVoiceModeOwner,
+  type MobileVoiceModePill,
   type MobileVoiceModeScreen
 } from './voice-mode-host-context'
 
@@ -92,6 +94,8 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   const [view, setView] = useState<VoiceLoopView>(IDLE_VIEW)
   const [owner, setOwner] = useState<MobileVoiceModeOwner | null>(null)
   const [shell, setShell] = useState<VoiceLoopShell | null>(null)
+  const [, setRevision] = useState(0)
+  const [awayToast, setAwayToast] = useState<string | null>(null)
   const shellRef = useRef<VoiceLoopShell | null>(null)
   const ownerRef = useRef<MobileVoiceModeOwner | null>(null)
   // The loop the entry is still loading settings for; a second entry in that window must not stack.
@@ -119,6 +123,11 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     dictationHostRef.current = dictationHost
   }, [speech, tts, capture, dictationHost])
 
+  // The pill's answers (a screen standing, its chat shown) live in refs the screens move; a
+  // revision re-renders the host so the pill reads them where they stand.
+  const refresh = useCallback(() => setRevision((revision) => revision + 1), [])
+  const clearAwayToast = useCallback(() => setAwayToast(null), [])
+
   useEffect(() => {
     void loadVoiceModeResponseDelaySeconds().then((seconds) => {
       delaySecondsRef.current = seconds
@@ -137,12 +146,15 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     subscribedClientRef.current = null
   }, [])
 
-  // Notices toast on the screen standing for the chat; a later piece gives the away case its pill.
+  // Notices toast on the screen standing for the chat; with none shown, the pill layer carries
+  // them as its own transient toast, so a loop left away still says what happened to it.
   const notice = useCallback((message: string) => {
     const screen = screenFor(screensRef.current, ownerRef.current)
     if (screen?.shown()) {
       screen.toast(message)
+      return
     }
+    setAwayToast(message)
   }, [])
 
   // The seam standing for the loop's chat: the binding of its own session that started it, else
@@ -437,12 +449,17 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     }
   }, [owner, exit, chatBinding])
 
-  const attachScreen = useCallback((screen: MobileVoiceModeScreen) => {
-    screensRef.current.add(screen)
-    return () => {
-      screensRef.current.delete(screen)
-    }
-  }, [])
+  const attachScreen = useCallback(
+    (screen: MobileVoiceModeScreen) => {
+      screensRef.current.add(screen)
+      refresh()
+      return () => {
+        screensRef.current.delete(screen)
+        refresh()
+      }
+    },
+    [refresh]
+  )
 
   const bindChat = useCallback(
     (binding: MobileVoiceModeChatBinding) => {
@@ -469,6 +486,18 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
       router.push(current.href)
     }
   }, [router])
+
+  // The pill stands in for the chat's overlay while the loop runs and the screen standing for the
+  // chat is not showing it — the same answer the notices and open() ride.
+  const running =
+    view.route === 'listening' || view.route === 'thinking' || view.route === 'speaking'
+  const away = owner !== null && running && screenFor(screensRef.current, owner)?.shown() !== true
+
+  // The pill's own slice, apart from the host's so a toast or a shown flip re-renders only the pill.
+  const pill = useMemo<MobileVoiceModePill>(
+    () => ({ away, toast: awayToast, clearToast: clearAwayToast }),
+    [away, awayToast, clearAwayToast]
+  )
 
   // Screens subscribe to the live loop; the host's context only changes when its view, owner or entry does.
   const listenersRef = useRef(new Set<() => void>())
@@ -499,20 +528,18 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
       stopSpeaking: () => shellRef.current?.stopSpeaking(),
       attachScreen,
       bindChat,
+      refresh,
       subscribe,
       getLive,
       open
     }),
-    [start, exit, attachScreen, bindChat, subscribe, getLive, open]
+    [start, exit, attachScreen, bindChat, refresh, subscribe, getLive, open]
   )
   return (
     <MobileVoiceModeHostContext.Provider value={value}>
-      {children}
+      <MobileVoiceModePillContext.Provider value={pill}>
+        {children}
+      </MobileVoiceModePillContext.Provider>
     </MobileVoiceModeHostContext.Provider>
   )
-}
-
-/** Where the persistent voice pill will mount, once its piece draws it; empty until then. */
-export function MobileVoiceModePillLayer(): null {
-  return null
 }

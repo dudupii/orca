@@ -75,6 +75,15 @@ export type MobileVoiceModeLive = {
   readonly entryAvailable: boolean
 }
 
+// The floating pill's own state, apart from the host's so a toast or a shown flip re-renders only the pill.
+export type MobileVoiceModePill = {
+  // True while the loop runs with its chat off screen: the pill stands in for the chat's overlay.
+  readonly away: boolean
+  // The notice that landed while no screen stood for the chat, shown as a toast until it clears.
+  readonly toast: string | null
+  readonly clearToast: () => void
+}
+
 export type MobileVoiceModeHost = {
   /** Starts the page's one loop from the chat screen that long-pressed the mic. */
   readonly start: (owner: MobileVoiceModeOwner) => void
@@ -86,6 +95,8 @@ export type MobileVoiceModeHost = {
   readonly attachScreen: (screen: MobileVoiceModeScreen) => () => void
   /** The mounted screen's chat seam, bound while it stands; the return unbinds it. */
   readonly bindChat: (binding: MobileVoiceModeChatBinding) => () => void
+  /** A screen's shown() answer changed; the pill reads it on the host's render. */
+  readonly refresh: () => void
   /** Brings the loop's chat back to the front, opening its session again when no screen stands. */
   readonly open: () => void
   readonly subscribe: (listener: () => void) => () => void
@@ -105,6 +116,7 @@ export type MobileVoiceModeChatBinding = {
 }
 
 export const MobileVoiceModeHostContext = createContext<MobileVoiceModeHost | null>(null)
+export const MobileVoiceModePillContext = createContext<MobileVoiceModePill | null>(null)
 
 export function useMobileVoiceModeHost(): MobileVoiceModeHost {
   const host = useContext(MobileVoiceModeHostContext)

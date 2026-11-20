@@ -200,6 +200,7 @@ function voiceHostFor(chat: MobileVoiceModeOwnerChat): MobileVoiceModeHost {
     stopSpeaking: () => {},
     attachScreen: () => () => {},
     bindChat: () => () => {},
+    refresh: () => {},
     subscribe: () => () => {},
     getLive: () => live,
     open: () => {}
