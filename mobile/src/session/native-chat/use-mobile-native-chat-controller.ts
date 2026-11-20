@@ -272,6 +272,7 @@ export function useMobileNativeChatController(args: {
       : chatImagePreviewsByMessageId,
     nativeChatSession,
     nativeChatStructured: activeChatStructured,
+    nativeChatStatus,
     nativeChatVisualSource: activeChatStructured ? structuredNativeChat.visualSource : null,
     nativeChatItemSource:
       activeChatStructured && agentSessionHostSupport?.itemDetail === true

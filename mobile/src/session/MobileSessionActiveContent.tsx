@@ -36,7 +36,7 @@ import { workspaceDraftRowKey } from '../drafts/durable-draft-rows'
 import { loadMarkdownPreviewImage } from '../files/markdown/mobile-markdown-image-source'
 import { useMobileSessionVoiceMode } from '../voice-mode/use-mobile-session-voice-mode'
 import { subscribeToSpeakBroadcasts } from '../voice-mode/speak-broadcast'
-import { latestNativeChatReplyText } from '../../../src/shared/native-chat/native-chat-streaming'
+import { resolveVoiceModeReplyText } from '../voice-mode/voice-reply-source'
 
 export function MobileSessionActiveContent({
   controller
@@ -126,7 +126,11 @@ export function MobileSessionActiveContent({
     subscribeSpeakBroadcasts: (onBroadcast) =>
       client ? subscribeToSpeakBroadcasts(client, onBroadcast) : () => {},
     latestReplyText: () =>
-      latestNativeChatReplyText(nativeChatController.nativeChatSession.messages),
+      resolveVoiceModeReplyText({
+        structured: nativeChatController.nativeChatStructured,
+        messages: nativeChatController.nativeChatSession.messages,
+        status: nativeChatController.nativeChatStatus
+      }),
     steer: (text) =>
       chatSendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
         (outcome) => ({ steered: outcome !== 'rejected' })
