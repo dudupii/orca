@@ -1,6 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
 import type { ExecutionHostId } from '../../../src/shared/execution-host'
+import { useWorkspaceExecutionHost } from '../navigation/workspace-execution-host'
 import type { VoiceLoopView } from './voice-loop-shell-contract'
 
 // Who started the voice loop and the chat it runs on, fixed at the start: leaving the screen never moves its words.
@@ -9,6 +10,8 @@ export type MobileVoiceModeOwner = {
   readonly instance: object
   readonly sessionKey: string
   readonly client: RpcClient | null
+  // The session's worktree, whose liveness the page's host probes while the loop runs on it.
+  readonly worktreeId: string
   // The session route that opens the chat again when its screen is gone.
   readonly href: string
   // The chat tab's pane key, for a screen still in the stack to switch back to it.
@@ -65,11 +68,14 @@ export type MobileVoiceModeHost = {
 }
 
 // One mounted screen's chat seam; the last bound stands for the loop's chat. The client rides the
-// binding so a rebound screen's different client re-runs the loop's speak subscription.
+// binding so a rebound screen's different client re-runs the loop's speak subscription, and the pane
+// key answers live so a screen whose tab moved cannot stand for a pane it no longer shows.
 export type MobileVoiceModeChatBinding = {
   readonly instance: object
   readonly sessionKey: string
   readonly client: RpcClient | null
+  /** The pane this screen's chat stands on now, read live through the controller. */
+  readonly paneKey: () => string | undefined
   readonly seam: MobileVoiceModeChatSeam
 }
 
@@ -100,6 +106,30 @@ export function useMobileVoiceModeOwnerSession(): string | null {
     useSyncExternalStore(host?.subscribe ?? subscribeNever, host?.getLive ?? (() => NO_VOICE)).owner
       ?.sessionKey ?? null
   )
+}
+
+/**
+ * The pane the page's voice loop runs on, when it runs on this session: the chat's identity stands
+ * on that pane while the loop holds it, even when the session's active tab moves off it. Null when
+ * the loop is on another session, on none, or started from no pane.
+ */
+export function useMobileVoiceModeOwnerPane(args: {
+  hostId: string
+  worktreeId: string
+}): string | null {
+  const host = useContext(MobileVoiceModeHostContext)
+  const executionHost = useWorkspaceExecutionHost()
+  const owner = useSyncExternalStore(
+    host?.subscribe ?? subscribeNever,
+    host?.getLive ?? (() => NO_VOICE)
+  ).owner
+  if (
+    owner === null ||
+    owner.sessionKey !== mobileVoiceSessionKey(args.hostId, executionHost, args.worktreeId)
+  ) {
+    return null
+  }
+  return owner.paneKey ?? null
 }
 
 // The session a voice loop runs on — its host, the server executing it, its worktree — as one key.

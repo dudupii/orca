@@ -15,6 +15,7 @@ import { useOnDeviceTts } from '../platform/tts/on-device-tts'
 import { useMobileDictationHost } from '../dictation/mobile-dictation-host-context'
 import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
 import { useRouteHandoff } from '../navigation/route-handoff'
+import type { RpcClient } from '../transport/rpc/rpc-client-contract'
 import {
   loadVoiceModeBargeIn,
   loadVoiceModeFallbackReadout,
@@ -26,6 +27,10 @@ import type { VoiceReadout } from './voice-readout-contract'
 import { subscribeToSpeakBroadcasts } from './speak-broadcast'
 import { VoiceLoopShell } from './voice-loop-shell'
 import type { VoiceLoopSendOutcome, VoiceLoopView } from './voice-loop-shell-contract'
+import {
+  VoiceModeOwnerLiveness,
+  VOICE_MODE_OWNER_LIVENESS_POLL_MS
+} from './voice-mode-owner-liveness'
 import {
   MobileVoiceModeHostContext,
   type MobileVoiceModeChatBinding,
@@ -99,6 +104,8 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   const unsubscribeSpeakRef = useRef<(() => void) | null>(null)
   const subscribedClientRef = useRef<unknown>(null)
   const replyWaitsRef = useRef(new Set<ReplyWait>())
+  // The newest client the loop's session was seen on, held across the unbound stretch.
+  const newestClientRef = useRef<RpcClient | null>(null)
   const screensRef = useRef(new Set<MobileVoiceModeScreen>())
   // The mounted screens' seams, last bound on top of each session; the loop rides its own session's.
   const bindingsRef = useRef<MobileVoiceModeChatBinding[]>([])
@@ -136,18 +143,29 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     }
   }, [])
 
-  // The seam standing for the loop's chat: the newest binding of its own session, never another
-  // session's screen stacked over it.
+  // The seam standing for the loop's chat: the binding of its own session that still shows the
+  // owner's pane, else the screen that started it with its pane held, else the session's newest —
+  // never another session's screen stacked over it, nor its own session's on another pane.
   const chatBinding = useCallback((): MobileVoiceModeChatBinding | null => {
     const owner = ownerRef.current
     const bindings = bindingsRef.current
-    for (let index = bindings.length - 1; index >= 0; index -= 1) {
-      const binding = bindings[index]!
-      if (owner === null || binding.sessionKey === owner.sessionKey) {
-        return binding
-      }
+    if (owner === null) {
+      return bindings.at(-1) ?? null
     }
-    return null
+    const own = bindings.filter((binding) => binding.sessionKey === owner.sessionKey)
+    if (own.length === 0) {
+      return null
+    }
+    const onOwnerPane =
+      owner.paneKey !== undefined
+        ? own.filter((binding) => binding.paneKey() === owner.paneKey)
+        : []
+    return (
+      onOwnerPane.at(-1) ??
+      own.find((binding) => binding.instance === owner.instance) ??
+      own.at(-1) ??
+      null
+    )
   }, [])
 
   // The chat seams answer together whenever the top binding changes: the reply polls resume or
@@ -157,9 +175,13 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     for (const wait of replyWaitsRef.current) {
       wait.setSeam(top !== null)
     }
-    // The broadcasts follow the newest client the loop's session was seen on: a rebound screen's
-    // fresher one when it differs, and the last one standing while no seam binds — only the loop
-    // itself ending drops them.
+    // The newest client the loop's session was seen on also carries its liveness probes, held while
+    // no seam binds so the watch keeps its wire across the unbound stretch.
+    if (top?.client != null) {
+      newestClientRef.current = top.client
+    }
+    // The broadcasts follow that client: a rebound screen's fresher one when it differs, and the
+    // last one standing while no seam binds — only the loop itself ending drops them.
     const client = top?.client ?? null
     if (client === null || client === subscribedClientRef.current || shellRef.current === null) {
       return
@@ -223,7 +245,13 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
           }
         }
       }
-      poller = setInterval(poll, TURN_SETTLE_POLL_MS)
+      // A send that resolved after its seam left finds none standing: the poll is born paused, so it
+      // can never run against no chat — only a rebind's clocks start it and its seam settles it.
+      if (chatBinding() === null) {
+        pausedAt = Date.now()
+      } else {
+        poller = setInterval(poll, TURN_SETTLE_POLL_MS)
+      }
       replyWaitsRef.current.add(wait)
     })
 
@@ -253,12 +281,6 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
         // The speaking side's single owner for this loop; a shell without the tts verb stays silent, never broken.
         const readout = createVoiceReadout({ playback: ttsRef.current })
         readoutRef.current = readout
-        if (next.client !== null) {
-          subscribedClientRef.current = next.client
-          unsubscribeSpeakRef.current = subscribeToSpeakBroadcasts(next.client, (broadcast) => {
-            readoutRef.current?.briefingArrived(broadcast)
-          })
-        }
         const loop = new VoiceLoopShell({
           now: Date.now,
           // The page's dictation holds the recognizer wherever it started; voice mode refuses it, never steals it.
@@ -338,6 +360,9 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
         ownerRef.current = next
         setShell(loop)
         setOwner(next)
+        // The settings load may straddle a client change on the starting screen; the newest client
+        // its session was seen on — not the one start captured — is the one the broadcasts follow.
+        bindingsChanged()
         void loop.start()
       })()
     },
@@ -356,6 +381,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
       shell.dispose()
       shellRef.current = null
       ownerRef.current = null
+      newestClientRef.current = null
       setShell(null)
       setOwner(null)
       settleReplyWaits()
@@ -369,11 +395,41 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
       shellRef.current?.dispose()
       shellRef.current = null
       ownerRef.current = null
+      newestClientRef.current = null
       settleReplyWaits()
       stopSpeakSubscription()
     },
     [settleReplyWaits, stopSpeakSubscription]
   )
+
+  // The loop must not outlive the pane or the worktree it runs on, and no screen of its session may
+  // be left holding that watch: the page asks the host server itself, bound or not, and only answers
+  // that agree twice end it — the loop ends with the screen and the microphone released.
+  useEffect(() => {
+    if (owner === null) {
+      return
+    }
+    const liveness = new VoiceModeOwnerLiveness(owner)
+    let stopped = false
+    const probe = async () => {
+      try {
+        const gone = await liveness.check(
+          chatBinding()?.client ?? newestClientRef.current ?? owner.client
+        )
+        if (!stopped && gone && ownerRef.current === owner) {
+          exit()
+        }
+      } catch {
+        // A probe that cannot even ask proves nothing; the next tick asks again.
+      }
+    }
+    void probe()
+    const interval = setInterval(() => void probe(), VOICE_MODE_OWNER_LIVENESS_POLL_MS)
+    return () => {
+      stopped = true
+      clearInterval(interval)
+    }
+  }, [owner, exit, chatBinding])
 
   const attachScreen = useCallback((screen: MobileVoiceModeScreen) => {
     screensRef.current.add(screen)

@@ -13,8 +13,7 @@ import {
   workspaceRouteHref
 } from '../navigation/workspace-execution-host'
 import { latestNativeChatReplyText } from '../../../src/shared/native-chat/native-chat-streaming'
-import { notificationPaneTab, mobileSessionTabPaneKey } from '../session/tabs/notification-pane-tab'
-import { shouldBounceMissingWorktree } from '../session/use-missing-worktree-bounce'
+import { mobileSessionTabPaneKey } from '../session/tabs/notification-pane-tab'
 import type { MobileSessionController } from '../session/use-mobile-session-controller'
 import { mobileVoiceSessionKey, useMobileVoiceModeHost } from './voice-mode-host-context'
 import type { MobileVoiceModeChatSeam } from './voice-mode-host-context'
@@ -33,7 +32,7 @@ export type MobileSessionVoiceMode = {
  * The session screen's side of voice mode: one loop owned by the page's host, outliving this
  * screen. While the screen stands it binds its chat's seam — sends, steering, the latest reply —
  * and registers itself as the loop's way back; unbinding holds the loop's words for the rebind.
- * The loop ends when its owning tab closes or its worktree bounces, never because the chat hid.
+ * The page's host watches the owner's pane and worktree, so this screen may come and go freely.
  */
 export function useMobileSessionVoiceMode(
   controller: MobileSessionController
@@ -113,26 +112,17 @@ export function useMobileSessionVoiceMode(
 
   // Bind the seam while this screen stands; a rebound screen's different client re-runs the loop's speak subscription.
   useEffect(
-    () => host.bindChat({ instance, sessionKey, client, seam }),
+    () =>
+      host.bindChat({
+        instance,
+        sessionKey,
+        client,
+        // The pane this screen's chat stands on now, so a screen whose tab moved cannot answer for the owner's.
+        paneKey: () => mobileSessionTabPaneKey(controllerRef.current.activeSessionTab),
+        seam
+      }),
     [host, instance, sessionKey, client, seam]
   )
-
-  // The loop's chat is gone — its owning tab closed, or its worktree bounced — so the loop ends, not outlives it.
-  useEffect(() => {
-    if (owner === null || owner.sessionKey !== sessionKey) {
-      return
-    }
-    if (shouldBounceMissingWorktree(worktreeId, controller.worktreeResolution)) {
-      host.exit()
-      return
-    }
-    if (
-      owner.paneKey !== undefined &&
-      !notificationPaneTab(controller.sessionTabs, owner.paneKey)
-    ) {
-      host.exit()
-    }
-  }, [owner, sessionKey, host, worktreeId, controller.worktreeResolution, controller.sessionTabs])
 
   const start = useCallback(() => {
     const active = controllerRef.current
@@ -141,6 +131,7 @@ export function useMobileSessionVoiceMode(
       instance,
       sessionKey,
       client: active.client,
+      worktreeId,
       href: workspaceRouteHref(
         `/h/${encodeURIComponent(hostId)}/session/${encodeURIComponent(worktreeId)}${paneKey ? `?paneKey=${encodeURIComponent(paneKey)}` : ''}`,
         executionHost
