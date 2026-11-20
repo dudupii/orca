@@ -24,3 +24,19 @@ export function mobileStructuredSendQueues(
     )
   )
 }
+
+/** One send's `delivery`: `queue-if-active` waits behind the running turn; undefined steers the message into it. */
+export function mobileStructuredSendDeliveryMode(
+  queueCapable: boolean,
+  queueFollowUps: boolean,
+  state: Pick<StructuredAgentSessionState, 'items' | 'currentRequests' | 'queuedMessages'>,
+  send: { alternate?: boolean; steer?: boolean; isWorking: boolean; stopping: boolean }
+): 'queue-if-active' | undefined {
+  // A steering injection reroutes the running turn ahead of every waiting card, so it never queues.
+  if (send.steer) {
+    return undefined
+  }
+  return mobileStructuredSendQueues(queueCapable, queueFollowUps, state, send)
+    ? 'queue-if-active'
+    : undefined
+}
