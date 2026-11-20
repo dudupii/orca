@@ -22,10 +22,8 @@ import { usePageOwnsHostArea } from '../../src/mobile-web-shell/routing/page-own
 import { isOverlayPageRoute } from '../../src/new-workspace/overlay-page-route'
 import { MobileDictationHostProvider } from '../../src/dictation/mobile-dictation-host'
 import { MobileDictationPillLayer } from '../../src/dictation/MobileDictationPill'
-import {
-  MobileVoiceModeHostProvider,
-  MobileVoiceModePillLayer
-} from '../../src/voice-mode/voice-mode-host'
+import { MobileVoiceModeHostProvider } from '../../src/voice-mode/voice-mode-host'
+import { MobileVoiceModePillLayer } from '../../src/voice-mode/MobileVoiceModePill'
 
 // Keep at least this much room for the detail pane when resizing the sidebar.
 const MIN_DETAIL_WIDTH = 320
