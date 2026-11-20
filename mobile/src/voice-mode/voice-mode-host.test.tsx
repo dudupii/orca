@@ -338,6 +338,7 @@ function fakeController(
     showToast,
     sessionTabs: overrides.sessionTabs ?? [],
     activeSessionTab: overrides.activeSessionTab ?? null,
+    showNativeChat: true,
     nativeChatController
   } as unknown as MobileSessionController
 }

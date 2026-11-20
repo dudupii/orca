@@ -50,9 +50,9 @@ export type MobileVoiceModeOwnerChat = {
 export type MobileVoiceModeScreen = {
   readonly instance: object
   readonly sessionKey: string
-  // True while this screen stands for the loop's chat (in front, its session's).
+  // True while this screen stands for the loop's chat: in front, its session's, its chat lane shown.
   readonly shown: () => boolean
-  // Pop the screens above this one and show the chat tab.
+  // Pop the screens above this one and show the chat tab, restoring its chat lane.
   readonly bringToFront: (paneKey: string | undefined) => void
   // Where the loop's notices toast while this screen shows the chat.
   readonly toast: (message: string) => void

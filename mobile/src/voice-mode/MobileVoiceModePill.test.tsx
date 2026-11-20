@@ -1,6 +1,6 @@
 // The pill that stands in for the chat while the voice loop runs elsewhere: the state it shows,
-// when it stands (away from the conversation only), where its taps go, and the notices it carries
-// while no screen stands to toast them.
+// when it stands (away from the conversation only — the screen gone, covered, or showing its
+// terminal), where its taps go, and the notices it carries while no screen shows the chat.
 import { createElement, useSyncExternalStore, type ReactElement } from 'react'
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -58,6 +58,7 @@ type Seam = {
   ttsStopCalls: number
   routerPushes: string[]
   navigations: unknown[]
+  tabViewSets: Array<[tabId: string, view: string]>
   worktreeMissing: boolean
   sessionTabs: LivenessTabsAnswer
 }
@@ -75,6 +76,7 @@ const seam = vi.hoisted((): Seam => ({
   ttsStopCalls: 0,
   routerPushes: [],
   navigations: [],
+  tabViewSets: [],
   worktreeMissing: false,
   sessionTabs: { tabs: [] }
 }))
@@ -463,6 +465,8 @@ type ControllerOverrides = {
   client?: RpcClient | null
   sessionTabs?: readonly MobileSessionTab[]
   activeSessionTab?: MobileSessionTab | null
+  /** The screen's chat lane: false is the terminal view hiding the chat overlay. */
+  showNativeChat?: boolean
 }
 
 function fakeController(
@@ -471,6 +475,9 @@ function fakeController(
   overrides: ControllerOverrides = {}
 ): MobileSessionController {
   const nativeChatController = {
+    setTabView: (tabId: string, view: string) => {
+      seam.tabViewSets.push([tabId, view])
+    },
     nativeChatVoiceSeam: {
       send,
       steer: () => Promise.resolve({ steered: false }),
@@ -486,6 +493,7 @@ function fakeController(
     showToast,
     sessionTabs: overrides.sessionTabs ?? [],
     activeSessionTab: overrides.activeSessionTab ?? null,
+    showNativeChat: overrides.showNativeChat ?? true,
     nativeChatController
   } as unknown as MobileSessionController
 }
@@ -608,6 +616,26 @@ async function startLoop(harness: HostHarness): Promise<void> {
   })
 }
 
+// Drive one heard utterance into a send that rejects once the chat has gone wherever the test
+// moves it, so the loop's send-failed notice lands wherever that leaves the routing.
+async function driveSendFailure(harness: HostHarness, goAway: () => void): Promise<void> {
+  seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(150)
+  })
+  let rejectSend: ((err: Error) => void) | null = null
+  harness.send.mockImplementation(() => new Promise<boolean>((_, reject) => (rejectSend = reject)))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1200 + 1500 + 100)
+  })
+  expect(harness.send).toHaveBeenCalledWith('hello')
+  goAway()
+  await act(async () => {
+    rejectSend?.(new Error('the chat refused the send'))
+    await flushEntry()
+  })
+}
+
 describe('MobileVoiceModePillLayer under the host', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -623,6 +651,7 @@ describe('MobileVoiceModePillLayer under the host', () => {
     seam.ttsStopCalls = 0
     seam.routerPushes.length = 0
     seam.navigations.length = 0
+    seam.tabViewSets.length = 0
     seam.worktreeMissing = false
     seam.sessionTabs = { tabs: [] }
     focus.inFront = true
@@ -650,6 +679,20 @@ describe('MobileVoiceModePillLayer under the host', () => {
     harness.blurScreen()
     expect(harness.pillTexts()).toContain('Listening…')
     harness.focusScreen()
+    expect(harness.pillPressables()).toBe(0)
+  })
+
+  it('stands while the focused screen shows its terminal instead of the chat', async () => {
+    const harness = mountPillHost()
+    await startLoop(harness)
+    expect(harness.pillPressables()).toBe(0)
+
+    // The user switches the chat tab to its terminal view: the chat overlay — the loop's own
+    // surface included — hides while the screen stays mounted and in front.
+    harness.refresh({ showNativeChat: false })
+    expect(harness.pillTexts()).toContain('Listening…')
+
+    harness.refresh({ showNativeChat: true })
     expect(harness.pillPressables()).toBe(0)
   })
 
@@ -681,6 +724,23 @@ describe('MobileVoiceModePillLayer under the host', () => {
     }
     expect(action.type).toBe('POP_TO')
     expect(action.payload.params?.paneKey).toBe(`tab-1:${leafId}`)
+    // The chat itself is what hides here — only the route covers it — so no view needs restoring.
+    expect(seam.tabViewSets).toEqual([])
+  })
+
+  it('taps back into the chat lane a focused screen left for its terminal', async () => {
+    const leafId = crypto.randomUUID()
+    const tab = terminalTab('tab-1', leafId)
+    const harness = mountPillHost()
+    harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
+    await startLoop(harness)
+    // The screen stays in front; only its chat lane is hidden behind the terminal view.
+    harness.refresh({ activeSessionTab: tab, sessionTabs: [tab], showNativeChat: false })
+    act(() => {
+      harness.pillPressable('Listening… in Tab tab-1')?.props.onPress()
+    })
+    expect(seam.navigations).toHaveLength(1)
+    expect(seam.tabViewSets).toEqual([['tab-1', 'chat']])
   })
 
   it('✕ ends the loop from away, releasing what it holds and touching nothing else', async () => {
@@ -705,23 +765,7 @@ describe('MobileVoiceModePillLayer under the host', () => {
   it('carries the loop notices as a toast while no screen stands', async () => {
     const harness = mountPillHost()
     await startLoop(harness)
-    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150)
-    })
-    let rejectSend: ((err: Error) => void) | null = null
-    harness.send.mockImplementation(
-      () => new Promise<boolean>((_, reject) => (rejectSend = reject))
-    )
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1200 + 1500 + 100)
-    })
-    expect(harness.send).toHaveBeenCalledWith('hello')
-    harness.unbindScreen()
-    await act(async () => {
-      rejectSend?.(new Error('chat gone with the screen'))
-      await flushEntry()
-    })
+    await driveSendFailure(harness, () => harness.unbindScreen())
     // The pill left with the loop; its toast still says why, wherever the user is now.
     expect(harness.pillPressables()).toBe(0)
     expect(harness.pillTexts()).toContain(SEND_FAILED)
@@ -730,5 +774,16 @@ describe('MobileVoiceModePillLayer under the host', () => {
       await vi.advanceTimersByTimeAsync(4000)
     })
     expect(harness.pillTexts()).not.toContain(SEND_FAILED)
+  })
+
+  it('carries the loop notices as a toast while the focused screen hides its chat', async () => {
+    const harness = mountPillHost()
+    await startLoop(harness)
+    // The screen stays mounted and in front; only its chat lane is hidden behind the terminal
+    // view, so a toast on that screen would say nothing — the pill layer carries the notice.
+    await driveSendFailure(harness, () => harness.refresh({ showNativeChat: false }))
+    expect(harness.pillPressables()).toBe(0)
+    expect(harness.pillTexts()).toContain(SEND_FAILED)
+    expect(harness.showToast).not.toHaveBeenCalled()
   })
 })

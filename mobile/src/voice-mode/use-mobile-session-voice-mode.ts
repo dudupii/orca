@@ -39,7 +39,7 @@ export function useMobileSessionVoiceMode(
   const host = useMobileVoiceModeHost()
   const { attachScreen, bindChat, refresh } = host
   const executionHost = useWorkspaceExecutionHost()
-  const { hostId, worktreeId, client, showToast } = controller
+  const { hostId, worktreeId, client, showToast, showNativeChat } = controller
   const sessionKey = mobileVoiceSessionKey(hostId, executionHost, worktreeId)
   const [instance] = useState(() => ({}))
   // The screen's own navigation: bringing it back pops what was pushed over it, never another session's screen.
@@ -58,7 +58,9 @@ export function useMobileSessionVoiceMode(
   const live = useSyncExternalStore(host.subscribe, host.getLive)
   const owner = live.owner
   // Before any loop exists this screen is the one in front; once one does, only its session's is.
-  const shown = inFront && (owner === null || owner.sessionKey === sessionKey)
+  // The chat must also be the screen's shown lane: its overlay carries the loop, so a tab switched
+  // to its terminal view hides the loop as thoroughly as a screen pushed over this one.
+  const shown = showNativeChat && inFront && (owner === null || owner.sessionKey === sessionKey)
 
   // The chat's seam, stable for the screen's life: it forwards to the controller's captured seam,
   // which the loop's captured identity mounts, so every verb rides the chat the mic was pressed on.
@@ -80,9 +82,11 @@ export function useMobileSessionVoiceMode(
       controllerRef.current.nativeChatController.nativeChatVoiceSeam?.latestReplyText() ?? ''
   }))
 
-  const screenRef = useRef({ shown, toast: showToast })
+  // The chat tab the loop runs on, when this screen's session owns it: the lane bringToFront restores.
+  const chatTabId = owner !== null && owner.sessionKey === sessionKey ? owner.tabId : undefined
+  const screenRef = useRef({ shown, toast: showToast, chatTabId })
   useLayoutEffect(() => {
-    screenRef.current = { shown, toast: showToast }
+    screenRef.current = { shown, toast: showToast, chatTabId }
   })
   // Register the screen: the loop's notices toast through it, and its chat comes back to the front through it.
   useEffect(
@@ -103,6 +107,13 @@ export function useMobileSessionVoiceMode(
             },
             target: current.getState()?.key
           })
+          // A screen left in front of its terminal view needs its chat lane back too, or the tap
+          // would return to the very terminal that hides the loop's own overlay.
+          const active = controllerRef.current
+          const restoreTabId = screenRef.current.chatTabId
+          if (restoreTabId && !active.showNativeChat) {
+            active.nativeChatController.setTabView(restoreTabId, 'chat')
+          }
         },
         toast: (message) => screenRef.current.toast(message)
       }),
@@ -115,7 +126,7 @@ export function useMobileSessionVoiceMode(
     [bindChat, instance, sessionKey, client, seam]
   )
 
-  // The pill reads shown() on the host's render.
+  // The pill reads shown() on the host's render; a chat-lane flip reaches it the same way.
   useEffect(() => refresh(), [refresh, shown])
 
   const start = useCallback(() => {

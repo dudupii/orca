@@ -252,6 +252,7 @@ function mountVoiceMode(): Harness {
     worktreeResolution: 'present',
     sessionTabs: [],
     activeSessionTab: null,
+    showNativeChat: true,
     nativeChatController: {
       handleNativeChatSend: send,
       handleNativeChatSendWithOutcome: sendWithOutcome,
