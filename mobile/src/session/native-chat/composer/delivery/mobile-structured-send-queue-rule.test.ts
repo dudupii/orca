@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentSessionQueuedMessage } from '../../../../../../src/shared/agent-session/requests/agent-session-queued-message-wire'
-import {
-  mobileStructuredSendDeliveryMode,
-  mobileStructuredSendQueues
-} from './mobile-structured-send-queue-rule'
+import { mobileStructuredSendDeliveryMode } from './mobile-structured-send-queue-rule'
 
-type QueueRuleState = Parameters<typeof mobileStructuredSendQueues>[2]
+type QueueRuleState = Parameters<typeof mobileStructuredSendDeliveryMode>[2]
 
 const idleChat: QueueRuleState = { items: [], currentRequests: [], queuedMessages: [] }
 
@@ -114,20 +111,23 @@ describe('mobileStructuredSendDeliveryMode', () => {
     ).toBeUndefined()
   })
 
-  it('matches the queues rule it wraps for a non-steering send', () => {
+  it('holds a working alternate to the capability gate, the flipped setting, and waiting cards', () => {
     const send = { alternate: true, isWorking: true, stopping: false }
-    for (const [queueCapable, queueFollowUps] of [
-      [true, true],
-      [true, false],
-      [false, true]
-    ] as const) {
-      for (const state of [idleChat, chatWithWaitingCommandCard()]) {
-        expect(mobileStructuredSendDeliveryMode(queueCapable, queueFollowUps, state, send)).toBe(
-          mobileStructuredSendQueues(queueCapable, queueFollowUps, state, send)
-            ? 'queue-if-active'
-            : undefined
-        )
-      }
-    }
+    // The working alternate flips the follow-ups setting, so follow-ups on sends into the turn.
+    expect(mobileStructuredSendDeliveryMode(true, true, idleChat, send)).toBeUndefined()
+    // ...unless a waiting command card still holds later sends behind it.
+    expect(mobileStructuredSendDeliveryMode(true, true, chatWithWaitingCommandCard(), send)).toBe(
+      'queue-if-active'
+    )
+    // The flipped-on alternate queues even with nothing waiting.
+    expect(mobileStructuredSendDeliveryMode(true, false, idleChat, send)).toBe('queue-if-active')
+    expect(mobileStructuredSendDeliveryMode(true, false, chatWithWaitingCommandCard(), send)).toBe(
+      'queue-if-active'
+    )
+    // A host that cannot queue never gets the flag, whatever waits or what the setting says.
+    expect(mobileStructuredSendDeliveryMode(false, true, idleChat, send)).toBeUndefined()
+    expect(
+      mobileStructuredSendDeliveryMode(false, true, chatWithWaitingCommandCard(), send)
+    ).toBeUndefined()
   })
 })
