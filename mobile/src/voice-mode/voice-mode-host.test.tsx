@@ -1,5 +1,6 @@
 // The host's side of the loop's lifetime: the screen comes and goes while the loop stands, its
-// words held unbound and re-armed by the rebind, until its tab closes or its worktree bounces.
+// words held unbound and re-armed by the rebind, until the host server proves its pane or
+// worktree gone — asked of the wire, so the watch outlives the screen that started it.
 import { createElement, StrictMode, useSyncExternalStore, type ReactElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,6 +26,8 @@ import { MobileVoiceModeHostProvider } from './voice-mode-host'
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import { voiceLaneAttached } from './voice-mode-host-context'
+import { VOICE_MODE_OWNER_LIVENESS_POLL_MS } from './voice-mode-owner-liveness'
+import { loadVoiceModeBargeIn } from '../storage/voice-mode-settings'
 import type { MobileSessionController } from '../session/use-mobile-session-controller'
 import type { MobileSessionTab } from '../session/tabs/mobile-session-tabs'
 import type {
@@ -33,6 +36,9 @@ import type {
 } from '../session/native-chat/composer/delivery/mobile-native-chat-send'
 
 type SpeakBroadcast = { text: string; lang: string | null; session: string | null }
+
+// What the fake client answers the liveness probe's session-tabs read with; 'refused' proves nothing.
+type LivenessTabsAnswer = { tabs: unknown[]; agentSessionsUnverifiable?: true } | 'refused'
 
 type Seam = {
   calls: string[]
@@ -52,6 +58,10 @@ type Seam = {
   speakSink: ((broadcast: SpeakBroadcast) => void) | null
   speakSubscribed: number
   speakUnsubscribed: number
+  speakClients: RpcClient[]
+  worktreeMissing: boolean
+  sessionTabs: LivenessTabsAnswer
+  livenessRequests: string[]
 }
 
 const seam = vi.hoisted((): Seam => ({
@@ -71,7 +81,11 @@ const seam = vi.hoisted((): Seam => ({
   navigations: [],
   speakSink: null,
   speakSubscribed: 0,
-  speakUnsubscribed: 0
+  speakUnsubscribed: 0,
+  speakClients: [],
+  worktreeMissing: false,
+  sessionTabs: { tabs: [] },
+  livenessRequests: []
 }))
 
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
@@ -182,10 +196,11 @@ vi.mock('expo-router', () => ({
 
 vi.mock('./speak-broadcast', () => ({
   subscribeToSpeakBroadcasts: (
-    _client: RpcClient,
+    client: RpcClient,
     onBroadcast: (broadcast: SpeakBroadcast) => void
   ) => {
     seam.speakSubscribed += 1
+    seam.speakClients.push(client)
     seam.speakSink = onBroadcast
     return () => {
       seam.speakUnsubscribed += 1
@@ -216,8 +231,38 @@ const HOST_ID = 'host-1'
 const WORKTREE_ID = 'wt-1'
 const SESSION_KEY = JSON.stringify([HOST_ID, null, WORKTREE_ID])
 
+// A connected client whose host server answers the liveness reads from the seam's state; anything
+// else it is asked answers empty, so only the liveness probes notice it.
 function fakeClient(): RpcClient {
-  return {} as RpcClient
+  return {
+    getState: () => 'connected',
+    sendRequest: async (method: string) => {
+      seam.livenessRequests.push(method)
+      if (method === 'worktree.show') {
+        return seam.worktreeMissing
+          ? {
+              id: 1,
+              ok: false,
+              error: { code: 'selector_not_found', message: 'selector_not_found' }
+            }
+          : { id: 1, ok: true, result: {} }
+      }
+      if (method === 'session.tabs.list') {
+        const answer = seam.sessionTabs
+        return answer === 'refused'
+          ? { id: 1, ok: false, error: { code: 'runtime_error', message: 'refused' } }
+          : {
+              id: 1,
+              ok: true,
+              result: {
+                tabs: answer.tabs,
+                ...(answer.agentSessionsUnverifiable ? { agentSessionsUnverifiable: true } : {})
+              }
+            }
+      }
+      return { id: 1, ok: true, result: null }
+    }
+  } as unknown as RpcClient
 }
 
 function terminalTab(id: string, leafId: string): MobileSessionTab {
@@ -231,11 +276,20 @@ function terminalTab(id: string, leafId: string): MobileSessionTab {
   }
 }
 
+// The wire shape the liveness read's session-tabs answer carries for a standing pane.
+function rawPaneTab(tab: {
+  type: string
+  id: string
+  title: string
+  leafId?: string
+}): Record<string, unknown> {
+  return { type: tab.type, id: tab.id, title: tab.title, isActive: true, leafId: tab.leafId }
+}
+
 type ControllerOverrides = {
   client?: RpcClient | null
   sessionTabs?: readonly MobileSessionTab[]
   activeSessionTab?: MobileSessionTab | null
-  worktreeResolution?: 'present' | 'missing' | 'unknown'
 }
 
 function fakeController(
@@ -275,7 +329,6 @@ function fakeController(
     worktreeId: WORKTREE_ID,
     client: overrides.client ?? fakeClient(),
     showToast,
-    worktreeResolution: overrides.worktreeResolution ?? 'present',
     sessionTabs: overrides.sessionTabs ?? [],
     activeSessionTab: overrides.activeSessionTab ?? null,
     nativeChatController
@@ -293,6 +346,8 @@ type Harness = {
   refresh: (overrides?: ControllerOverrides) => void
   unbindScreen: () => void
   rebindScreen: () => void
+  stackScreen: (tab: MobileSessionTab) => void
+  stackedSend: ReturnType<typeof vi.fn>
   broadcast: (broadcast: SpeakBroadcast) => void
   subscriptionLive: () => boolean
   unmount: () => void
@@ -303,6 +358,18 @@ function mountVoiceModeHost(options: { strict?: boolean } = {}): Harness {
   const send = vi.fn(async () => true)
   // The chat's send verb both loop paths ride; the steer intent is the only thing telling them apart.
   const sendWithOutcome = vi.fn(
+    async (
+      _text: string,
+      _images?: string[],
+      _deadline?: number,
+      _attachments?: readonly unknown[],
+      _sentAt?: number,
+      _intent?: MobileNativeChatSendIntent
+    ): Promise<MobileNativeChatSendOutcome> => seam.sendOutcome
+  )
+  // A stacked copy of the same session stands on another pane; its chat must never answer for the owner's.
+  const stackedSend = vi.fn(async () => true)
+  const stackedSendWithOutcome = vi.fn(
     async (
       _text: string,
       _images?: string[],
@@ -326,11 +393,17 @@ function mountVoiceModeHost(options: { strict?: boolean } = {}): Harness {
     getUnderway: () => dictation.isStarting || dictation.isRecording || dictation.isProcessing
   }
   let controller = fakeController(showToast, send, sendWithOutcome)
+  let stackedController: MobileSessionController | null = null
   let held: { voice: MobileSessionVoiceMode; open: () => void } | null = null
-  // Stays mounted across the screen's comings and goings, so the loop's view reads true while unbound.
+  // Stays mounted across the screens' comings and goings, so the loop's view reads true while unbound.
   let live: MobileVoiceModeLive | null = null
   function Probe(): null {
     held = { voice: useMobileSessionVoiceMode(controller), open: useMobileVoiceModeHost().open }
+    return null
+  }
+  // Mounted only while a stacked screen stands; its controller is set before the element exists.
+  function StackedProbe(): null {
+    useMobileSessionVoiceMode(stackedController ?? controller)
     return null
   }
   function Watcher(): null {
@@ -339,21 +412,29 @@ function mountVoiceModeHost(options: { strict?: boolean } = {}): Harness {
     return null
   }
   let renderer: ReactTestRenderer
-  const providers = (screen: ReactElement | null): ReactElement => {
+  let ownerScreen: ReactElement | null = createElement(Probe)
+  let stackedScreen: ReactElement | null = null
+  const providers = (): ReactElement => {
     const inner = createElement(
       MobileDictationHostContext.Provider,
       { value: dictationHost },
-      createElement(MobileVoiceModeHostProvider, null, createElement(Watcher), screen)
+      createElement(
+        MobileVoiceModeHostProvider,
+        null,
+        createElement(Watcher),
+        ownerScreen,
+        stackedScreen
+      )
     )
     return options.strict === true ? createElement(StrictMode, null, inner) : inner
   }
-  const swap = (screen: ReactElement | null) => {
+  const swap = () => {
     act(() => {
-      renderer.update(providers(screen))
+      renderer.update(providers())
     })
   }
   act(() => {
-    renderer = create(providers(createElement(Probe)))
+    renderer = create(providers())
   })
   return {
     voiceMode: () => {
@@ -378,12 +459,28 @@ function mountVoiceModeHost(options: { strict?: boolean } = {}): Harness {
     showToast,
     send,
     sendWithOutcome,
+    stackedSend,
     refresh: (overrides = {}) => {
       controller = fakeController(showToast, send, sendWithOutcome, overrides)
-      swap(createElement(Probe))
+      ownerScreen = createElement(Probe)
+      swap()
     },
-    unbindScreen: () => swap(null),
-    rebindScreen: () => swap(createElement(Probe)),
+    unbindScreen: () => {
+      ownerScreen = null
+      swap()
+    },
+    rebindScreen: () => {
+      ownerScreen = createElement(Probe)
+      swap()
+    },
+    stackScreen: (tab) => {
+      stackedController = fakeController(showToast, stackedSend, stackedSendWithOutcome, {
+        activeSessionTab: tab,
+        sessionTabs: [tab]
+      })
+      stackedScreen = createElement(StackedProbe)
+      swap()
+    },
     broadcast: (broadcast) => {
       act(() => {
         seam.speakSink?.(broadcast)
@@ -436,6 +533,10 @@ describe('MobileVoiceModeHostProvider', () => {
     seam.speakSink = null
     seam.speakSubscribed = 0
     seam.speakUnsubscribed = 0
+    seam.speakClients.length = 0
+    seam.worktreeMissing = false
+    seam.sessionTabs = { tabs: [] }
+    seam.livenessRequests.length = 0
   })
 
   afterEach(() => {
@@ -563,6 +664,51 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(harness.view().route).toBe('listening')
   })
 
+  it('freezes a reply poll whose send resolved after the unbind, settling only on the rebound seam', async () => {
+    seam.replyText = 'The reply that survived the unbind.'
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150)
+    })
+    // The send is in flight when its seam leaves; it accepts after the unbind, so its wait is born
+    // with no seam standing — born paused, or the grace window would settle it against nothing.
+    let releaseSend: ((accepted: boolean) => void) | null = null
+    harness.send.mockImplementation(
+      () => new Promise<boolean>((resolve) => (releaseSend = resolve))
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200 + 1500 + 100)
+    })
+    expect(harness.send).toHaveBeenCalledWith('hello')
+    harness.unbindScreen()
+    await act(async () => {
+      releaseSend?.(true)
+      await flushEntry()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000)
+    })
+    expect(harness.view().route).toBe('thinking')
+    expect(seam.ttsSpeakCalls).toEqual([])
+
+    // The rebind resumes the poll against the live seam; its settled turn speaks the real reply.
+    harness.rebindScreen()
+    seam.turnActive = true
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    seam.turnActive = false
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The reply that survived the unbind.', locale: null }
+    ])
+    expect(harness.view().route).toBe('listening')
+  })
+
   it('re-runs the speak subscription when a rebound screen carries a different client', async () => {
     const second = fakeClient()
     const harness = mountVoiceModeHost()
@@ -585,19 +731,52 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(seam.speakSubscribed).toBe(2)
   })
 
-  it('ends the loop when its tab closes, releasing the screen and the microphone', async () => {
+  it('subscribes the broadcasts on the client the settings load straddled in', async () => {
+    let releaseLoad: ((value: true) => void) | null = null
+    const gated = new Promise<true>((resolve) => (releaseLoad = resolve))
+    vi.mocked(loadVoiceModeBargeIn).mockReturnValue(gated)
+    const second = fakeClient()
+    const harness = mountVoiceModeHost()
+    await act(async () => {
+      harness.voiceMode().start()
+      await flushEntry()
+    })
+    expect(seam.speakSubscribed).toBe(0)
+
+    // The starting screen's client changed while the settings loaded; the broadcasts must follow
+    // the newest binding's client, not the one start captured.
+    harness.refresh({ client: second })
+    await act(async () => {
+      releaseLoad?.(true)
+      await flushEntry()
+    })
+    expect(seam.speakSubscribed).toBe(1)
+    expect(seam.speakClients[0]).toBe(second)
+
+    const third = fakeClient()
+    harness.refresh({ client: third })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150)
+    })
+    expect(seam.speakUnsubscribed).toBe(1)
+    expect(seam.speakSubscribed).toBe(2)
+    expect(seam.speakClients[1]).toBe(third)
+  })
+
+  it('ends the loop when its pane is proven closed, releasing the screen and the microphone', async () => {
     const leafId = crypto.randomUUID()
     const tab = terminalTab('tab-1', leafId)
     const harness = mountVoiceModeHost()
+    seam.sessionTabs = { tabs: [rawPaneTab(tab)] }
     harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
     await startLoop(harness)
     expect(harness.view().route).toBe('listening')
     expect(harness.owner()?.paneKey).toBe(`tab-1:${leafId}`)
 
-    // The owning tab closed: the loop must not outlive the chat it runs on.
-    harness.refresh({ activeSessionTab: tab, sessionTabs: [] })
+    // The owning pane closed: the host server's own answers end the loop, screen or not.
+    seam.sessionTabs = { tabs: [] }
     await act(async () => {
-      await flushEntry()
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)
     })
     expect(harness.view().route).toBe('closed')
     expect(seam.calls).toContain('screen.release')
@@ -606,15 +785,66 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(harness.subscriptionLive()).toBe(false)
   })
 
-  it('ends the loop when its worktree bounces as missing', async () => {
+  it('ends the loop when its worktree is proven missing', async () => {
     const harness = mountVoiceModeHost()
     await startLoop(harness)
-    harness.refresh({ worktreeResolution: 'missing' })
+    seam.worktreeMissing = true
     await act(async () => {
-      await flushEntry()
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)
     })
     expect(harness.view().route).toBe('closed')
     expect(seam.calls).toContain('screen.release')
+  })
+
+  it('ends the loop on a pane proven closed after its screen left, releasing what it holds', async () => {
+    const leafId = crypto.randomUUID()
+    const tab = terminalTab('tab-1', leafId)
+    const harness = mountVoiceModeHost()
+    seam.sessionTabs = { tabs: [rawPaneTab(tab)] }
+    harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
+    await startLoop(harness)
+    harness.unbindScreen()
+    // No screen stands for the chat anymore; only the page's own watch can see the pane go.
+    seam.sessionTabs = { tabs: [] }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)
+    })
+    expect(harness.view().route).toBe('closed')
+    expect(seam.calls).toContain('screen.release')
+    expect(seam.calls).toContain('speech.cancel')
+    expect(seam.calls).toContain('capture.end')
+    expect(harness.subscriptionLive()).toBe(false)
+  })
+
+  it('keeps the loop while the liveness reads cannot prove the pane or the worktree gone', async () => {
+    const leafId = crypto.randomUUID()
+    const tab = terminalTab('tab-1', leafId)
+    const harness = mountVoiceModeHost()
+    seam.sessionTabs = { tabs: [rawPaneTab(tab)] }
+    harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
+    await startLoop(harness)
+
+    // A missed pane read, a refused tabs answer, and one missing worktree read: none of it agrees
+    // twice, so nothing ends — the pane coming back resets it, as does the worktree.
+    seam.sessionTabs = { tabs: [] }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS)
+    })
+    seam.sessionTabs = 'refused'
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS)
+    })
+    seam.worktreeMissing = true
+    seam.sessionTabs = { tabs: [rawPaneTab(tab)] }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS)
+    })
+    seam.worktreeMissing = false
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)
+    })
+    expect(harness.view().route).toBe('listening')
+    expect(harness.subscriptionLive()).toBe(true)
   })
 
   it('brings the chat back through the mounted screen, or opens its route when none stands', async () => {
@@ -638,6 +868,24 @@ describe('MobileVoiceModeHostProvider', () => {
     }
     expect(action.type).toBe('POP_TO')
     expect(action.payload.params?.paneKey).toBe(`tab-1:${leafId}`)
+  })
+
+  it('keeps the loop sending on its owner pane when the same session stacks over another pane', async () => {
+    const leafId = crypto.randomUUID()
+    const otherLeaf = crypto.randomUUID()
+    const tab = terminalTab('tab-1', leafId)
+    const other = terminalTab('tab-2', otherLeaf)
+    const harness = mountVoiceModeHost()
+    seam.sessionTabs = { tabs: [rawPaneTab(tab), rawPaneTab(other)] }
+    harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
+    await startLoop(harness)
+
+    // A second screen of the same session, its chat on another pane, binds after the owner's; the
+    // loop's sends still ride the owner's pane, never the stacked screen's newer binding.
+    harness.stackScreen(other)
+    await speak(harness, 1, 'hello')
+    expect(harness.send).toHaveBeenCalledWith('hello')
+    expect(harness.stackedSend).not.toHaveBeenCalled()
   })
 
   it('starts one loop under StrictMode double-mounting and sends the words once', async () => {

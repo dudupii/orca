@@ -71,6 +71,45 @@
           }
         ]
       }
+    },
+    {
+      "files": ["src/voice-mode/voice-mode-host.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 428,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/voice-mode/voice-mode-host.test.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 817,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/__mocks__/mobile-prompt-controller.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 323,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
     }
   ]
 }

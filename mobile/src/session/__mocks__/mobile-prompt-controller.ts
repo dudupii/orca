@@ -1,5 +1,5 @@
 import './mobile-prompt-render-mocks'
-import { createElement } from 'react'
+import { createElement, useRef } from 'react'
 import { Pressable } from 'react-native'
 import type { NativeChatMessage } from '../../../../src/shared/native-chat/native-chat-types'
 import type { MobileNativeChatSendOutcome } from '../native-chat/composer/delivery/mobile-native-chat-send'
@@ -17,7 +17,13 @@ import { MobileNativeChatAsk } from '../native-chat/input/prompts/MobileNativeCh
 import type { AskAnswerSelection } from '../../../../src/shared/native-chat/input/questions/native-chat-ask-answer'
 import { mobileNativeChatPromptDismissals } from '../native-chat/input/prompts/mobile-native-chat-prompt-dismissals'
 import { setMobileNativeChatDraftText } from '../native-chat/composer/drafts/mobile-native-chat-draft-store'
+import { MobileNativeChatDraftDestination } from '../native-chat/composer/drafts/mobile-native-chat-draft-inputs'
 import type { MobileSessionVoiceMode } from '../../voice-mode/use-mobile-session-voice-mode'
+import {
+  mobileVoiceSessionKey,
+  MobileVoiceModeHostContext,
+  type MobileVoiceModeHost
+} from '../../voice-mode/voice-mode-host-context'
 export const visible = { value: true }
 const messages: NativeChatMessage[] = []
 export const session = {
@@ -73,7 +79,15 @@ vi.mock('../native-chat/composer/drafts/use-mobile-native-chat-drafts', () => ({
     appendComposerText: () => true,
     pending: [],
     imagePreviewsByMessageId: {},
-    captureSendOrigin: (text: string) => ({ draftKey: 'draft', normalizedText: text }),
+    captureSendOrigin: (text: string) => ({
+      draftKey: 'draft',
+      normalizedText: text,
+      draftDestination: new MobileNativeChatDraftDestination('draft'),
+      draftEditGeneration: 0,
+      pendingKey: null,
+      boundary: {},
+      sentAt: 0
+    }),
     readSeededLaunchDraft: () => null,
     readSeededLaunchDraftSeed: () => null,
     clearDraftForSend: vi.fn(),
@@ -155,8 +169,39 @@ type HarnessProps = {
   tabId?: string
   connState?: ConnectionState
   hostId?: string
+  /** The pane the page's voice loop runs on, when one does; null keeps the harness hostless. */
+  voiceOwnerPane?: string | null
 }
-function Harness(props: HarnessProps) {
+// A host whose loop runs on the given pane of this harness's session: enough of an owner for the
+// chat resolution to pin the pane's chat while the session's active tab moves off it.
+function voiceHostFor(paneKey: string): MobileVoiceModeHost {
+  const live = {
+    view: idleVoiceMode.view,
+    owner: {
+      instance: {},
+      sessionKey: mobileVoiceSessionKey('host', undefined, 'folder:work'),
+      client: null,
+      worktreeId: 'folder:work',
+      href: '',
+      paneKey,
+      title: ''
+    },
+    entryAvailable: false
+  }
+  return {
+    start: () => {},
+    exit: () => {},
+    tapPending: () => {},
+    stopSpeaking: () => {},
+    attachScreen: () => () => {},
+    bindChat: () => () => {},
+    subscribe: () => () => {},
+    getLive: () => live,
+    open: () => {}
+  }
+}
+// The controller runs below any voice host provider, so its chat resolution sees the loop's pane.
+function ChatScreen(props: HarnessProps) {
   const { tab = baseTab, tabId = 'tab-1', connState = 'connected', hostId = 'host' } = props
   const current = useMobileNativeChatController({
     client,
@@ -204,6 +249,30 @@ function Harness(props: HarnessProps) {
     keyboardInset: 0,
     hostName: null
   })
+}
+
+function Harness(props: HarnessProps) {
+  const { voiceOwnerPane = null } = props
+  // The stub stays one object while the pane stands — the store's snapshot must be stable — and is
+  // rebuilt when the pane moves or the loop ends.
+  const voiceHostRef = useRef<{ paneKey: string | null; host: MobileVoiceModeHost | null }>({
+    paneKey: null,
+    host: null
+  })
+  if (voiceOwnerPane !== voiceHostRef.current.paneKey) {
+    voiceHostRef.current = {
+      paneKey: voiceOwnerPane,
+      host: voiceOwnerPane === null ? null : voiceHostFor(voiceOwnerPane)
+    }
+  }
+  const screen = createElement(ChatScreen, props)
+  return voiceHostRef.current.host === null
+    ? screen
+    : createElement(
+        MobileVoiceModeHostContext.Provider,
+        { value: voiceHostRef.current.host },
+        screen
+      )
 }
 export async function render(props: HarnessProps = lastProps ?? {}) {
   lastProps = props

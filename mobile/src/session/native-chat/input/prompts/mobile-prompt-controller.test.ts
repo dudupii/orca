@@ -19,8 +19,11 @@ import {
   sendButton,
   permissionAction,
   getController,
-  askAnswer
+  askAnswer,
+  visible,
+  sendError
 } from '../../../__mocks__/mobile-prompt-controller'
+import { mobileSessionTabPaneKey } from '../../../tabs/notification-pane-tab'
 
 const client: RpcClient = {
   sendRequest: vi.fn<RpcClient['sendRequest']>(),
@@ -147,5 +150,62 @@ describe('async occurrences through the phone controller and rendered card actio
       await expect(askAnswer([{ indices: [1] }])).rejects.toThrow('send failed')
     })
     expect(titles()).toEqual(['Q1?'])
+  })
+})
+
+describe('the voice loop holds its chat on the pane it started on', () => {
+  const structuredTab = {
+    type: 'agent-session',
+    id: 'tab-1',
+    title: 'Chat',
+    sessionId: 'session-1',
+    agent: 'codex',
+    isActive: true
+  }
+  const paneKey = mobileSessionTabPaneKey(structuredTab)
+  // The lane mock's send verb is typed without arguments; its calls carry the spoken text first.
+  const sentText = (call: number): string =>
+    (structuredSession.sendWithOutcome.mock.calls[call] as unknown as [string])[0]
+
+  it('sends the held words to the structured chat while the active tab moves off it', async () => {
+    await render({ tab: structuredTab, voiceOwnerPane: paneKey })
+    expect(getController().nativeChatStructured).toBe(true)
+    await act(async () => {
+      await getController().handleNativeChatSend('held words')
+    })
+    expect(sentText(0)).toBe('held words')
+
+    // The session's active tab leaves the chat and the overlay hides; the loop's lane and its
+    // identity stand, so its sends keep riding the pane's structured chat.
+    visible.value = false
+    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerPane: paneKey })
+    expect(getController().showNativeChat).toBe(false)
+    expect(getController().nativeChatStructured).toBe(true)
+    await act(async () => {
+      await getController().handleNativeChatSend('more held words')
+    })
+    expect(sentText(1)).toBe('more held words')
+    expect(sendError).not.toHaveBeenCalled()
+  })
+
+  it('releases the held chat when the loop ends, returning sends to the visible tab', async () => {
+    await render({ tab: structuredTab, voiceOwnerPane: paneKey })
+    visible.value = false
+    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerPane: paneKey })
+    expect(getController().nativeChatStructured).toBe(true)
+
+    // The pane's loop is gone; nothing holds the chat anymore.
+    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerPane: null })
+    expect(getController().showNativeChat).toBe(false)
+    expect(getController().nativeChatStructured).toBe(false)
+    await act(async () => {
+      await getController().handleNativeChatSend('after words')
+    })
+    expect(structuredSession.sendWithOutcome).not.toHaveBeenCalled()
+    expect(client.sendRequest).toHaveBeenCalledWith(
+      'terminal.send',
+      expect.objectContaining({ text: 'after words' }),
+      expect.any(Object)
+    )
   })
 })
