@@ -29,6 +29,7 @@ type Seam = {
   ttsStatus: OnDeviceTtsChannelStatus
   ttsSpeakCalls: { text: string; locale: string | null }[]
   ttsStopCalls: number
+  sendOutcome: MobileNativeChatSendOutcome
 }
 
 const seam = vi.hoisted((): Seam => ({
@@ -42,7 +43,8 @@ const seam = vi.hoisted((): Seam => ({
   ttsAvailable: true,
   ttsStatus: 'done',
   ttsSpeakCalls: [],
-  ttsStopCalls: 0
+  ttsStopCalls: 0,
+  sendOutcome: 'accepted'
 }))
 
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
@@ -139,6 +141,10 @@ vi.mock('../storage/voice-mode-settings', () => ({
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import { loadVoiceModeBargeIn, loadVoiceModeFallbackReadout } from '../storage/voice-mode-settings'
+import type {
+  MobileNativeChatSendIntent,
+  MobileNativeChatSendOutcome
+} from '../session/native-chat/composer/delivery/mobile-native-chat-send'
 
 function fakeDictation(recording: boolean): UseMobileDictationResult {
   return {
@@ -162,6 +168,7 @@ type Harness = {
   voiceMode: () => MobileSessionVoiceMode
   showToast: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
+  sendWithOutcome: ReturnType<typeof vi.fn>
   setDictationBusy: (busy: boolean) => void
   setTurnActive: (active: boolean) => void
   broadcast: (broadcast: { text: string; lang: string | null; session: string | null }) => void
@@ -172,6 +179,17 @@ type Harness = {
 function mountVoiceMode(): Harness {
   const showToast = vi.fn()
   const send = vi.fn(async () => true)
+  // The chat's send verb both loop paths ride; the steer intent is the only thing telling them apart.
+  const sendWithOutcome = vi.fn(
+    async (
+      _text: string,
+      _images?: string[],
+      _deadline?: number,
+      _attachments?: readonly unknown[],
+      _sentAt?: number,
+      _intent?: MobileNativeChatSendIntent
+    ): Promise<MobileNativeChatSendOutcome> => seam.sendOutcome
+  )
   let dictation = fakeDictation(false)
   const host: MobileDictationHost = {
     owner: null,
@@ -192,6 +210,11 @@ function mountVoiceMode(): Harness {
   function Probe(): null {
     voiceMode = useMobileSessionVoiceMode(showToast, {
       handleNativeChatSend: send,
+      // The production seam shape: steering is the chat's send verb carrying the steer intent.
+      steer: (text) =>
+        sendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
+          (outcome) => ({ steered: outcome !== 'rejected' })
+        ),
       nativeChatTurnActive: seam.turnActive,
       showNativeChat: true,
       subscribeSpeakBroadcasts: (onBroadcast) => {
@@ -222,6 +245,7 @@ function mountVoiceMode(): Harness {
     },
     showToast,
     send,
+    sendWithOutcome,
     setDictationBusy: (busy) => {
       dictation = fakeDictation(busy)
     },
@@ -276,6 +300,7 @@ describe('useMobileSessionVoiceMode', () => {
     seam.ttsStatus = 'done'
     seam.ttsSpeakCalls.length = 0
     seam.ttsStopCalls = 0
+    seam.sendOutcome = 'accepted'
   })
 
   afterEach(() => {
@@ -553,5 +578,52 @@ describe('useMobileSessionVoiceMode', () => {
     })
     expect(seam.ttsSpeakCalls).toEqual([])
     expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('hands mid-turn speech to the chat steer verb with the steer intent, never a second send', async () => {
+    seam.turnActive = true
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    expect(harness.send).toHaveBeenCalledWith('hello')
+    expect(harness.sendWithOutcome).not.toHaveBeenCalled()
+
+    seam.read = { revision: 2, committed: 'hello no wait', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 1200 + 1500)
+    })
+    expect(harness.sendWithOutcome).toHaveBeenCalledOnce()
+    const call = vi.mocked(harness.sendWithOutcome).mock.calls[0]
+    expect(call[0]).toBe('no wait')
+    expect(call[5]).toEqual({ steer: true })
+    // The running turn was rerouted, not re-sent: still exactly one send, loop still on the turn.
+    expect(harness.send).toHaveBeenCalledOnce()
+    expect(harness.voiceMode().view.route).toBe('thinking')
+  })
+
+  it('never steers when idle speech starts the turn: one send through the plain chat send', async () => {
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    expect(harness.send).toHaveBeenCalledWith('hello')
+
+    // The turn never reported active; the grace window settles it and the loop listens again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000)
+    })
+    expect(harness.voiceMode().view.route).toBe('listening')
+    expect(harness.sendWithOutcome).not.toHaveBeenCalled()
+  })
+
+  it('a steer the chat refuses stops the loop with a visible notice', async () => {
+    seam.turnActive = true
+    seam.sendOutcome = 'rejected'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    seam.read = { revision: 2, committed: 'hello go left', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 1200 + 1500)
+    })
+
+    expect(harness.showToast).toHaveBeenCalledOnce()
+    expect(harness.voiceMode().view.route).toBe('closed')
   })
 })

@@ -8,8 +8,10 @@ import { condenseReplyForReadout } from './fallback-prose-extractor'
  * echo, not the user, and is refused. A reply carries either a model-authored briefing,
  * spoken verbatim, or the reply's own condensed prose; with neither, or with the fallback
  * muted by its setting, there is nothing to say and the loop returns to listening without
- * playback. Time comes only from the injected clock; later platform tickets bind this
- * machine and never extend its table.
+ * playback. Speech while the loop's own turn runs is steering: held across pauses shorter
+ * than the silence window, then injected into the running turn when the window closes or a
+ * tap flushes it — and dropped if the reply lands first. Time comes only from the injected
+ * clock; later platform tickets bind this machine and never extend its table.
  */
 export type VoiceLoopRoute = 'idle' | 'listening' | 'thinking' | 'speaking' | 'closed'
 
@@ -20,6 +22,8 @@ export type VoiceLoopState = {
   visibility: VoiceLoopVisibility
   /** Speech chunks kept across pauses shorter than the silence window, merged at send time. */
   buffer: string[]
+  /** Mid-turn speech kept while the loop's own turn runs, merged at steer time. */
+  steering: string[]
   /** When the last accepted speech happened; the silence window counts from it. */
   lastSpeechAt: number | null
   /** Speech strictly before this time is echo of stopped playback, never the user. */
@@ -50,6 +54,7 @@ export type VoiceLoopEvent =
 
 export type VoiceLoopEffect =
   | { kind: 'send'; text: string }
+  | { kind: 'steer'; text: string }
   | { kind: 'speak'; text: string; locale?: string }
   | { kind: 'stopPlayback' }
 
@@ -83,6 +88,7 @@ export function initialVoiceLoopState(): VoiceLoopState {
     route: 'idle',
     visibility: 'foreground',
     buffer: [],
+    steering: [],
     lastSpeechAt: null,
     echoUntil: null
   }
@@ -120,6 +126,14 @@ export function voiceLoopTransition(
       if (state.echoUntil !== null && at < state.echoUntil) {
         return refused(state, 'echo')
       }
+      if (state.route === 'thinking') {
+        // The loop's own turn is running; the words steer it once the window closes.
+        return moved({
+          ...state,
+          steering: [...state.steering, event.text.trim()],
+          lastSpeechAt: at
+        })
+      }
       if (state.route === 'speaking' && deps.bargeIn === false) {
         // The setting asks for uninterrupted playback; the words spoken over it are dropped, not buffered.
         return refused(state, 'barge-in-disabled')
@@ -134,6 +148,15 @@ export function voiceLoopTransition(
       return moved(buffered)
     }
     case 'silence': {
+      if (state.route === 'thinking') {
+        if (!state.steering.length) {
+          return refused(state, 'unexpected-event')
+        }
+        if (state.lastSpeechAt === null || at < state.lastSpeechAt + thresholds.silenceWindowMs) {
+          return moved(state)
+        }
+        return steerBuffered(state)
+      }
       if (state.route !== 'listening') {
         return refused(state, 'unexpected-event')
       }
@@ -146,6 +169,12 @@ export function voiceLoopTransition(
       return sendBuffered(state)
     }
     case 'send': {
+      if (state.route === 'thinking') {
+        if (!state.steering.length) {
+          return refused(state, 'empty-send')
+        }
+        return steerBuffered(state)
+      }
       if (state.route !== 'listening') {
         return refused(state, 'unexpected-event')
       }
@@ -158,6 +187,14 @@ export function voiceLoopTransition(
       if (state.route !== 'thinking') {
         return refused(state, 'unexpected-event')
       }
+      // Late steering cannot catch this turn; the held words are dropped, not steered.
+      const dropped: VoiceLoopState = {
+        ...state,
+        route: 'speaking',
+        echoUntil: null,
+        steering: [],
+        lastSpeechAt: null
+      }
       // A model-authored briefing is spoken verbatim; without one the reply's condensed prose is the readout,
       // unless the fallback setting mutes it.
       const readout =
@@ -168,9 +205,9 @@ export function voiceLoopTransition(
             : condenseReplyForReadout(event.text)
       if (!readout) {
         // Nothing authored and no prose to read: silence, never a stalled loop.
-        return moved({ ...state, route: 'listening' })
+        return moved({ ...dropped, route: 'listening' })
       }
-      return moved({ ...state, route: 'speaking', echoUntil: null }, [
+      return moved(dropped, [
         {
           kind: 'speak',
           text: readout,
@@ -193,6 +230,13 @@ export function voiceLoopTransition(
 function sendBuffered(state: VoiceLoopState): VoiceLoopOutcome {
   return moved({ ...state, route: 'thinking', buffer: [], lastSpeechAt: null }, [
     { kind: 'send', text: state.buffer.filter(Boolean).join(' ') }
+  ])
+}
+
+/** Steers the running turn with the held words; the loop stays in thinking. */
+function steerBuffered(state: VoiceLoopState): VoiceLoopOutcome {
+  return moved({ ...state, steering: [], lastSpeechAt: null }, [
+    { kind: 'steer', text: state.steering.filter(Boolean).join(' ') }
   ])
 }
 

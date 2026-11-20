@@ -34,9 +34,11 @@ export type MobileSessionVoiceMode = {
   exit: () => void
 }
 
-/** The chat seams the loop rides: sending, the running turn, the chat's visibility, its latest reply, and the host's speak broadcasts. */
+/** The chat seams the loop rides: sending, steering the running turn, the chat's visibility, its latest reply, and the host's speak broadcasts. */
 export type VoiceModeChatSeam = {
   handleNativeChatSend: (text: string, images?: string[]) => Promise<boolean>
+  /** Reroutes the running turn with a mid-turn utterance; false reports the chat refused it. */
+  steer: (text: string) => Promise<{ steered: boolean }>
   nativeChatTurnActive: boolean
   showNativeChat: boolean
   /** The host's speak broadcasts, the same notifications stream the push path reads. */
@@ -71,6 +73,7 @@ export function useMobileSessionVoiceMode(
   const ttsRef = useRef(tts)
   const captureRef = useRef(capture)
   const sendChatRef = useRef((text: string) => chat.handleNativeChatSend(text))
+  const steerChatRef = useRef((text: string) => chat.steer(text))
   const turnActiveRef = useRef(chat.nativeChatTurnActive)
   const dictationHostRef = useRef(dictationHost)
   const delaySecondsRef = useRef(1.5)
@@ -91,6 +94,7 @@ export function useMobileSessionVoiceMode(
     ttsRef.current = tts
     captureRef.current = capture
     sendChatRef.current = (text: string) => chat.handleNativeChatSend(text)
+    steerChatRef.current = (text: string) => chat.steer(text)
     turnActiveRef.current = chat.nativeChatTurnActive
     dictationHostRef.current = dictationHost
     latestReplyTextRef.current = chat.latestReplyText
@@ -238,6 +242,8 @@ export function useMobileSessionVoiceMode(
           }
           return { sent: true, reply: await awaitReply(next) }
         },
+        // A mid-turn utterance reroutes the turn the send started; idle speech still only ever sends.
+        steer: (text) => steerChatRef.current(text),
         responseDelayMs: () => delaySecondsRef.current * 1000,
         onState: setView,
         onNotice: (notice) => showToast(voiceModeCopy.notice(notice))

@@ -22,7 +22,7 @@ import {
 import { translate } from '../../../../i18n/mobile-i18n'
 import type { AgentSessionSlashCommand } from '../../../../../../src/shared/agent-session/agent-session-wire'
 import type { StructuredAgentSessionState } from '../../../../../../src/shared/agent-session/structured-agent-session-reducer'
-import { mobileStructuredSendQueues } from './mobile-structured-send-queue-rule'
+import { mobileStructuredSendDeliveryMode } from './mobile-structured-send-queue-rule'
 import type { RpcClient } from '../../../../transport/rpc/rpc-client-contract'
 import type {
   MobileNativeChatSendIntent,
@@ -237,6 +237,18 @@ export function useMobileStructuredSendWithOutcome(args: {
       }
       accept(send, images)
       intent?.onCreated?.(send.clientMessageId)
+      // Resolved from the chat as it is now: a hold-menu choice made mid-turn may land after it.
+      const delivery = mobileStructuredSendDeliveryMode(
+        queueCapable,
+        queueFollowUps,
+        stateRef.current,
+        {
+          alternate: intent?.alternate,
+          steer: intent?.steer,
+          isWorking: mobileStructuredAgentSessionWorking(stateRef.current) || queueSendsNext,
+          stopping
+        }
+      )
       const outcome = await sendsOut.trackSend(sendMobileStructuredAgentSessionMessage)({
         client,
         sessionId,
@@ -244,14 +256,7 @@ export function useMobileStructuredSendWithOutcome(args: {
         text: wireText,
         attachments: imageAttachments,
         skills,
-        // Resolved from the chat as it is now: a hold-menu choice made mid-turn may land after it.
-        ...(mobileStructuredSendQueues(queueCapable, queueFollowUps, stateRef.current, {
-          alternate: intent?.alternate,
-          isWorking: mobileStructuredAgentSessionWorking(stateRef.current) || queueSendsNext,
-          stopping
-        })
-          ? { delivery: 'queue-if-active' as const }
-          : {}),
+        ...(delivery !== undefined ? { delivery } : {}),
         ...captured,
         ...(intent?.usageLimitContinuationOfTurnItemId
           ? { usageLimitContinuationOfTurnItemId: intent.usageLimitContinuationOfTurnItemId }

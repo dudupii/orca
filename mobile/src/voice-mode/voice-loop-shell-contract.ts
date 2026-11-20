@@ -25,6 +25,8 @@ export type VoiceLoopShellDeps = {
   /** Read at loop start; false mutes the reply's fallback prose. An authored briefing still speaks. */
   readonly fallbackReadout?: boolean
   readonly send: (text: string) => Promise<VoiceLoopSendOutcome>
+  /** Reroutes the turn the loop is running with a mid-turn utterance; false reports the chat refused it. */
+  readonly steer: (text: string) => Promise<{ steered: boolean }>
   readonly responseDelayMs: () => number
   readonly onState: (view: VoiceLoopView) => void
   readonly onNotice: (notice: VoiceLoopNotice) => void
