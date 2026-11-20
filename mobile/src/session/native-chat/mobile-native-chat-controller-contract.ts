@@ -33,6 +33,7 @@ import type { useMobileNativeChatSession } from './conversation/use-mobile-nativ
 import type { MobileNativeChatSessionOptionPickersProps } from './input/session-options/MobileNativeChatSessionOptionPickers'
 import type { MobileNativeChatVisualSource } from './visual/mobile-native-chat-visual-read'
 import type { NativeChatContextUsageSummary } from '../../../../src/shared/native-chat/native-chat-context-usage-summary'
+import type { AgentStatusEntry } from '../../../../src/shared/agent-status/contracts/agent-status-types'
 import type { useMobileStructuredSessionCommands } from './composer/commands/use-mobile-structured-session-commands'
 import type { MobileNativeChatUsageLimit } from './status/use-mobile-native-chat-usage-limit'
 
@@ -54,6 +55,8 @@ export type MobileNativeChatController = {
   chatImagePreviewsByMessageId: Record<string, string[]>
   nativeChatSession: ReturnType<typeof useMobileNativeChatSession>
   nativeChatStructured: boolean
+  /** The terminal chat's live status row — the one its terminal turn reads; null on structured chats. */
+  nativeChatStatus: AgentStatusEntry | null | undefined
   nativeChatVisualSource: MobileNativeChatVisualSource | null
   nativeChatItemSource: MobileNativeChatVisualSource | null
   /** The paired desktop's CI result lines setting; false until it reports one. */
