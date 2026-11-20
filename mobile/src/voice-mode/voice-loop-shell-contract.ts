@@ -2,6 +2,7 @@ import type {
   VoiceLoopRoute,
   VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
+import type { OnDeviceTone } from '../platform/tone/on-device-tone-contract'
 import type { VoiceReadout } from './voice-readout-contract'
 
 export type { VoiceLoopRoute } from '../../../src/shared/voice/voice-loop-machine'
@@ -20,6 +21,8 @@ export type VoiceLoopShellDeps = {
   readonly releaseScreen: () => void
   /** The speaking side's single owner: the shell plays the machine's words through it and stops it on barge-in or exit. */
   readonly readout: VoiceReadout
+  /** The restore chime's player; null when the page lacks the verb grant, and a restore stays silent. */
+  readonly tone?: OnDeviceTone | null
   /** Read at loop start; false keeps speech from cutting playback. A tap still stops it. */
   readonly bargeIn?: boolean
   /** Read at loop start; false mutes the reply's fallback prose. An authored briefing still speaks. */

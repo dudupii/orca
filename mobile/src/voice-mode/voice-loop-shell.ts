@@ -5,6 +5,7 @@ import {
   type VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
 import { VoiceLoopTranscriptLedger, spokenText } from './voice-loop-transcript-ledger'
+import { VoiceLoopForeground, type VoiceLoopDeferredSpeak } from './voice-loop-foreground'
 import type {
   VoiceLoopShellDeps,
   VoiceLoopTranscriptRead,
@@ -41,6 +42,7 @@ export class VoiceLoopShell {
   private readonly thresholds: VoiceLoopThresholds
   private readonly readIntervalMs: number
   private readonly machine: ReturnType<typeof createVoiceLoopMachine>
+  private readonly foreground: VoiceLoopForeground
   private view: VoiceLoopView = { route: 'idle', transcript: '', pending: null, reply: null }
   private generation = 0
   private readTimer: ReturnType<typeof setTimeout> | null = null
@@ -57,6 +59,7 @@ export class VoiceLoopShell {
   constructor(private readonly deps: VoiceLoopShellDeps) {
     this.thresholds = { ...defaultVoiceLoopThresholds, ...deps.thresholds }
     this.readIntervalMs = deps.readIntervalMs ?? DEFAULT_READ_INTERVAL_MS
+    this.foreground = new VoiceLoopForeground({ tone: deps.tone ?? null })
     this.machine = createVoiceLoopMachine({
       now: deps.now,
       thresholds: this.thresholds,
@@ -163,6 +166,87 @@ export class VoiceLoopShell {
     this.deps.readout.stop()
   }
 
+  /**
+   * The app left or came back. The machine's visibility moves first — its table stops a speaking
+   * loop outright — and the loop's platforms follow the foreground policy: away closes the
+   * microphone and suspends the reads; the restore sounds its chime, plays what waited and only
+   * then reopens the microphone.
+   */
+  setForeground(foreground: boolean): void {
+    if (this.exited) {
+      return
+    }
+    if (foreground || this.machine.getState().visibility !== 'background') {
+      const outcome = this.machine.dispatch({ type: 'visibility', foreground })
+      if (effectOf(outcome.effects, 'stopPlayback') !== null) {
+        // Speaking into background: the machine cut the playback; its play settles stopped on its own.
+        this.deps.readout.stop()
+      }
+      this.publish()
+    }
+    if (!this.started) {
+      return
+    }
+    if (foreground) {
+      void this.resume()
+      return
+    }
+    this.pause()
+  }
+
+  private pause(): void {
+    this.foreground.background(this.machine.getState().route)
+    if (this.readTimer !== null) {
+      clearTimeout(this.readTimer)
+      this.readTimer = null
+    }
+    if (this.micOpened) {
+      // Idempotent over the native listener that already ended capture on the activity's pause.
+      this.micOpened = false
+      this.deps.closeMic()
+    }
+  }
+
+  private async resume(): Promise<void> {
+    if (this.exited || !this.started || !this.foreground.isBackgrounded()) {
+      return
+    }
+    // The chime first, the parked playback next; the microphone reopens only after both.
+    const deferred = this.foreground.restore()
+    if (deferred !== null) {
+      void this.playDeferred(deferred)
+    }
+    const opened = await this.deps.openMic()
+    if (this.exited) {
+      // The exit could not close a microphone that had not reopened yet; the late open is ours.
+      if (opened) {
+        this.deps.closeMic()
+      }
+      return
+    }
+    if (!opened) {
+      this.deps.onNotice('mic-unavailable')
+      this.releasePlatform()
+      this.settleClosed()
+      return
+    }
+    this.micOpened = true
+    this.scheduleRead()
+  }
+
+  /** Plays the reply a background window parked; the machine held speaking for it through the away. */
+  private async playDeferred(speak: VoiceLoopDeferredSpeak): Promise<void> {
+    const generation = this.generation
+    await this.deps.readout.play({ text: speak.text, locale: speak.locale ?? null })
+    if (this.exited || generation !== this.generation) {
+      return
+    }
+    if (this.machine.getState().route === 'speaking') {
+      this.machine.dispatch({ type: 'playbackEnd' })
+      this.publish()
+    }
+  }
+
   /** Ends the loop: the machine settles terminal, then the recognizer, mic and screen release. */
   exit(): void {
     if (this.exited) {
@@ -172,6 +256,7 @@ export class VoiceLoopShell {
     this.starting = false
     this.started = false
     this.generation += 1
+    this.foreground.reset()
     if (this.readTimer !== null) {
       clearTimeout(this.readTimer)
       this.readTimer = null
@@ -215,7 +300,7 @@ export class VoiceLoopShell {
   }
 
   private scheduleRead(): void {
-    if (this.exited || this.readTimer !== null) {
+    if (this.exited || this.readTimer !== null || this.foreground.isBackgrounded()) {
       return
     }
     this.readTimer = setTimeout(() => {
@@ -349,6 +434,11 @@ export class VoiceLoopShell {
     this.view = { ...this.view, reply: delivered.reply }
     this.publish()
     const speak = effectOf(replied.effects, 'speak')
+    // The foreground policy reads the accept: a reply the loop took while away parks its playback
+    // for the restore, and a turn that straddled the away chimes as it answers.
+    if (!this.foreground.replyAccepted(this.machine.getState().visibility, speak)) {
+      return
+    }
     if (!speak) {
       // Muted by setting, or nothing to say: the machine is already listening again.
       return

@@ -588,4 +588,180 @@ describe('VoiceLoopShell', () => {
     expect(harness.views.at(-1)?.route).toBe('closed')
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it('parks a reply that lands while backgrounded, then serves the restore chime, playback and mic in order', async () => {
+    const readout = fakeReadout()
+    const tone = vi.fn()
+    const reopenedWith = { plays: -1 }
+    const openMic = vi.fn(async () => {
+      reopenedWith.plays = readout.plays.length
+      return true
+    })
+    const hanging = hangSend()
+    const harness = createHarness({
+      send: hanging.send,
+      readout,
+      openMic,
+      tone: { play: tone }
+    })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('thinking')
+
+    harness.shell.setForeground(false)
+    expect(harness.deps.closeMic).toHaveBeenCalledOnce()
+    const readsAtPause = vi.mocked(harness.deps.readSpeech).mock.calls.length
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS * 5)
+    // The read cycle is suspended with the recognizer: nothing polls while away.
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBe(readsAtPause)
+
+    hanging.resolve({ sent: true, reply: 'Done while away.' })
+    await vi.advanceTimersByTimeAsync(0)
+    // The reply was accepted but plays nothing: its playback waits for the return.
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+    expect(readout.plays).toEqual([])
+    expect(tone).not.toHaveBeenCalled()
+
+    harness.shell.setForeground(true)
+    // Chime first, parked playback next, microphone only after both.
+    expect(tone).toHaveBeenCalledOnce()
+    expect(tone).toHaveBeenCalledWith('restore')
+    expect(readout.plays).toEqual([{ text: 'Done while away.', locale: null }])
+    expect(openMic).toHaveBeenCalledTimes(2)
+    expect(reopenedWith.plays).toBe(1)
+    expect(tone.mock.invocationCallOrder[0]).toBeLessThan(openMic.mock.invocationCallOrder[1])
+
+    // The parked playback settles and walks the loop back to listening; the reads ride again.
+    await vi.advanceTimersByTimeAsync(PLAYBACK_MS + READ_INTERVAL_MS * 2)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBeGreaterThan(readsAtPause)
+  })
+
+  it('restores a loop that advanced nothing: no chime, yet the microphone still reopens', async () => {
+    const tone = vi.fn()
+    const harness = createHarness({ tone: { play: tone } })
+    await harness.shell.start()
+    harness.setRead({ revision: 1, committed: 'held words', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(harness.views.at(-1)?.transcript).toBe('held words')
+
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(true)
+    expect(tone).not.toHaveBeenCalled()
+    expect(harness.readout.plays).toEqual([])
+    expect(harness.deps.openMic).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('chimes for an away-straddling turn as its reply answers, before the playback starts', async () => {
+    const readout = fakeReadout()
+    const playsAtChime: number[] = []
+    const tone = vi.fn(() => {
+      playsAtChime.push(readout.plays.length)
+    })
+    const hanging = hangSend()
+    const harness = createHarness({ send: hanging.send, readout, tone: { play: tone } })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(true)
+    // The turn still ran at the return, so the restore itself stayed silent.
+    expect(tone).not.toHaveBeenCalled()
+
+    hanging.resolve({ sent: true, reply: 'The answer that outlasted the away.' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(tone).toHaveBeenCalledOnce()
+    expect(playsAtChime).toEqual([0])
+    expect(readout.plays).toEqual([{ text: 'The answer that outlasted the away.', locale: null }])
+  })
+
+  it('stops a speaking loop when the app backgrounds, and the cut playback leaves it listening', async () => {
+    const harness = createHarness()
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    harness.shell.setForeground(false)
+    // The machine's stopPlayback effect is honored through the shell, like a barge-in's is.
+    expect(harness.readout.stops).toBe(1)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+    await vi.advanceTimersByTimeAsync(0)
+    // The stopped play's continuation finds the loop already listening; no playbackEnd misfires.
+    expect(harness.views.at(-1)?.route).toBe('listening')
+
+    harness.shell.setForeground(true)
+    expect(harness.deps.openMic).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes the loop with a notice when the restore cannot reopen the microphone', async () => {
+    const openMic = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const harness = createHarness({ openMic })
+    await harness.shell.start()
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(harness.notices).toEqual(['mic-unavailable'])
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(harness.deps.cancelSpeech).toHaveBeenCalledOnce()
+    expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('treats a repeated leave or return as the same window: one close, one reopen', async () => {
+    const harness = createHarness()
+    await harness.shell.start()
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(false)
+    expect(harness.deps.closeMic).toHaveBeenCalledOnce()
+
+    harness.shell.setForeground(true)
+    harness.shell.setForeground(true)
+    expect(harness.deps.openMic).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets a repeated leave keep a parked reply speaking, for the restore to play', async () => {
+    const readout = fakeReadout()
+    const hanging = hangSend()
+    const harness = createHarness({ send: hanging.send, readout })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    harness.shell.setForeground(false)
+    hanging.resolve({ sent: true, reply: 'Parked.' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    // The platform fires a second non-active change (inactive after background) before the return;
+    // the table must not cut a parked playback that never sounded.
+    harness.shell.setForeground(false)
+    expect(readout.stops).toBe(0)
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    harness.shell.setForeground(true)
+    expect(readout.plays).toEqual([{ text: 'Parked.', locale: null }])
+    await vi.advanceTimersByTimeAsync(PLAYBACK_MS)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+  })
+
+  it('drops a parked reply when the loop exits before the restore', async () => {
+    const tone = vi.fn()
+    const hanging = hangSend()
+    const harness = createHarness({ send: hanging.send, tone: { play: tone } })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    harness.shell.setForeground(false)
+    hanging.resolve({ sent: true, reply: 'Never sounded.' })
+    await vi.advanceTimersByTimeAsync(0)
+
+    harness.shell.exit()
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(SILENCE_WINDOW_MS * 5)
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(harness.readout.plays).toEqual([])
+    expect(tone).not.toHaveBeenCalled()
+    expect(harness.deps.openMic).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
 })
