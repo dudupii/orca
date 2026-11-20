@@ -3,7 +3,7 @@ import type { CodexAppServerConnection } from '../../app-server/codex-app-server
 import { agentSessionRecordFixture } from '../../../native-chat/testing/agent-session-record-test-fixture'
 import { createCodexStructuredLaunchResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
+import { claudeVoiceSpeakOptions } from '../../../claude/structured/launch/claude-structured-voice-speak'
 import {
   codexVoiceSpeakThreadConfig,
   sealCodexVoiceSpeakInstructions
@@ -23,6 +23,25 @@ const INJECTION: VoiceSpeakLaunchInjection = {
   serverUrl: 'http://127.0.0.1:45123/mcp',
   token: 'token-1'
 }
+
+/**
+ * The exact briefings these tests expect a voice-capable spawn to seal, hardcoded in full rather
+ * than rebuilt through the builder they judge: a builder that drops the session sentence,
+ * interpolates the wrong session id, or drifts on wording fails against these literals instead
+ * of moving the expectations with it.
+ */
+const OWN_SESSION_BRIEFING =
+  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
+  'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
+  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
+  "worth hearing aloud. This conversation's session id is session-voice-1: pass it as the " +
+  'session argument on every `speak` call so the briefing plays only here.'
+const OTHER_SESSION_BRIEFING =
+  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
+  'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
+  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
+  "worth hearing aloud. This conversation's session id is session-voice-2: pass it as the " +
+  'session argument on every `speak` call so the briefing plays only here.'
 
 function record(): AgentSessionRecord {
   return agentSessionRecordFixture({
@@ -64,8 +83,14 @@ function sealingConnection(developerInstructions: string | null | { error: true 
   return { connection: { request }, requests }
 }
 
-async function openVoiceSpeakThread(connection: Pick<CodexAppServerConnection, 'request'>) {
-  const seal = await sealCodexVoiceSpeakInstructions(connection, { cwd: '/workspace/project' })
+async function openVoiceSpeakThread(
+  connection: Pick<CodexAppServerConnection, 'request'>,
+  sessionId: string = SESSION_ID
+) {
+  const seal = await sealCodexVoiceSpeakInstructions(connection, {
+    cwd: '/workspace/project',
+    sessionId
+  })
   expect(seal).not.toBeNull()
   await openCodexThread(
     connection,
@@ -99,21 +124,46 @@ describe('codex structured launch: voice.speak.v1 injection', () => {
     expect(requests[1].params.config).toEqual(codexVoiceSpeakThreadConfig(INJECTION))
     expect(requests[1].params.config).not.toHaveProperty('developer_instructions')
     expect(requests[1].params.developerInstructions).toBe(seal?.developerInstructions)
-    expect(seal?.developerInstructions).toBe(VOICE_SPEAK_BRIEFING_PROMPT_APPEND)
+    expect(seal?.developerInstructions).toBe(OWN_SESSION_BRIEFING)
+  })
+
+  it('seals a briefing that names its own session and no other', async () => {
+    const other = 'session-voice-2'
+    const mine = await openVoiceSpeakThread(sealingConnection(null).connection)
+    const theirs = await openVoiceSpeakThread(sealingConnection(null).connection, other)
+    expect(mine?.developerInstructions).toBe(OWN_SESSION_BRIEFING)
+    expect(theirs?.developerInstructions).toBe(OTHER_SESSION_BRIEFING)
+  })
+
+  it('seals the same shared wording a claude spawn seals for the same session', async () => {
+    const { connection } = sealingConnection(null)
+    const seal = await openVoiceSpeakThread(connection)
+    // One builder serves every provider: the codex appendix and the claude preset-append are the
+    // same per-session wording, never provider-local copies — both carriers judged against the
+    // same hardcoded literal, so wording drift in either fails here.
+    expect(seal?.developerInstructions).toBe(OWN_SESSION_BRIEFING)
+    expect(claudeVoiceSpeakOptions(INJECTION, SESSION_ID).systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: OWN_SESSION_BRIEFING
+    })
   })
 
   it('preserves the user effective developer instructions under the appended briefing', async () => {
     const { connection, requests } = sealingConnection('Keep answers terse.')
     const seal = await openVoiceSpeakThread(connection)
     expect(requests[1].params.developerInstructions).toBe(
-      `Keep answers terse.\n\n${VOICE_SPEAK_BRIEFING_PROMPT_APPEND}`
+      `Keep answers terse.\n\n${OWN_SESSION_BRIEFING}`
     )
     expect(seal?.developerInstructions).toContain('Keep answers terse.')
   })
 
   it('injects the tool without a prompt override when the effective instructions cannot be read', async () => {
     const { connection, requests } = sealingConnection({ error: true })
-    const seal = await sealCodexVoiceSpeakInstructions(connection, { cwd: '/workspace/project' })
+    const seal = await sealCodexVoiceSpeakInstructions(connection, {
+      cwd: '/workspace/project',
+      sessionId: SESSION_ID
+    })
     expect(seal).toBeNull()
     await openCodexThread(
       connection,

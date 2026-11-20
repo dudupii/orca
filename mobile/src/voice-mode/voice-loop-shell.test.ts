@@ -501,6 +501,8 @@ describe('VoiceLoopShell', () => {
 
     // The briefing is spoken verbatim with its language; the reply's prose never plays.
     expect(harness.readout.plays).toEqual([{ text: 'Checks pass.', locale: 'zh-CN' }])
+    // The briefing chose what is spoken; the on-screen reply keeps the full text unchanged.
+    expect(harness.views.at(-1)?.reply).toBe('Long reply. Not spoken.')
     await vi.advanceTimersByTimeAsync(PLAYBACK_MS)
     expect(harness.views.at(-1)?.route).toBe('listening')
   })

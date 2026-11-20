@@ -171,6 +171,7 @@ type Harness = {
   sendWithOutcome: ReturnType<typeof vi.fn>
   setDictationBusy: (busy: boolean) => void
   setTurnActive: (active: boolean) => void
+  setActiveSessionId: (id: string | null) => void
   broadcast: (broadcast: { text: string; lang: string | null; session: string | null }) => void
   subscriptionLive: () => boolean
   unmount: () => void
@@ -204,6 +205,8 @@ function mountVoiceMode(): Harness {
     getUnderway: () => dictation.isStarting || dictation.isRecording || dictation.isProcessing
   }
   let voiceMode: MobileSessionVoiceMode | null = null
+  // No conversation resolves until a test names one, mirroring an unresolvable active tab.
+  let activeSessionId: string | null = null
   let speakSink:
     | ((broadcast: { text: string; lang: string | null; session: string | null }) => void)
     | null = null
@@ -223,7 +226,8 @@ function mountVoiceMode(): Harness {
           speakSink = null
         }
       },
-      latestReplyText: () => seam.replyText
+      latestReplyText: () => seam.replyText,
+      activeSessionId: () => activeSessionId
     })
     return null
   }
@@ -256,6 +260,9 @@ function mountVoiceMode(): Harness {
           createElement(MobileDictationHostContext.Provider, { value: host }, createElement(Probe))
         )
       })
+    },
+    setActiveSessionId: (id) => {
+      activeSessionId = id
     },
     broadcast: (broadcast) => {
       act(() => {
@@ -440,6 +447,84 @@ describe('useMobileSessionVoiceMode', () => {
     })
     // The briefing wins over the reply prose and carries its own language.
     expect(seam.ttsSpeakCalls).toEqual([{ text: 'Checks pass.', locale: 'zh-CN' }])
+    // The briefing chose what is spoken; the on-screen reply keeps the full text unchanged.
+    expect(harness.voiceMode().view.reply).toBe(
+      'A very long reply. Not the readout. More words here.'
+    )
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('accepts a briefing broadcast whose session names the active conversation', async () => {
+    seam.turnActive = true
+    seam.replyText = 'A very long reply. Not the readout. More words here.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    harness.setActiveSessionId('agent-session-1')
+
+    harness.broadcast({ text: 'Briefed words.', lang: null, session: 'agent-session-1' })
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    // The addressed briefing speaks; with no lang of its own, the phone's own language chooses.
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Briefed words.', locale: null }])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('drops a briefing broadcast whose session names another conversation, so the reply prose speaks', async () => {
+    seam.turnActive = true
+    seam.replyText = 'The build passed. Tests are green.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    harness.setActiveSessionId('agent-session-1')
+
+    harness.broadcast({ text: 'Not ours.', lang: null, session: 'agent-session-2' })
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    // The other conversation's briefing never reached the readout: playback ownership untouched,
+    // and the turn's own reply prose is what speaks.
+    expect(seam.ttsStopCalls).toBe(0)
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The build passed. Tests are green.', locale: null }
+    ])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('plays an unaddressed briefing broadcast even while a conversation is active', async () => {
+    seam.turnActive = true
+    seam.replyText = 'A very long reply. Not the readout. More words here.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    harness.setActiveSessionId('agent-session-1')
+
+    harness.broadcast({ text: 'Checks pass.', lang: 'zh-CN', session: null })
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    // An unaddressed broadcast is never presumed another conversation's: it stays audible.
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Checks pass.', locale: 'zh-CN' }])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('drops a named briefing broadcast when no conversation resolves, so the reply prose speaks', async () => {
+    seam.turnActive = true
+    seam.replyText = 'The build passed. Tests are green.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.broadcast({ text: 'Cannot prove ours.', lang: null, session: 'agent-session-1' })
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    // Without a resolvable conversation a named broadcast cannot be proven ours: dropped, and the
+    // turn's own reply prose is what speaks.
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The build passed. Tests are green.', locale: null }
+    ])
     expect(harness.voiceMode().view.route).toBe('listening')
   })
 
