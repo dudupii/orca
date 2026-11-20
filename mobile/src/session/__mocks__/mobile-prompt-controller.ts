@@ -17,6 +17,7 @@ import { MobileNativeChatAsk } from '../native-chat/input/prompts/MobileNativeCh
 import type { AskAnswerSelection } from '../../../../src/shared/native-chat/input/questions/native-chat-ask-answer'
 import { mobileNativeChatPromptDismissals } from '../native-chat/input/prompts/mobile-native-chat-prompt-dismissals'
 import { setMobileNativeChatDraftText } from '../native-chat/composer/drafts/mobile-native-chat-draft-store'
+import type { MobileSessionVoiceMode } from '../../voice-mode/use-mobile-session-voice-mode'
 export const visible = { value: true }
 const messages: NativeChatMessage[] = []
 export const session = {
@@ -138,6 +139,14 @@ export const permissionTab = {
     interactivePrompt: JSON.stringify({ approval: { tool: 'Bash', summary: 'echo yes' } })
   }
 } satisfies MobileNativeChatTab
+// Voice mode stays idle in these harnesses; its overlay renders nothing and the mic never enters it.
+const idleVoiceMode: MobileSessionVoiceMode = {
+  view: { route: 'idle', transcript: '', pending: null, reply: null },
+  entryAvailable: false,
+  start: () => {},
+  tapPending: () => {},
+  exit: () => {}
+}
 type HarnessProps = {
   tab?: MobileNativeChatTab
   tabId?: string
@@ -176,6 +185,7 @@ function Harness(props: HarnessProps) {
       removeAttachment: () => {}
     },
     onMicPress: vi.fn(),
+    voiceMode: idleVoiceMode,
     onMicPressOut: vi.fn(),
     onMicPressIn: vi.fn(),
     micActive: false,

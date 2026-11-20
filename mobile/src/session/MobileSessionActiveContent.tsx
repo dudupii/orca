@@ -34,6 +34,7 @@ import { MarkdownReader } from '../files/session-documents/MobileSessionMarkdown
 import { markdownTabDraftKey } from '../drafts/document-edit-draft-rows'
 import { workspaceDraftRowKey } from '../drafts/durable-draft-rows'
 import { loadMarkdownPreviewImage } from '../files/markdown/mobile-markdown-image-source'
+import { useMobileSessionVoiceMode } from '../voice-mode/use-mobile-session-voice-mode'
 
 export function MobileSessionActiveContent({
   controller
@@ -119,6 +120,8 @@ export function MobileSessionActiveContent({
   } = controller
   const { keyboardLift, activeTerminalKeyboardLift, toastAnimatedStyle } =
     useMobileSessionContentKeyboardLift(controller)
+  // Voice mode runs over the chat: one loop, entered from the mic's long press, left with the chat.
+  const voiceMode = useMobileSessionVoiceMode(showToast, nativeChatController, dictation)
   const openUrlInOrca = useOpenUrlInOrca(controller)
   const hostProfile = useHostProfile(hostId)
   const hostTitle = useHostDisplay(hostProfile).title
@@ -352,6 +355,7 @@ export function MobileSessionActiveContent({
                 images={nativeChatImages}
                 structuredComposer={nativeChatStructuredComposer}
                 onMicPress={dictationEnabled ? handleDictationToggle : undefined}
+                voiceMode={voiceMode}
                 micActive={dictation.isStarting || dictation.isRecording}
                 micStarting={dictation.isStarting}
                 micProcessing={dictation.isProcessing}

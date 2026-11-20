@@ -176,6 +176,7 @@ export function MobileNativeChatView({
   onRemoveAttachment,
   isAttaching,
   onMicPress,
+  onMicLongPress,
   micActive,
   micStarting,
   micProcessing,
@@ -371,7 +372,7 @@ export function MobileNativeChatView({
           }}
           {...{ agent, sessionOptions, contextUsage }}
           {...{ onAttachImage, onPasteImages, attachments, onRemoveAttachment }}
-          {...{ isAttaching, onMicPress, micActive, micStarting, micProcessing }}
+          {...{ isAttaching, onMicPress, onMicLongPress, micActive, micStarting, micProcessing }}
           {...{ dictationMode, onMicPressIn, onMicPressOut }}
           {...offlineQueue.composerLock}
           sendDisabled={expandedPromptOwnsSend}

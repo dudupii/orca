@@ -23,6 +23,7 @@ import {
 } from '../../../src/shared/dictation-shortcut-mode'
 import { SettingsNote, SettingsScreen, SettingsSection } from './settings-screen-frame'
 import { VoiceTranscribeOnSection, voiceTranscribeOnShown } from './voice-transcribe-on-section'
+import { VoiceModeSettingsSection } from './voice-mode-settings-section'
 
 const POLL_INTERVAL_MS = 1500
 
@@ -287,6 +288,7 @@ export default function VoiceSettingsScreen({
       }
     >
       <VoiceTranscribeOnSection />
+      <VoiceModeSettingsSection />
       {showLoading ? (
         <MobileStateView
           loading

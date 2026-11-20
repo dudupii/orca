@@ -146,7 +146,11 @@
       "autoMode": "Auto",
       "speechModelHeading": "SPEECH MODEL",
       "speechModel": "Speech Model",
-      "loading": "Loading voice settings…"
+      "loading": "Loading voice settings…",
+      "voiceModeHeading": "VOICE MODE",
+      "voiceModeResponseDelay": "Response Delay",
+      "voiceModeResponseDelayDescription": "How long a finished voice message waits before it sends. Tap it while it waits to cancel sending.",
+      "voiceModeDelaySeconds": "{{value}}s"
     },
     "agents": {
       "permissionOwnAll": "Agents' own settings"
@@ -602,6 +606,23 @@
       "stopped": "Dictation stopped",
       "label": "Dictation to {{target}}, {{duration}}",
       "hint": "Double-tap to go back"
+    }
+  },
+  "voiceMode": {
+    "state": {
+      "listening": "Listening…",
+      "thinking": "Thinking…",
+      "speaking": "Speaking…",
+      "title": "Voice mode"
+    },
+    "exit": "Exit voice mode",
+    "pendingHint": "Tap to cancel sending",
+    "pendingLabel": "{{utterance}}. Tap to cancel sending.",
+    "notice": {
+      "micExclusive": "Another voice session is using the microphone.",
+      "micUnavailable": "Voice mode needs the microphone.",
+      "speechFailed": "Voice mode stopped: speech recognition failed.",
+      "sendFailed": "Voice mode stopped: the message could not be sent."
     }
   },
   "home": {

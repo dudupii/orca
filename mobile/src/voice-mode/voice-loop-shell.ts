@@ -1,0 +1,331 @@
+import {
+  createVoiceLoopMachine,
+  defaultVoiceLoopThresholds,
+  type VoiceLoopRoute,
+  type VoiceLoopThresholds
+} from '../../../src/shared/voice/voice-loop-machine'
+
+export type { VoiceLoopRoute } from '../../../src/shared/voice/voice-loop-machine'
+
+/** One poll of the recognizer: whole committed text so far plus the unstable tail. */
+export type VoiceLoopTranscriptRead = {
+  readonly revision: number
+  readonly committed: string
+  readonly tentative: string
+  readonly failure: string | null
+}
+
+/** The chat's answer to one delivered utterance; the reply text renders silently in T5. */
+export type VoiceLoopSendOutcome = { sent: false } | { sent: true; reply: string }
+
+export type VoiceLoopNotice = 'mic-exclusive' | 'mic-unavailable' | 'speech-failed' | 'send-failed'
+
+/** What the overlay draws: the loop's route, the live words, the revocable wait, the last reply. */
+export type VoiceLoopView = {
+  readonly route: VoiceLoopRoute
+  readonly transcript: string
+  readonly pending: string | null
+  readonly reply: string | null
+}
+
+export type VoiceLoopShellDeps = {
+  readonly now: () => number
+  /** Arms the recognizer; busy reports another session's exclusive hold of the microphone. */
+  readonly startSpeech: () => Promise<{ started: boolean; busy: boolean }>
+  readonly cancelSpeech: () => void
+  readonly readSpeech: () => Promise<VoiceLoopTranscriptRead>
+  /** Opens the microphone; false when permission or the device refused. */
+  readonly openMic: () => Promise<boolean>
+  readonly closeMic: () => void
+  /** Keeps the screen on while the loop runs; released when the loop ends. */
+  readonly holdScreen: () => void
+  readonly releaseScreen: () => void
+  readonly send: (text: string) => Promise<VoiceLoopSendOutcome>
+  readonly responseDelayMs: () => number
+  readonly onState: (view: VoiceLoopView) => void
+  readonly onNotice: (notice: VoiceLoopNotice) => void
+  readonly thresholds?: Partial<VoiceLoopThresholds>
+  readonly readIntervalMs?: number
+}
+
+// Same pace the dictation drain reads at; the bridge has no push lane for transcripts.
+const DEFAULT_READ_INTERVAL_MS = 150
+
+/**
+ * Binds T1's voice-loop machine to the phone's seams. The machine owns every route and buffer
+ * decision; this shell owns only what the machine's table does not model: when to poll, the
+ * response-delay window that makes a finalized utterance revocable, and platform release order.
+ * The delay window arms after the machine's own silence window has passed with the buffer held,
+ * so the commit still happens through the machine's silence event.
+ */
+export class VoiceLoopShell {
+  private readonly thresholds: VoiceLoopThresholds
+  private readonly readIntervalMs: number
+  private readonly machine: ReturnType<typeof createVoiceLoopMachine>
+  private view: VoiceLoopView = { route: 'idle', transcript: '', pending: null, reply: null }
+  private generation = 0
+  private readTimer: ReturnType<typeof setTimeout> | null = null
+  private pendingTimer: ReturnType<typeof setTimeout> | null = null
+  private revision = -1
+  private committedSeen = ''
+  private tentativeSeen = ''
+  private lastActivityAt: number | null = null
+  private suppressPending = false
+  private starting = false
+  private started = false
+  private exited = false
+  private armedSpeech = false
+  private micOpened = false
+  private screenHeld = false
+
+  constructor(private readonly deps: VoiceLoopShellDeps) {
+    this.thresholds = { ...defaultVoiceLoopThresholds, ...deps.thresholds }
+    this.readIntervalMs = deps.readIntervalMs ?? DEFAULT_READ_INTERVAL_MS
+    this.machine = createVoiceLoopMachine({ now: deps.now, thresholds: this.thresholds })
+  }
+
+  currentView(): VoiceLoopView {
+    return this.view
+  }
+
+  async start(): Promise<void> {
+    if (this.starting || this.started || this.exited) {
+      return
+    }
+    this.starting = true
+    const armed = await this.deps.startSpeech()
+    if (this.exited) {
+      if (armed.started) {
+        this.deps.cancelSpeech()
+      }
+      return
+    }
+    if (!armed.started) {
+      this.starting = false
+      if (armed.busy) {
+        // The refusal is the machine's to make; the shell only makes it visible.
+        this.machine.dispatch({ type: 'start', micExclusiveInUse: true })
+        this.deps.onNotice('mic-exclusive')
+      } else {
+        this.deps.onNotice('mic-unavailable')
+      }
+      return
+    }
+    this.armedSpeech = true
+    this.deps.holdScreen()
+    this.screenHeld = true
+    const micOpen = await this.deps.openMic()
+    if (this.exited) {
+      this.releasePlatform()
+      return
+    }
+    if (!micOpen) {
+      this.starting = false
+      this.deps.onNotice('mic-unavailable')
+      this.releasePlatform()
+      return
+    }
+    this.micOpened = true
+    this.starting = false
+    this.started = true
+    this.machine.dispatch({ type: 'start' })
+    this.publish()
+    this.scheduleRead()
+  }
+
+  /** A tap on the waiting utterance cancels its send; the words stay buffered for more speech. */
+  tapPending(): void {
+    if (this.view.pending === null) {
+      return
+    }
+    this.clearPendingTimer()
+    this.view = { ...this.view, pending: null }
+    // Quiet alone must not re-arm the wait; only new speech does.
+    this.suppressPending = true
+    this.publish()
+  }
+
+  /** Ends the loop: the machine settles terminal, then the recognizer, mic and screen release. */
+  exit(): void {
+    if (this.exited) {
+      return
+    }
+    this.exited = true
+    this.starting = false
+    this.started = false
+    this.generation += 1
+    if (this.readTimer !== null) {
+      clearTimeout(this.readTimer)
+      this.readTimer = null
+    }
+    this.clearPendingTimer()
+    if (this.machine.getState().route !== 'closed') {
+      this.machine.dispatch({ type: 'closeTab' })
+    }
+    this.releasePlatform()
+    this.publish()
+  }
+
+  dispose(): void {
+    this.exit()
+  }
+
+  private releasePlatform(): void {
+    if (this.armedSpeech) {
+      this.deps.cancelSpeech()
+    }
+    if (this.micOpened) {
+      this.deps.closeMic()
+    }
+    if (this.screenHeld) {
+      this.deps.releaseScreen()
+    }
+  }
+
+  private scheduleRead(): void {
+    if (this.exited || this.readTimer !== null) {
+      return
+    }
+    this.readTimer = setTimeout(() => {
+      this.readTimer = null
+      void this.tick()
+    }, this.readIntervalMs)
+  }
+
+  private async tick(): Promise<void> {
+    if (this.exited) {
+      return
+    }
+    const generation = this.generation
+    let read: VoiceLoopTranscriptRead
+    try {
+      read = await this.deps.readSpeech()
+    } catch {
+      read = { revision: 0, committed: '', tentative: '', failure: 'failed' }
+    }
+    if (this.exited || generation !== this.generation) {
+      return
+    }
+    if (read.failure !== null) {
+      this.deps.onNotice('speech-failed')
+      this.exit()
+      return
+    }
+    if (this.ingest(read)) {
+      this.publish()
+    }
+    this.armPendingIfQuiet()
+    this.scheduleRead()
+  }
+
+  /** Records one new transcript revision; returns whether the drawn words changed. */
+  private ingest(read: VoiceLoopTranscriptRead): boolean {
+    if (read.revision <= this.revision) {
+      return false
+    }
+    this.revision = read.revision
+    const committed = read.committed.trim()
+    const seen = this.committedSeen
+    let spoke = committed !== seen
+    if (committed.startsWith(seen) && committed !== seen) {
+      // Committed text is the whole final text so far: feed the machine only the new words.
+      const delta = committed.slice(seen.length).trim()
+      if (delta) {
+        this.machine.dispatch({ type: 'speech', text: delta })
+      }
+      this.committedSeen = committed
+    } else if (committed !== seen) {
+      // A rewrite of already-committed words has no machine event; adopt it and wait for more.
+      this.committedSeen = committed
+    }
+    const tentative = read.tentative.trim()
+    spoke = spoke || tentative !== this.tentativeSeen
+    this.tentativeSeen = tentative
+    if (spoke) {
+      this.lastActivityAt = this.deps.now()
+      // Speech during the wait un-finalizes the utterance: the buffer keeps growing.
+      if (this.view.pending !== null) {
+        this.clearPendingTimer()
+        this.view = { ...this.view, pending: null }
+      }
+      this.suppressPending = false
+    }
+    return spoke
+  }
+
+  private armPendingIfQuiet(): void {
+    if (this.view.pending !== null || this.suppressPending) {
+      return
+    }
+    const state = this.machine.getState()
+    if (state.route !== 'listening' || state.buffer.length === 0 || this.lastActivityAt === null) {
+      return
+    }
+    if (this.deps.now() - this.lastActivityAt < this.thresholds.silenceWindowMs) {
+      return
+    }
+    this.view = { ...this.view, pending: spokenText(state.buffer, this.tentativeSeen) }
+    this.pendingTimer = setTimeout(() => {
+      this.pendingTimer = null
+      void this.commit()
+    }, this.deps.responseDelayMs())
+    this.publish()
+  }
+
+  private async commit(): Promise<void> {
+    if (this.exited) {
+      return
+    }
+    const generation = this.generation
+    this.view = { ...this.view, pending: null }
+    // The commit itself is the machine's call: its silence event sends the buffered utterance.
+    const outcome = this.machine.dispatch({ type: 'silence' })
+    this.publish()
+    const send = outcome.effects.find(
+      (effect): effect is Extract<(typeof outcome.effects)[number], { kind: 'send' }> =>
+        effect.kind === 'send'
+    )
+    if (!send) {
+      return
+    }
+    const delivered = await this.deps.send(send.text)
+    if (this.exited || generation !== this.generation) {
+      return
+    }
+    if (!delivered.sent) {
+      this.deps.onNotice('send-failed')
+      this.exit()
+      return
+    }
+    this.machine.dispatch({ type: 'reply', text: delivered.reply })
+    // T5 renders the reply silently, so playback is over the moment it renders; T6 holds this open.
+    this.machine.dispatch({ type: 'playbackEnd' })
+    this.view = { ...this.view, reply: delivered.reply }
+    this.publish()
+  }
+
+  private clearPendingTimer(): void {
+    if (this.pendingTimer !== null) {
+      clearTimeout(this.pendingTimer)
+      this.pendingTimer = null
+    }
+  }
+
+  private publish(): void {
+    const state = this.machine.getState()
+    this.view = {
+      route: state.route,
+      transcript: spokenText(state.buffer, this.tentativeSeen),
+      pending: this.view.pending,
+      reply: this.view.reply
+    }
+    this.deps.onState(this.view)
+  }
+}
+
+/** The utterance as it stands: the machine's buffered chunks plus the unstable tail. */
+function spokenText(buffer: readonly string[], tentative: string): string {
+  const spoken = buffer.filter(Boolean).join(' ')
+  const tail = tentative.trim()
+  return spoken && tail ? `${spoken} ${tail}` : spoken || tail
+}
