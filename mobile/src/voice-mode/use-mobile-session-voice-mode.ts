@@ -74,8 +74,10 @@ export function useMobileSessionVoiceMode(
   const turnActiveRef = useRef(chat.nativeChatTurnActive)
   const dictationHostRef = useRef(dictationHost)
   const delaySecondsRef = useRef(1.5)
-  const bargeInRef = useRef(true)
-  const fallbackReadoutRef = useRef(true)
+  const chatVisibleRef = useRef(chat.showNativeChat)
+  // The loop the entry is still loading settings for; a second entry in that window must not stack.
+  const startingLoopRef = useRef(false)
+  const mountedRef = useRef(true)
   const latestReplyTextRef = useRef<() => string>(() => '')
   const subscribeSpeakRef = useRef<(typeof chat)['subscribeSpeakBroadcasts']>(() => () => undefined)
   // The loop's one playback owner; its broadcasts land here while the loop runs.
@@ -93,17 +95,12 @@ export function useMobileSessionVoiceMode(
     dictationHostRef.current = dictationHost
     latestReplyTextRef.current = chat.latestReplyText
     subscribeSpeakRef.current = chat.subscribeSpeakBroadcasts
+    chatVisibleRef.current = chat.showNativeChat
   }, [speech, tts, capture, chat, dictationHost])
 
   useEffect(() => {
     void loadVoiceModeResponseDelaySeconds().then((seconds) => {
       delaySecondsRef.current = seconds
-    })
-    void loadVoiceModeBargeIn().then((bargeIn) => {
-      bargeInRef.current = bargeIn
-    })
-    void loadVoiceModeFallbackReadout().then((fallback) => {
-      fallbackReadoutRef.current = fallback
     })
   }, [])
 
@@ -151,89 +148,104 @@ export function useMobileSessionVoiceMode(
     })
 
   const start = useCallback(() => {
-    if (shellRef.current !== null) {
+    if (shellRef.current !== null || startingLoopRef.current) {
       return
     }
     if (speechRef.current === null) {
       showToast(voiceModeCopy.notice('mic-unavailable'))
       return
     }
-    // The speaking side's single owner for this loop; a shell without the tts verb stays silent, never broken.
-    const readout = createVoiceReadout({ playback: ttsRef.current })
-    readoutRef.current = readout
-    unsubscribeSpeakRef.current = subscribeSpeakRef.current((broadcast) => {
-      readoutRef.current?.briefingArrived(broadcast)
-    })
-    const next = new VoiceLoopShell({
-      now: Date.now,
-      // The page's dictation holds the recognizer wherever it started; voice mode refuses it, never steals it.
-      startSpeech: async () => {
-        if (dictationHoldsRecognizer(dictationHostRef.current.getDictation())) {
-          return { started: false, busy: true }
-        }
-        try {
-          const started = await speechRef.current!.start()
-          return started.started
-            ? { started: true, busy: false }
-            : { started: false, busy: started.reason === 'busy' }
-        } catch {
-          // A bridge refusal rejects; a start that cannot even ask reports unavailable, not busy.
-          return { started: false, busy: false }
-        }
-      },
-      cancelSpeech: () => speechRef.current?.cancel(),
-      readSpeech: () => speechRef.current!.read(),
-      openMic: async () => {
-        let opened: DictationCaptureOpen
-        try {
-          opened = await captureRef.current.open()
-        } catch {
-          // The capture contract lets a bridge refusal reject; that is a refused open here.
-          return false
-        }
-        if (!opened.ok) {
-          return false
-        }
-        try {
-          if (!captureRef.current.begin()) {
+    startingLoopRef.current = true
+    void (async () => {
+      // Each loop loads the persisted speaking toggles as it starts — not at the hook's mount — so a
+      // save made since the last loop, or one this phone had not read yet, is in force for this one.
+      // The loads answer unreadable storage with the defaults instead of rejecting, so this always runs.
+      const [bargeIn, fallbackReadout] = await Promise.all([
+        loadVoiceModeBargeIn(),
+        loadVoiceModeFallbackReadout()
+      ])
+      startingLoopRef.current = false
+      // The chat hid or the hook unmounted while the settings loaded; no loop may begin after either.
+      if (!mountedRef.current || !chatVisibleRef.current) {
+        return
+      }
+      // The speaking side's single owner for this loop; a shell without the tts verb stays silent, never broken.
+      const readout = createVoiceReadout({ playback: ttsRef.current })
+      readoutRef.current = readout
+      unsubscribeSpeakRef.current = subscribeSpeakRef.current((broadcast) => {
+        readoutRef.current?.briefingArrived(broadcast)
+      })
+      const next = new VoiceLoopShell({
+        now: Date.now,
+        // The page's dictation holds the recognizer wherever it started; voice mode refuses it, never steals it.
+        startSpeech: async () => {
+          if (dictationHoldsRecognizer(dictationHostRef.current.getDictation())) {
+            return { started: false, busy: true }
+          }
+          try {
+            const started = await speechRef.current!.start()
+            return started.started
+              ? { started: true, busy: false }
+              : { started: false, busy: started.reason === 'busy' }
+          } catch {
+            // A bridge refusal rejects; a start that cannot even ask reports unavailable, not busy.
+            return { started: false, busy: false }
+          }
+        },
+        cancelSpeech: () => speechRef.current?.cancel(),
+        readSpeech: () => speechRef.current!.read(),
+        openMic: async () => {
+          let opened: DictationCaptureOpen
+          try {
+            opened = await captureRef.current.open()
+          } catch {
+            // The capture contract lets a bridge refusal reject; that is a refused open here.
+            return false
+          }
+          if (!opened.ok) {
+            return false
+          }
+          try {
+            if (!captureRef.current.begin()) {
+              void captureRef.current.end()
+              return false
+            }
+          } catch {
+            // Native recording can throw part-way; treat it like a refused begin so the microphone is released.
             void captureRef.current.end()
             return false
           }
-        } catch {
-          // Native recording can throw part-way; treat it like a refused begin so the microphone is released.
-          void captureRef.current.end()
-          return false
-        }
-        return true
-      },
-      closeMic: () => {
-        try {
-          void captureRef.current.end()
-        } catch (err) {
-          // Cleanup must keep going when a synchronous seam throws, or the mic would leak.
-          console.error('Failed to close the voice-mode microphone', err)
-        }
-      },
-      holdScreen: () => nativeMicrophoneScreenLock.hold(),
-      releaseScreen: () => nativeMicrophoneScreenLock.release(),
-      readout,
-      // Both toggles are read once here: a change applies to the loop after this one.
-      bargeIn: bargeInRef.current,
-      fallbackReadout: fallbackReadoutRef.current,
-      send: async (text): Promise<VoiceLoopSendOutcome> => {
-        const accepted = await sendChatRef.current(text)
-        if (!accepted) {
-          return { sent: false }
-        }
-        return { sent: true, reply: await awaitReply(next) }
-      },
-      responseDelayMs: () => delaySecondsRef.current * 1000,
-      onState: setView,
-      onNotice: (notice) => showToast(voiceModeCopy.notice(notice))
-    })
-    shellRef.current = next
-    setShell(next)
-    void next.start()
+          return true
+        },
+        closeMic: () => {
+          try {
+            void captureRef.current.end()
+          } catch (err) {
+            // Cleanup must keep going when a synchronous seam throws, or the mic would leak.
+            console.error('Failed to close the voice-mode microphone', err)
+          }
+        },
+        holdScreen: () => nativeMicrophoneScreenLock.hold(),
+        releaseScreen: () => nativeMicrophoneScreenLock.release(),
+        readout,
+        // Both toggles are fixed for this loop's life: a change applies to the loop after this one.
+        bargeIn,
+        fallbackReadout,
+        send: async (text): Promise<VoiceLoopSendOutcome> => {
+          const accepted = await sendChatRef.current(text)
+          if (!accepted) {
+            return { sent: false }
+          }
+          return { sent: true, reply: await awaitReply(next) }
+        },
+        responseDelayMs: () => delaySecondsRef.current * 1000,
+        onState: setView,
+        onNotice: (notice) => showToast(voiceModeCopy.notice(notice))
+      })
+      shellRef.current = next
+      setShell(next)
+      void next.start()
+    })()
   }, [showToast])
 
   const tapPending = useCallback(() => shellRef.current?.tapPending(), [])
@@ -263,7 +275,10 @@ export function useMobileSessionVoiceMode(
   }, [shell, view.route, settleReplyWaits, stopSpeakSubscription])
 
   useEffect(() => {
+    // A remount (StrictMode runs this twice) is live again; only a real teardown ends entry for good.
+    mountedRef.current = true
     return () => {
+      mountedRef.current = false
       shellRef.current?.dispose()
       shellRef.current = null
       settleReplyWaits()

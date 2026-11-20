@@ -7,6 +7,7 @@ import type {
   DictationCaptureOpen
 } from '../platform/audio-capture/dictation-capture-contract'
 import type { OnDeviceSpeech } from '../platform/speech/on-device-speech-contract'
+import type { OnDeviceTtsChannelStatus } from '../platform/tts/on-device-tts-contract'
 import type {
   BridgeSpeechRead,
   BridgeSpeechStartResult
@@ -25,6 +26,7 @@ type Seam = {
   turnActive: boolean
   replyText: string
   ttsAvailable: boolean
+  ttsStatus: OnDeviceTtsChannelStatus
   ttsSpeakCalls: { text: string; locale: string | null }[]
   ttsStopCalls: number
 }
@@ -38,6 +40,7 @@ const seam = vi.hoisted((): Seam => ({
   turnActive: false,
   replyText: '',
   ttsAvailable: true,
+  ttsStatus: 'done',
   ttsSpeakCalls: [],
   ttsStopCalls: 0
 }))
@@ -114,9 +117,11 @@ vi.mock('../platform/tts/on-device-tts', () => {
     },
     stop: () => {
       seam.ttsStopCalls += 1
+      // A stopped speaker reads back stopped, so a live playback poll settles instead of spinning.
+      seam.ttsStatus = 'stopped'
       return Promise.resolve()
     },
-    read: () => Promise.resolve({ revision, status: 'done', reason: null })
+    read: () => Promise.resolve({ revision, status: seam.ttsStatus, reason: null })
   }
   return { useOnDeviceTts: () => (seam.ttsAvailable ? channel : null) }
 })
@@ -133,6 +138,7 @@ vi.mock('../storage/voice-mode-settings', () => ({
 
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
+import { loadVoiceModeBargeIn, loadVoiceModeFallbackReadout } from '../storage/voice-mode-settings'
 
 function fakeDictation(recording: boolean): UseMobileDictationResult {
   return {
@@ -267,6 +273,7 @@ describe('useMobileSessionVoiceMode', () => {
     seam.turnActive = false
     seam.replyText = ''
     seam.ttsAvailable = true
+    seam.ttsStatus = 'done'
     seam.ttsSpeakCalls.length = 0
     seam.ttsStopCalls = 0
   })
@@ -439,5 +446,112 @@ describe('useMobileSessionVoiceMode', () => {
 
     harness.broadcast({ text: 'Late words.', lang: null, session: null })
     expect(seam.ttsSpeakCalls).toEqual([])
+  })
+
+  it('stays silent for the fallback reply when it was saved off after the mount load', async () => {
+    seam.turnActive = true
+    seam.replyText = 'A reply the setting now mutes.'
+    const harness = mountVoiceMode()
+    await act(async () => {
+      await flushEntry()
+    })
+    // The mount-time load already answered true; a save made since then is what the next start must read.
+    vi.mocked(loadVoiceModeFallbackReadout).mockResolvedValue(false)
+    await act(async () => {
+      harness.voiceMode().start()
+      await flushEntry()
+    })
+    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 1200 + 1500)
+    })
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 100)
+    })
+    // Fallback readout off: the unbriefed reply is never spoken, yet the loop still walks back to listening.
+    expect(seam.ttsSpeakCalls).toEqual([])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('lets speech pass over the playback when barge-in was saved off after the mount load', async () => {
+    seam.turnActive = true
+    seam.replyText = 'Words that keep playing.'
+    // A playback that never settles on its own holds the loop in speaking until something stops it.
+    seam.ttsStatus = 'speaking'
+    const harness = mountVoiceMode()
+    await act(async () => {
+      await flushEntry()
+    })
+    vi.mocked(loadVoiceModeBargeIn).mockResolvedValue(false)
+    await act(async () => {
+      harness.voiceMode().start()
+      await flushEntry()
+    })
+    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 1200 + 1500)
+    })
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 150)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Words that keep playing.', locale: null }])
+    expect(harness.voiceMode().view.route).toBe('speaking')
+
+    // Speech over the playback is dropped, not a barge-in: the speaker was never told to stop.
+    seam.read = { revision: 2, committed: 'hello more words', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 150)
+    })
+    expect(seam.ttsStopCalls).toBe(0)
+    expect(harness.voiceMode().view.route).toBe('speaking')
+
+    act(() => {
+      harness.voiceMode().exit()
+    })
+    // The exit silenced the speaker; its one live poll drains on the next tick and leaves nothing scheduled.
+    expect(seam.ttsStopCalls).toBe(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 150)
+    })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('holds an entry until the persisted toggles answer, so a start ahead of the storage read still honors them', async () => {
+    seam.turnActive = true
+    seam.replyText = 'A reply the late read mutes.'
+    let releaseLoad: ((fallback: false) => void) | null = null
+    const gated = new Promise<false>((resolve) => {
+      releaseLoad = resolve
+    })
+    vi.mocked(loadVoiceModeFallbackReadout).mockReturnValue(gated)
+    const harness = mountVoiceMode()
+    await act(async () => {
+      harness.voiceMode().start()
+      await flushEntry()
+    })
+    // The settings read has not answered: no loop exists yet, so no default can sneak in.
+    expect(harness.voiceMode().view.route).toBe('idle')
+    expect(seam.calls).not.toContain('speech.start')
+
+    await act(async () => {
+      releaseLoad?.(false)
+      await flushEntry()
+    })
+    expect(harness.voiceMode().view.route).toBe('listening')
+    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 1200 + 1500)
+    })
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([])
+    expect(harness.voiceMode().view.route).toBe('listening')
   })
 })
