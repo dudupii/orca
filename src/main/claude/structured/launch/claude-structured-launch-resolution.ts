@@ -33,6 +33,10 @@ import type {
 import { resolveClaudeLaunchFlags } from './claude-structured-launch-flags'
 import { withNativeChatVisualsEnv } from '../../../native-chat/conversation-files/native-chat-visuals-delivery'
 import { claudeLaunchResumesTranscript } from './claude-structured-launch-home'
+import {
+  claudeVoiceSpeakOptions,
+  type VoiceSpeakLaunchInjection
+} from './claude-structured-voice-speak'
 import type { StructuredAgentLaunchPartResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition'
 import { claudeSessionIdForOrcaSession } from '../claude-structured-session-id'
 import {
@@ -63,6 +67,7 @@ type ClaudePermissionOptions = Pick<ClaudeAgentSdkOptions, 'permissionMode' | 'e
 export type ClaudeStructuredSdkOptions = Pick<
   ClaudeAgentSdkOptions,
   | 'includePartialMessages'
+  | 'mcpServers'
   | 'systemPrompt'
   | 'settingSources'
   | 'supportedDialogKinds'
@@ -147,6 +152,8 @@ export type ClaudeStructuredLaunchPartDeps = {
     providerSessionId: string
     claudeConfigDir: string
   }) => Promise<boolean>
+  /** Spawn-time voice.speak.v1 injection; absent never changes the launch. */
+  resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
 }
 
 export type ClaudeStructuredInvocation = {
@@ -236,6 +243,7 @@ export function claudeStructuredLaunchPart(
       ...(visuals ? [visuals.visuals.folder] : [])
     ]
     const permission = claudeStructuredPermissionOptions(basis.permissionMode ?? 'ask')
+    const voiceSpeak = (await deps.resolveVoiceSpeak?.()) ?? null
     // --resume fails without a transcript; --session-id collides with an existing one.
     const leafUuid = head && continuesChain ? claudeProviderHandleLeafUuid(head) : null
     const resumes = async (claudeConfigDir: string): Promise<boolean> =>
@@ -290,6 +298,7 @@ export function claudeStructuredLaunchPart(
         options: {
           ...CLAUDE_STRUCTURED_BASE_OPTIONS,
           ...permission,
+          ...(voiceSpeak ? claudeVoiceSpeakOptions(voiceSpeak) : {}),
           ...(additionalDirectories.length ? { additionalDirectories } : {}),
           ...(visuals?.pluginDir ? { plugins: [{ type: 'local', path: visuals.pluginDir }] } : {}),
           extraArgs: {

@@ -90,6 +90,7 @@ export type StructuredAgentModelCatalogDeps = Pick<
   | 'resolveEnvironment'
   | 'resolveShellEnvironmentPolicy'
   | 'resolveAgentLaunchEnv'
+  | 'voiceSpeakClientOnline'
 >
 export type StructuredAgentModelCatalogContext = {
   deps: StructuredAgentModelCatalogDeps

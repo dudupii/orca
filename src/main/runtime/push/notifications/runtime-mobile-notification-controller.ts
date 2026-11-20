@@ -29,7 +29,7 @@ export type MobileNotificationDispatchEvent = {
   desktopAllowed?: boolean
   desktopAway?: boolean
   emittedAt?: number
-  source: 'agent-task-complete' | 'terminal-bell' | 'test' | 'plugin'
+  source: 'agent-task-complete' | 'terminal-bell' | 'test' | 'plugin' | 'speak'
   title: string
   body: string
   worktreeId?: string
@@ -46,6 +46,9 @@ export type MobileNotificationDispatchEvent = {
   /** See `NotificationDispatchRequest.attentionKey`: cooldowns key on it instead of the workspace. */
   attentionKey?: string
   structuredOrigin?: StructuredAttentionOrigin
+  /** Speak broadcast routing for the phone's voice path; additive fields old phones ignore. */
+  speakLang?: string
+  speakSession?: string
 }
 
 export type MobileNotificationDismissEvent = {
@@ -268,5 +271,17 @@ export class RuntimeMobileNotificationController {
     }
     this.dispatch({ type: 'notification', source: 'plugin', title, body })
     return { delivered }
+  }
+
+  /** Speak broadcasts never journal: no structuredOrigin, so no attention read can retire them. */
+  dispatchSpeak(input: { text: string; lang?: string; session?: string }): void {
+    this.dispatch({
+      type: 'notification',
+      source: 'speak',
+      title: 'Speak',
+      body: input.text,
+      ...(input.lang !== undefined ? { speakLang: input.lang } : {}),
+      ...(input.session !== undefined ? { speakSession: input.session } : {})
+    })
   }
 }

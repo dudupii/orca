@@ -9,10 +9,15 @@ export const NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY = 'notifications.remot
 // destination/parentPath) never receives a call it would reject.
 export const REPO_ADD_PROJECT_MOBILE_RUNTIME_CAPABILITY = 'repo.add-project-mobile.v1' as const
 
+// Why: the host runs a loopback speak MCP server and broadcasts spoken briefings to phones;
+// the string is pinned because later tickets gate phone behaviour on the exact value.
+export const VOICE_SPEAK_RUNTIME_CAPABILITY = 'voice.speak.v1' as const
+
 export const MOBILE_RUNTIME_CAPABILITIES = [
   'mobile.tasks.v1',
   REPO_ADD_PROJECT_MOBILE_RUNTIME_CAPABILITY,
   NOTIFICATIONS_REMOTE_PUSH_RUNTIME_CAPABILITY,
   NOTIFICATIONS_DESKTOP_PRESENCE_RUNTIME_CAPABILITY,
+  VOICE_SPEAK_RUNTIME_CAPABILITY,
   ...MOBILE_RELAY_RUNTIME_CAPABILITIES
 ] as const

@@ -26,6 +26,13 @@ import {
 import { usageLimitAccountSources } from './usage-limit-account-usage'
 
 export abstract class RuntimeStructuredAgentHost extends OrcaRuntimeWithStartTuiIdleVisibleReadProbe {
+  /** The RPC server owns phone capability negotiation; spawn-time speak injection reads it live. */
+  private voiceSpeakClientOnline: (() => boolean) | null = null
+
+  setVoiceSpeakClientOnline(read: () => boolean): void {
+    this.voiceSpeakClientOnline = read
+  }
+
   /** Apply the host-owning desktop's account overlay to configured agent environment. */
   protected structuredAgentLaunchEnv(
     agent: StructuredAgentId,
@@ -62,6 +69,9 @@ export abstract class RuntimeStructuredAgentHost extends OrcaRuntimeWithStartTui
       resolveCodexAccountKind: (home) =>
         resolveStructuredCodexAccountKind(home, this.requireStore().getSettings()),
       resolveAgentAccountHome: (agent) => this.resolveStructuredAgentAccountHome(agent),
+      ...(this.voiceSpeakClientOnline
+        ? { voiceSpeakClientOnline: this.voiceSpeakClientOnline }
+        : {}),
       ...(this.prepareCodexCatalogProbeHomeFn
         ? { prepareCodexCatalogProbeHome: this.prepareCodexCatalogProbeHomeFn }
         : {})

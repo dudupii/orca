@@ -24,6 +24,7 @@ import type { resolveCliCommand } from '../../../shared/node-cli-command-resolut
 import type { AgentCliVersionReader } from '../../agent-launch/preflight/agent-cli-version-probe'
 import { AgentCliInstallationError } from '../../native-chat/agent-launch/agent-cli-installation-error'
 import type { StructuredAgentLaunchPartResolver } from '../../runtime/agent-session/launch/structured-agent-launch-composition'
+import type { VoiceSpeakLaunchInjection } from '../../runtime/agent-session/launch/voice-speak-injection'
 import {
   LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
   NATIVE_CHAT_SCRATCH_DIR_ENV,
@@ -48,6 +49,8 @@ export type AcpStructuredLaunch = StructuredAgentCommand & {
   fullAccess: boolean
   /** The saved model the launch line carries. */
   launchModel?: string
+  /** Sealed at spawn: the speak endpoint injected for a voice-capable phone, or none. */
+  voiceSpeak?: VoiceSpeakLaunchInjection
   resume: {
     sessionId: string
     key: string
@@ -65,6 +68,8 @@ export type AcpStructuredLaunchPartDeps = {
   inheritedEnv?: NodeJS.ProcessEnv
   probeVersion?: AgentCliVersionReader
   dataDirectory: string
+  /** Spawn-time voice.speak.v1 injection; absent never changes the launch. */
+  resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
 } & Pick<AcpLaunchVisualsDeps, 'logger'>
 
 export type AcpLaunchSettings = StructuredAgentCommandSettings &
@@ -187,6 +192,7 @@ export function acpStructuredLaunchPart(
         })
       : null
     const fullAccess = basis.permissionMode === 'full-access'
+    const voiceSpeak = (await deps.resolveVoiceSpeak?.()) ?? null
     const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
     // A load restores the conversation's own model, and a stale role there would stop the agent
     // before it opens; resumed chats apply their model through the session instead.
@@ -201,6 +207,7 @@ export function acpStructuredLaunchPart(
         args: [...prefixArgs, ...args],
         fullAccess,
         ...(model ? { launchModel: model } : {}),
+        ...(voiceSpeak ? { voiceSpeak } : {}),
         resume: head
           ? {
               sessionId: head.handle.nativeId,

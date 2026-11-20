@@ -1,0 +1,74 @@
+{
+  "goldenFormatVersion": 6,
+  "operation": "notifications.desktop-stream",
+  "family": "notifications.desktop-stream",
+  "namedDeltas": [],
+  "values": {
+    "5359579cc62d": {
+      "running": true
+    },
+    "659d7eaa622c": {
+      "name": "notifications.unsubscribe#1",
+      "ordinal": 2,
+      "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"notifications.unsubscribe\",\"params\":{\"subscriptionId\":\"sub-1\"}}"
+    },
+    "a0b2bcfcde77": {
+      "running": false
+    },
+    "eb79a9b3682a": {
+      "status": "fulfilled",
+      "startedAt": 0,
+      "settledAt": 0,
+      "value": {
+        "$rpc": "undefined"
+      }
+    },
+    "f552b5040ec7": {
+      "name": "notifications.subscribe#1",
+      "ordinal": 1,
+      "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"notifications.subscribe\",\"params\":{\"includeDesktopSuppressed\":true}}"
+    }
+  },
+  "recording": {
+    "scenario": "notifications-speak-broadcast-arrives",
+    "checkpoints": [
+      {
+        "id": "ready",
+        "observation": {
+          "sender": [],
+          "payloads": ["f552b5040ec7"],
+          "settlements": {
+            "start": "eb79a9b3682a"
+          },
+          "state": "5359579cc62d",
+          "effects": []
+        }
+      },
+      {
+        "id": "speak-arrived",
+        "observation": {
+          "sender": [],
+          "payloads": ["f552b5040ec7"],
+          "settlements": {
+            "start": "eb79a9b3682a"
+          },
+          "state": "5359579cc62d",
+          "effects": []
+        }
+      },
+      {
+        "id": "stopped",
+        "observation": {
+          "sender": [],
+          "payloads": ["f552b5040ec7", "659d7eaa622c"],
+          "settlements": {
+            "start": "eb79a9b3682a",
+            "stop": "eb79a9b3682a"
+          },
+          "state": "a0b2bcfcde77",
+          "effects": []
+        }
+      }
+    ]
+  }
+}
