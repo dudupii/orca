@@ -30,6 +30,9 @@ class ExpoTwoWayAudioModule : Module() {
     }
     private val tts by ttsHandle
 
+    private val toneHandle = lazy { ToneEngine() }
+    private val tone by toneHandle
+
     override fun definition() = ModuleDefinition {
         Name("ExpoTwoWayAudio")
         AsyncFunction("initialize") { promise: Promise ->
@@ -141,9 +144,14 @@ class ExpoTwoWayAudioModule : Module() {
             tts.stop()
         }
 
+        Function("tonePlay") { kind: String ->
+            tone.play(kind)
+        }
+
         OnDestroy {
             if (speechHandle.isInitialized()) speech.destroy()
             if (ttsHandle.isInitialized()) tts.destroy()
+            if (toneHandle.isInitialized()) tone.destroy()
         }
 
         Events(
