@@ -8,7 +8,10 @@ import { useMobileNativeChatDrafts } from './composer/drafts/use-mobile-native-c
 import { useMobileNativeChatWorkspaceCatalog } from './composer/attachments/use-mobile-native-chat-workspace-catalog'
 import { useMobileNativeChatMessageSend } from './transcript/sending/use-mobile-native-chat-message-send'
 import { useMobileNativeChatSessionOptionController } from './input/session-options/use-mobile-native-chat-session-option-controller'
-import { useMobileNativeChatSessionLane } from './conversation/use-mobile-native-chat-session-lane'
+import {
+  useMobileNativeChatSessionLane,
+  useNativeChatLaneAttached
+} from './conversation/use-mobile-native-chat-session-lane'
 import { useMobileStructuredNativeChatSendBridge } from './composer/delivery/use-mobile-structured-native-chat-send-bridge'
 import { useMobileNativeChatTerminalTurn } from './transcript/ingestion/use-mobile-native-chat-terminal-turn'
 import type { MobileNativeChatController } from './mobile-native-chat-controller-contract'
@@ -73,13 +76,15 @@ export function useMobileNativeChatController(args: {
 
   // Fixed hook order mounts the lane before drafts; defer Edit’s append through a ref and delete nothing until copying succeeds.
   const appendComposerTextRef = useRef<(text: string) => boolean>(() => false)
+  // Voice mode rides this chat past its hiding; the lane stays attached while the page's loop runs on it.
+  const laneAttached = useNativeChatLaneAttached({ hostId, worktreeId, showNativeChat })
   const nativeChatLane = useMobileNativeChatSessionLane({
     ...args,
     composerScopeKey: mobileNativeChatScopeKey(hostId, worktreeId, activeSessionTabId),
     structured: activeChatStructured,
     resolution: activeChatResolution,
     sourceIdentity,
-    enabled: showNativeChat,
+    enabled: laneAttached,
     hostSupport: agentSessionHostSupport,
     appendComposerTextRef,
     onActionResolved: onSendResolved

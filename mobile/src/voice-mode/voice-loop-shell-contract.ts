@@ -27,6 +27,8 @@ export type VoiceLoopShellDeps = {
   readonly send: (text: string) => Promise<VoiceLoopSendOutcome>
   /** Reroutes the turn the loop is running with a mid-turn utterance; false reports the chat refused it. */
   readonly steer: (text: string) => Promise<{ steered: boolean }>
+  /** False while no chat seam is bound: the commit stage holds its fire and the words wait in the machine. */
+  readonly chatBound?: () => boolean
   readonly responseDelayMs: () => number
   readonly onState: (view: VoiceLoopView) => void
   readonly onNotice: (notice: VoiceLoopNotice) => void

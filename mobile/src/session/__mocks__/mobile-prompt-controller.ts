@@ -60,7 +60,9 @@ vi.mock('../native-chat/preferences/use-mobile-native-chat-ci-result-lines', () 
   useMobileNativeChatCiResultLines: () => false
 }))
 vi.mock('../native-chat/conversation/use-mobile-native-chat-session-lane', () => ({
-  useMobileNativeChatSessionLane: () => ({ session, structuredSession, sessionCommands })
+  useMobileNativeChatSessionLane: () => ({ session, structuredSession, sessionCommands }),
+  // No voice loop runs in these harnesses; the chat's own visibility carries the lane.
+  useNativeChatLaneAttached: () => true
 }))
 setMobileNativeChatDraftText('draft', 'ordinary message')
 vi.mock('../native-chat/composer/drafts/use-mobile-native-chat-drafts', () => ({

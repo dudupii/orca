@@ -58,6 +58,19 @@
           }
         ]
       }
+    },
+    {
+      "files": ["src/session/native-chat/use-mobile-native-chat-controller.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 303,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
     }
   ]
 }
