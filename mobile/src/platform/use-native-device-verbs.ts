@@ -12,6 +12,8 @@ import { nativeSpeechDeviceEngine } from './speech/native-speech-device'
 import { createNativeTtsServer } from './tts/native-tts'
 import { nativeTtsDeviceEngine } from './tts/native-tts-device'
 import { createNativeTtsVerbServer } from './tts/native-tts-verb-server'
+import { serveNativeToneVerb } from './tone/native-tone'
+import { nativeToneDeviceEngine } from './tone/native-tone-device'
 import { serveNativeClipboardVerb } from './clipboard/native-clipboard'
 import { serveNativeAnnounceVerb } from './accessibility/native-accessibility-announce'
 import { createNativeMediaVerbServer } from './media-picking/native-media'
@@ -52,6 +54,10 @@ export function useNativeDeviceVerbs(
       }
       if (verb === 'native.tts.act') {
         return tts.serve(params)
+      }
+      // A chime holds no session state to tie down; the engine call is the whole of it.
+      if (verb === 'native.tone.act') {
+        return serveNativeToneVerb(nativeToneDeviceEngine, params)
       }
       if (verb === 'native.a11y.announce') {
         return Promise.resolve(serveNativeAnnounceVerb(params))

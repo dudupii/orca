@@ -4,6 +4,9 @@ import {
   type VoiceLoopEffect,
   type VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
+import { VoiceLoopTranscriptLedger, spokenText } from './voice-loop-transcript-ledger'
+import { VoiceLoopForeground, type VoiceLoopDeferredSpeak } from './voice-loop-foreground'
+import { VoiceLoopPlatformSession } from './voice-loop-platform-session'
 import type {
   VoiceLoopShellDeps,
   VoiceLoopTranscriptRead,
@@ -33,30 +36,30 @@ function effectOf<K extends VoiceLoopEffect['kind']>(
  * it settles), and platform release order. The delay window arms after the machine's own
  * silence window has passed with the words held, so the commit still happens through the
  * machine's own event, sending the buffer in listening or steering the running turn in thinking.
+ * While no chat seam is bound (chatBound false) the commit stage holds its fire — the wait
+ * never arms and the words stay held in the machine until a seam binds again.
  */
 export class VoiceLoopShell {
   private readonly thresholds: VoiceLoopThresholds
   private readonly readIntervalMs: number
   private readonly machine: ReturnType<typeof createVoiceLoopMachine>
+  private readonly foreground: VoiceLoopForeground
+  private readonly platform: VoiceLoopPlatformSession
   private view: VoiceLoopView = { route: 'idle', transcript: '', pending: null, reply: null }
   private generation = 0
   private readTimer: ReturnType<typeof setTimeout> | null = null
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
-  private revision = -1
-  private committedSeen = ''
-  private tentativeSeen = ''
-  private lastActivityAt: number | null = null
+  private readonly ledger = new VoiceLoopTranscriptLedger()
   private suppressPending = false
   private starting = false
   private started = false
   private exited = false
-  private armedSpeech = false
-  private micOpened = false
-  private screenHeld = false
 
   constructor(private readonly deps: VoiceLoopShellDeps) {
     this.thresholds = { ...defaultVoiceLoopThresholds, ...deps.thresholds }
     this.readIntervalMs = deps.readIntervalMs ?? DEFAULT_READ_INTERVAL_MS
+    this.foreground = new VoiceLoopForeground({ tone: deps.tone ?? null })
+    this.platform = new VoiceLoopPlatformSession(deps)
     this.machine = createVoiceLoopMachine({
       now: deps.now,
       thresholds: this.thresholds,
@@ -87,7 +90,7 @@ export class VoiceLoopShell {
       if (!this.exited) {
         this.starting = false
         this.deps.onNotice('mic-unavailable')
-        this.releasePlatform()
+        this.platform.release()
         this.settleClosed()
       }
     }
@@ -113,29 +116,47 @@ export class VoiceLoopShell {
       this.settleClosed()
       return
     }
-    this.armedSpeech = true
-    this.deps.holdScreen()
-    this.screenHeld = true
+    this.platform.markSpeechArmed()
+    this.platform.holdScreen()
+    if (this.foreground.isBackgrounded()) {
+      // The app left while the recognizer was arming: the loop comes up already paused, its
+      // microphone and reads waiting for the return.
+      this.beginLoop()
+      return
+    }
     const micOpen = await this.deps.openMic()
     if (this.exited) {
       // The exit before the open could not release what had not opened; the late open is ours.
-      this.micOpened = micOpen
-      this.releasePlatform()
+      if (micOpen) {
+        this.platform.markMicOpened()
+      }
+      this.platform.release()
       return
     }
     if (!micOpen) {
       this.starting = false
       this.deps.onNotice('mic-unavailable')
-      this.releasePlatform()
+      this.platform.release()
       this.settleClosed()
       return
     }
-    this.micOpened = true
+    if (this.foreground.isBackgrounded()) {
+      // A leave won the race with the open: the capture it started must not run away with the app.
+      this.deps.closeMic()
+      this.beginLoop()
+      return
+    }
+    this.platform.markMicOpened()
+    this.beginLoop()
+    this.scheduleRead()
+  }
+
+  /** Marks the loop up: started, the machine's start accepted, the first view published. */
+  private beginLoop(): void {
     this.starting = false
     this.started = true
     this.machine.dispatch({ type: 'start' })
     this.publish()
-    this.scheduleRead()
   }
 
   /** A tap on the waiting utterance cancels its send; a waiting steer is handed to the turn now. */
@@ -163,6 +184,94 @@ export class VoiceLoopShell {
     this.deps.readout.stop()
   }
 
+  /**
+   * The app left or came back. The machine's visibility moves first — its table stops a speaking
+   * loop outright — and the loop's platforms follow the foreground policy: away closes the
+   * microphone and suspends the reads; the restore sounds its chime, plays what waited and only
+   * then reopens the microphone. The policy tracks the app even before the loop is up, so a
+   * startup racing a leave reconciles with the window that leave opened.
+   */
+  setForeground(foreground: boolean): void {
+    if (this.exited) {
+      return
+    }
+    if (foreground || this.machine.getState().visibility !== 'background') {
+      const outcome = this.machine.dispatch({ type: 'visibility', foreground })
+      if (effectOf(outcome.effects, 'stopPlayback') !== null) {
+        // Speaking into background: the machine cut the playback; its play settles stopped on its own.
+        this.deps.readout.stop()
+      }
+      this.publish()
+    }
+    if (!foreground) {
+      // The window opens with the leave itself, started loop or not: a startup racing it reconciles.
+      this.foreground.background(this.machine.getState().route)
+    }
+    if (!this.started) {
+      // Nothing platform-side is open yet; a return while the startup runs just closes the window.
+      if (foreground) {
+        this.foreground.restore()
+      }
+      return
+    }
+    if (foreground) {
+      void this.resume()
+      return
+    }
+    this.pause()
+  }
+
+  private pause(): void {
+    if (this.readTimer !== null) {
+      clearTimeout(this.readTimer)
+      this.readTimer = null
+    }
+    // Idempotent over the native listener that already ended capture on the activity's pause.
+    this.platform.closeMic()
+  }
+
+  private async resume(): Promise<void> {
+    if (this.exited || !this.started || !this.foreground.isBackgrounded()) {
+      return
+    }
+    // The chime first, the parked playback next; the microphone reopens only after both.
+    const deferred = this.foreground.restore()
+    if (deferred !== null) {
+      void this.playDeferred(deferred)
+    }
+    const opened = await this.deps.openMic()
+    if (this.exited || this.foreground.isBackgrounded()) {
+      // The exit could not close, and a second leave cannot adopt, a microphone that had not
+      // reopened yet; the late open is ours to close, and the next return opens its own.
+      if (opened) {
+        this.deps.closeMic()
+      }
+      return
+    }
+    if (!opened) {
+      // The refused reopen ends the loop as a refused start does: spent, never resurrected
+      // by a later leave and return.
+      this.deps.onNotice('mic-unavailable')
+      this.exit()
+      return
+    }
+    this.platform.markMicOpened()
+    this.scheduleRead()
+  }
+
+  /** Plays the reply a background window parked; the machine held speaking for it through the away. */
+  private async playDeferred(speak: VoiceLoopDeferredSpeak): Promise<void> {
+    const generation = this.generation
+    await this.deps.readout.play({ text: speak.text, locale: speak.locale ?? null })
+    if (this.exited || generation !== this.generation) {
+      return
+    }
+    if (this.machine.getState().route === 'speaking') {
+      this.machine.dispatch({ type: 'playbackEnd' })
+      this.publish()
+    }
+  }
+
   /** Ends the loop: the machine settles terminal, then the recognizer, mic and screen release. */
   exit(): void {
     if (this.exited) {
@@ -172,6 +281,7 @@ export class VoiceLoopShell {
     this.starting = false
     this.started = false
     this.generation += 1
+    this.foreground.reset()
     if (this.readTimer !== null) {
       clearTimeout(this.readTimer)
       this.readTimer = null
@@ -180,7 +290,7 @@ export class VoiceLoopShell {
     if (this.machine.getState().route !== 'closed') {
       this.machine.dispatch({ type: 'closeTab' })
     }
-    this.releasePlatform()
+    this.platform.release()
     this.publish()
   }
 
@@ -196,26 +306,8 @@ export class VoiceLoopShell {
     this.publish()
   }
 
-  // Each release clears its flag, so an exit racing a pending open releases everything once.
-  private releasePlatform(): void {
-    // Silence playback first: a loop that ends must not keep the speaker past its mic and screen.
-    this.deps.readout.stop()
-    if (this.armedSpeech) {
-      this.armedSpeech = false
-      this.deps.cancelSpeech()
-    }
-    if (this.micOpened) {
-      this.micOpened = false
-      this.deps.closeMic()
-    }
-    if (this.screenHeld) {
-      this.screenHeld = false
-      this.deps.releaseScreen()
-    }
-  }
-
   private scheduleRead(): void {
-    if (this.exited || this.readTimer !== null) {
+    if (this.exited || this.readTimer !== null || this.foreground.isBackgrounded()) {
       return
     }
     this.readTimer = setTimeout(() => {
@@ -252,33 +344,15 @@ export class VoiceLoopShell {
 
   /** Records one new transcript revision; returns whether the drawn words changed. */
   private ingest(read: VoiceLoopTranscriptRead): boolean {
-    if (read.revision <= this.revision) {
-      return false
-    }
-    this.revision = read.revision
-    const committed = read.committed.trim()
-    const seen = this.committedSeen
-    let spoke = committed !== seen
-    if (committed.startsWith(seen) && committed !== seen) {
-      // Committed text is the whole final text so far: feed the machine only the new words.
-      const delta = committed.slice(seen.length).trim()
-      if (delta) {
-        const heard = this.machine.dispatch({ type: 'speech', text: delta })
-        if (effectOf(heard.effects, 'stopPlayback') !== null) {
-          // Barge-in: the machine cut the playback; the speaker goes silent and its play settles stopped.
-          this.deps.readout.stop()
-        }
+    const heard = this.ledger.ingest(read, this.deps.now())
+    if (heard.delta !== null) {
+      const outcome = this.machine.dispatch({ type: 'speech', text: heard.delta })
+      if (effectOf(outcome.effects, 'stopPlayback') !== null) {
+        // Barge-in: the machine cut the playback; the speaker goes silent and its play settles stopped.
+        this.deps.readout.stop()
       }
-      this.committedSeen = committed
-    } else if (committed !== seen) {
-      // A rewrite of already-committed words has no machine event; adopt it and wait for more.
-      this.committedSeen = committed
     }
-    const tentative = read.tentative.trim()
-    spoke = spoke || tentative !== this.tentativeSeen
-    this.tentativeSeen = tentative
-    if (spoke) {
-      this.lastActivityAt = this.deps.now()
+    if (heard.spoke) {
       // Speech during the wait un-finalizes the utterance: the buffer keeps growing.
       if (this.view.pending !== null) {
         this.clearPendingTimer()
@@ -286,24 +360,29 @@ export class VoiceLoopShell {
       }
       this.suppressPending = false
     }
-    return spoke
+    return heard.spoke
   }
 
   private armPendingIfQuiet(): void {
     if (this.view.pending !== null || this.suppressPending) {
       return
     }
+    // No chat seam is bound: the wait stays un-armed, its words held in the machine for the rebind.
+    if (this.deps.chatBound?.() === false) {
+      return
+    }
     const state = this.machine.getState()
     // The wait arms for either commit: the running turn's steer or the next send's buffer.
     const held =
       state.route === 'thinking' ? state.steering : state.route === 'listening' ? state.buffer : []
-    if (held.length === 0 || this.lastActivityAt === null) {
+    const activityAt = this.ledger.activityAt()
+    if (held.length === 0 || activityAt === null) {
       return
     }
-    if (this.deps.now() - this.lastActivityAt < this.thresholds.silenceWindowMs) {
+    if (this.deps.now() - activityAt < this.thresholds.silenceWindowMs) {
       return
     }
-    this.view = { ...this.view, pending: spokenText(held, this.tentativeSeen) }
+    this.view = { ...this.view, pending: spokenText(held, this.ledger.tentative()) }
     this.pendingTimer = setTimeout(() => {
       this.pendingTimer = null
       void this.commit()
@@ -313,6 +392,12 @@ export class VoiceLoopShell {
 
   private async commit(flush: 'silence' | 'send' = 'silence'): Promise<void> {
     if (this.exited) {
+      return
+    }
+    // The wait came due with no chat seam bound: hold the words in the machine; the rebind arms them again.
+    if (this.deps.chatBound?.() === false) {
+      this.view = { ...this.view, pending: null }
+      this.publish()
       return
     }
     const generation = this.generation
@@ -356,6 +441,11 @@ export class VoiceLoopShell {
     this.view = { ...this.view, reply: delivered.reply }
     this.publish()
     const speak = effectOf(replied.effects, 'speak')
+    // The foreground policy reads the accept: a reply the loop took while away parks its playback
+    // for the restore, and a turn that straddled the away chimes as it answers.
+    if (!this.foreground.replyAccepted(this.machine.getState().visibility, speak)) {
+      return
+    }
     if (!speak) {
       // Muted by setting, or nothing to say: the machine is already listening again.
       return
@@ -383,17 +473,10 @@ export class VoiceLoopShell {
     const state = this.machine.getState()
     this.view = {
       route: state.route,
-      transcript: spokenText([...state.buffer, ...state.steering], this.tentativeSeen),
+      transcript: spokenText([...state.buffer, ...state.steering], this.ledger.tentative()),
       pending: this.view.pending,
       reply: this.view.reply
     }
     this.deps.onState(this.view)
   }
-}
-
-/** The utterance as it stands: the machine's held chunks, buffered or steering, plus the tail. */
-function spokenText(chunks: readonly string[], tentative: string): string {
-  const spoken = chunks.filter(Boolean).join(' ')
-  const tail = tentative.trim()
-  return spoken && tail ? `${spoken} ${tail}` : spoken || tail
 }

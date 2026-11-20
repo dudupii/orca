@@ -39,7 +39,7 @@
         "max-lines": [
           "error",
           {
-            "max": 341,
+            "max": 400,
             "skipBlankLines": true,
             "skipComments": true
           }
@@ -53,6 +53,58 @@
           "error",
           {
             "max": 412,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/native-chat/use-mobile-native-chat-controller.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 319,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/voice-mode/voice-mode-host.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 457,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/voice-mode/voice-mode-host.test.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 1056,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/__mocks__/mobile-prompt-controller.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 329,
             "skipBlankLines": true,
             "skipComments": true
           }

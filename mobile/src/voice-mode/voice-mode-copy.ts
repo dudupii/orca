@@ -16,6 +16,9 @@ export const voiceModeCopy = {
     }
   },
   exit: () => translate('voiceMode.exit', 'Exit voice mode'),
+  pillLabel: (state: string, title: string) =>
+    translate('voiceMode.pill.label', '{{state}} in {{title}}', { state, title }),
+  pillHint: () => translate('voiceMode.pill.hint', 'Double-tap to go back to the conversation'),
   stopReadout: () => translate('voiceMode.stopReadout', 'Stop readout'),
   pendingHint: () => translate('voiceMode.pendingHint', 'Tap to cancel sending'),
   pendingLabel: (utterance: string) =>

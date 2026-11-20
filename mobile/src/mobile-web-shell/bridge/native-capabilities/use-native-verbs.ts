@@ -45,6 +45,7 @@ import {
   ttsStopResultSchema,
   type BridgeTtsRead
 } from './bridge-tts-verbs'
+import { BRIDGE_TONE_VERB, toneResultSchema, type BridgeToneKind } from './bridge-tone-verbs'
 
 // Use ordinary request frames/caps, served only on-device. Refuse ungranted verbs before posting and parse results because the installed shell can differ from this page build.
 export type NativeVerbs = {
@@ -83,6 +84,10 @@ export type NativeVerbs = {
   ttsSpeak: (text: string, locale: string | null) => Promise<number>
   ttsStop: () => Promise<void>
   ttsRead: () => Promise<BridgeTtsRead>
+  // Without it the restore piece skips its blip, exactly as before this verb existed.
+  canPlayTone: boolean
+  // Fire-and-forget from the caller's side: the reply settles the ask, never the sound.
+  tonePlay: (kind: BridgeToneKind) => Promise<void>
   // Older shells lack it; the page then keeps its live region, which VoiceOver may not read.
   canAnnounce: boolean
   // True when the shell spoke it.
@@ -230,6 +235,10 @@ export function useNativeVerbs(): NativeVerbs {
         await call(BRIDGE_TTS_VERB, { action: 'stop' }, ttsStopResultSchema)
       },
       ttsRead: () => call(BRIDGE_TTS_VERB, { action: 'read' }, ttsReadResultSchema),
+      canPlayTone: has(BRIDGE_TONE_VERB),
+      tonePlay: async (kind) => {
+        await call(BRIDGE_TONE_VERB, { kind }, toneResultSchema)
+      },
       canAnnounce: has('native.a11y.announce'),
       announce: async (message) =>
         (await call('native.a11y.announce', { message }, a11yAnnounceResultSchema)).announced

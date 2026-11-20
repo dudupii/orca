@@ -35,8 +35,6 @@ import { markdownTabDraftKey } from '../drafts/document-edit-draft-rows'
 import { workspaceDraftRowKey } from '../drafts/durable-draft-rows'
 import { loadMarkdownPreviewImage } from '../files/markdown/mobile-markdown-image-source'
 import { useMobileSessionVoiceMode } from '../voice-mode/use-mobile-session-voice-mode'
-import { subscribeToSpeakBroadcasts } from '../voice-mode/speak-broadcast'
-import { resolveVoiceModeReplyText } from '../voice-mode/voice-reply-source'
 
 export function MobileSessionActiveContent({
   controller
@@ -114,31 +112,9 @@ export function MobileSessionActiveContent({
   } = controller
   const { keyboardLift, activeTerminalKeyboardLift, toastAnimatedStyle } =
     useMobileSessionContentKeyboardLift(controller)
-  // Voice mode runs over the chat: one loop, entered from the mic's long press, left with the chat.
-  // Its speaking side reads the host's speak broadcasts off the notifications stream and the chat's
-  // latest reply text, both sampled through the same seam as its sends.
-  // Steering rides the chat's send verb with the intent that reroutes the running turn, never queueing.
-  const { handleNativeChatSendWithOutcome: chatSendWithOutcome } = nativeChatController
-  const voiceMode = useMobileSessionVoiceMode(showToast, {
-    handleNativeChatSend: nativeChatController.handleNativeChatSend,
-    nativeChatTurnActive: nativeChatController.nativeChatTurnActive,
-    showNativeChat: nativeChatController.showNativeChat,
-    subscribeSpeakBroadcasts: (onBroadcast) =>
-      client ? subscribeToSpeakBroadcasts(client, onBroadcast) : () => {},
-    latestReplyText: () =>
-      resolveVoiceModeReplyText({
-        structured: nativeChatController.nativeChatStructured,
-        messages: nativeChatController.nativeChatSession.messages,
-        status: nativeChatController.nativeChatStatus
-      }),
-    // The structured agent-session id the host names on its speak broadcasts; voice mode's gate
-    // drops a broadcast naming any other session.
-    activeSessionId: () => resolveMobileNativeChatSessionId(controller.activeSessionTab),
-    steer: (text) =>
-      chatSendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
-        (outcome) => ({ steered: outcome !== 'rejected' })
-      )
-  })
+  // Voice mode runs over the chat: one loop per page, entered from the mic's long press, outliving
+  // this screen; the binder binds the chat's seam — sends, steering, the latest reply — to it.
+  const voiceMode = useMobileSessionVoiceMode(controller)
   const openUrlInOrca = useOpenUrlInOrca(controller)
   const hostProfile = useHostProfile(hostId)
   const hostTitle = useHostDisplay(hostProfile).title
