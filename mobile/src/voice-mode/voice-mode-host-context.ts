@@ -20,6 +20,30 @@ export type MobileVoiceModeOwner = {
   readonly tabId: string | undefined
   // The chat tab's title, for the pill and its toasts.
   readonly title: string
+  // The chat the loop captured at its start, served by a seam of its own for the loop's whole life.
+  readonly chat: MobileVoiceModeOwnerChat | null
+}
+
+// The chat identity a loop captured at its start: the owner tab's agent, session and terminal handle
+// as they stood the moment the mic was pressed. Frozen for the loop's life, so a later move of the
+// session's active tab — onto another pane's chat, onto another terminal — can neither redirect the
+// loop's held words nor reject them against a handle they were never spoken to.
+export type MobileVoiceModeOwnerChat = {
+  // True when the owner tab is a structured agent session; false when it is a terminal chat.
+  readonly structured: boolean
+  readonly agent: string
+  readonly sessionId: string | null
+  readonly transcriptPath: string | null
+  // False when only memory names the agent; a captured shell must not receive the loop's writes.
+  readonly agentConfirmed: boolean
+  readonly sessionLive: boolean
+  // The terminal the owner chat typed into at start; null for a structured chat.
+  readonly handle: string | null
+  // The owner tab's own id: its live status row drives the captured turn, its scope keys the drafts.
+  readonly tabId: string | null
+  // Parked launch text the owner terminal held at start, kept so the seam's sends clear it like the chat's own do.
+  readonly launchDraft?: string | null
+  readonly launchDraftCreatedAt?: number | null
 }
 
 // A mounted session screen, as the voice host sees it.
@@ -70,14 +94,13 @@ export type MobileVoiceModeHost = {
 }
 
 // One mounted screen's chat seam; the last bound stands for the loop's chat. The client rides the
-// binding so a rebound screen's different client re-runs the loop's speak subscription, and the pane
-// key answers live so a screen whose tab moved cannot stand for a pane it no longer shows.
+// binding so a rebound screen's different client re-runs the loop's speak subscription. The seam is
+// the owner chat's own — every screen of the loop's session serves the same captured identity — so
+// no pane matching is needed to keep a moved tab from answering for the chat it left.
 export type MobileVoiceModeChatBinding = {
   readonly instance: object
   readonly sessionKey: string
   readonly client: RpcClient | null
-  /** The pane this screen's chat stands on now, read live through the controller. */
-  readonly paneKey: () => string | undefined
   readonly seam: MobileVoiceModeChatSeam
 }
 
@@ -99,26 +122,15 @@ const NO_VOICE: MobileVoiceModeLive = {
 const subscribeNever = () => () => undefined
 
 /**
- * The session the live loop runs on, or null; null without a host too, so harnesses mounting the
- * chat controller alone see no voice holding anything.
+ * The chat the page's voice loop captured at its start, when it runs on this session: the controller
+ * mounts the captured chat's own lane on it. Null when the loop is on another session, on none, or
+ * started from no chat; null without a host too, so harnesses mounting the chat controller alone see
+ * no voice holding anything.
  */
-export function useMobileVoiceModeOwnerSession(): string | null {
-  const host = useContext(MobileVoiceModeHostContext)
-  return (
-    useSyncExternalStore(host?.subscribe ?? subscribeNever, host?.getLive ?? (() => NO_VOICE)).owner
-      ?.sessionKey ?? null
-  )
-}
-
-/**
- * The pane the page's voice loop runs on, when it runs on this session: the chat's identity stands
- * on that pane while the loop holds it, even when the session's active tab moves off it. Null when
- * the loop is on another session, on none, or started from no pane.
- */
-export function useMobileVoiceModeOwnerPane(args: {
+export function useMobileVoiceModeOwnerChat(args: {
   hostId: string
   worktreeId: string
-}): string | null {
+}): MobileVoiceModeOwnerChat | null {
   const host = useContext(MobileVoiceModeHostContext)
   const executionHost = useWorkspaceExecutionHost()
   const owner = useSyncExternalStore(
@@ -131,7 +143,7 @@ export function useMobileVoiceModeOwnerPane(args: {
   ) {
     return null
   }
-  return owner.paneKey ?? null
+  return owner.chat
 }
 
 // The session a voice loop runs on — its host, the server executing it, its worktree — as one key.
@@ -141,13 +153,4 @@ export function mobileVoiceSessionKey(
   worktreeId: string
 ): string {
   return JSON.stringify([hostId, executionHost ?? null, worktreeId])
-}
-
-// The lane's attach rule with voice mode in force: shown, or held attached by the page's loop on this session.
-export function voiceLaneAttached(
-  showNativeChat: boolean,
-  voiceOwnerSession: string | null,
-  sessionKey: string
-): boolean {
-  return showNativeChat || voiceOwnerSession === sessionKey
 }

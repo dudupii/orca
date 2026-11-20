@@ -8,10 +8,11 @@ import { useMobileNativeChatDrafts } from './composer/drafts/use-mobile-native-c
 import { useMobileNativeChatWorkspaceCatalog } from './composer/attachments/use-mobile-native-chat-workspace-catalog'
 import { useMobileNativeChatMessageSend } from './transcript/sending/use-mobile-native-chat-message-send'
 import { useMobileNativeChatSessionOptionController } from './input/session-options/use-mobile-native-chat-session-option-controller'
+import { useMobileNativeChatSessionLane } from './conversation/use-mobile-native-chat-session-lane'
 import {
-  useMobileNativeChatSessionLane,
-  useNativeChatLaneAttached
-} from './conversation/use-mobile-native-chat-session-lane'
+  useMobileNativeChatVoiceOwnerSeam,
+  type MobileVoiceOwnerSeamTab
+} from './conversation/use-mobile-native-chat-voice-owner-seam'
 import { useMobileStructuredNativeChatSendBridge } from './composer/delivery/use-mobile-structured-native-chat-send-bridge'
 import { useMobileNativeChatTerminalTurn } from './transcript/ingestion/use-mobile-native-chat-terminal-turn'
 import type { MobileNativeChatController } from './mobile-native-chat-controller-contract'
@@ -30,6 +31,8 @@ export function useMobileNativeChatController(args: {
   worktreeId: string
   activeSessionTab: MobileNativeChatTab | null
   activeSessionTabId: string | null
+  /** Every tab of the session; the voice loop's captured seam reads its owner tab's live status row. */
+  sessionTabs: readonly MobileVoiceOwnerSeamTab[]
   activeHandleRef: MutableRefObject<string | null>
   deviceTokenRef: MutableRefObject<string | null>
   nativeChatTranscriptIsLocalReadable: boolean
@@ -48,6 +51,7 @@ export function useMobileNativeChatController(args: {
     worktreeId,
     activeSessionTab,
     activeSessionTabId,
+    activeHandleRef,
     deviceTokenRef,
     nativeChatInputLeaseReady,
     connState,
@@ -62,7 +66,6 @@ export function useMobileNativeChatController(args: {
     activeChatResolution,
     activeChatSessionId,
     activeChatStructured,
-    chatHandleRef,
     isTabChatView,
     sessionViewReady,
     setTabView,
@@ -71,20 +74,19 @@ export function useMobileNativeChatController(args: {
     showNativeChatRef,
     sourceIdentity,
     streamIdentity,
-    toggleTabChatView
+    toggleTabChatView,
+    voiceOwnerChat
   } = useMobileNativeChatActiveResolution(args)
 
   // Fixed hook order mounts the lane before drafts; defer Edit’s append through a ref and delete nothing until copying succeeds.
   const appendComposerTextRef = useRef<(text: string) => boolean>(() => false)
-  // Voice mode rides this chat past its hiding; the lane stays attached while the page's loop runs on it.
-  const laneAttached = useNativeChatLaneAttached({ hostId, worktreeId, showNativeChat })
   const nativeChatLane = useMobileNativeChatSessionLane({
     ...args,
     composerScopeKey: mobileNativeChatScopeKey(hostId, worktreeId, activeSessionTabId),
     structured: activeChatStructured,
     resolution: activeChatResolution,
     sourceIdentity,
-    enabled: laneAttached,
+    enabled: showNativeChat,
     hostSupport: agentSessionHostSupport,
     appendComposerTextRef,
     onActionResolved: onSendResolved
@@ -131,8 +133,7 @@ export function useMobileNativeChatController(args: {
   const { stop: handleNativeChatStop, ...bridgePromptWrites } = useMobileBridgeChatPromptWrites({
     client,
     enabled: inputSendable && !activeChatStructured,
-    // The chat's handle, pinned to the voice loop's pane while it holds this chat.
-    handleRef: chatHandleRef,
+    handleRef: activeHandleRef,
     deviceTokenRef,
     agentRef: activeChatAgentRef,
     sessionId: activeChatSessionId,
@@ -202,8 +203,7 @@ export function useMobileNativeChatController(args: {
   } = useMobileNativeChatMessageSend({
     client,
     enabled: inputSendable && !activeChatStructured,
-    // The chat's handle, pinned to the voice loop's pane while it holds this chat.
-    handleRef: chatHandleRef,
+    handleRef: activeHandleRef,
     deviceTokenRef,
     agentRef: activeChatAgentRef,
     commandSendRef: recordSessionOptionCommandRef,
@@ -259,7 +259,24 @@ export function useMobileNativeChatController(args: {
     appendComposerTextRef.current = appendComposerText
   }, [appendComposerText, recordNativeChatSessionOptionCommand])
 
+  // The loop's captured seam, mounted beside the visible pipeline: its own lane and send verbs ride
+  // the identity frozen at the mic press, so nothing above changes what the user sees or types.
+  const nativeChatVoiceSeam = useMobileNativeChatVoiceOwnerSeam({
+    client,
+    pairedHostClient: args.pairedHostClient,
+    hostId,
+    worktreeId,
+    connState,
+    sourceIdentity,
+    hostSupport: agentSessionHostSupport,
+    deviceTokenRef,
+    sessionTabs: args.sessionTabs,
+    onSendError
+  })
+
   return {
+    nativeChatVoiceSeam,
+    nativeChatVoiceOwnerChat: voiceOwnerChat,
     reportQueuedEditError: onSendError,
     chatComposerScopeKey: mobileNativeChatScopeKey(hostId, worktreeId, activeSessionTabId),
     sessionViewReady,

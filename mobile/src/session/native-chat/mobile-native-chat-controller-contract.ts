@@ -35,6 +35,10 @@ import type { MobileNativeChatVisualSource } from './visual/mobile-native-chat-v
 import type { NativeChatContextUsageSummary } from '../../../../src/shared/native-chat/native-chat-context-usage-summary'
 import type { useMobileStructuredSessionCommands } from './composer/commands/use-mobile-structured-session-commands'
 import type { MobileNativeChatUsageLimit } from './status/use-mobile-native-chat-usage-limit'
+import type {
+  MobileVoiceModeChatSeam,
+  MobileVoiceModeOwnerChat
+} from '../../voice-mode/voice-mode-host-context'
 
 export type MobileNativeChatController = {
   sessionViewReady: boolean
@@ -132,4 +136,8 @@ export type MobileNativeChatController = {
   /** The structured chat's options read on whether its agent forks; absent until it answers. */
   nativeChatForkSupport?: AgentSessionOptionsResult['forkSupport']
   nativeChatUsageLimit: MobileNativeChatUsageLimit | null
+  /** The voice loop's seam for the chat it captured at start; null while no loop runs on this session. */
+  nativeChatVoiceSeam: MobileVoiceModeChatSeam | null
+  /** The chat as it stands right now, for a loop starting here to capture and hold. */
+  nativeChatVoiceOwnerChat: () => MobileVoiceModeOwnerChat | null
 }

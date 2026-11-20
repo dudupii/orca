@@ -12,7 +12,6 @@ import {
   useWorkspaceExecutionHost,
   workspaceRouteHref
 } from '../navigation/workspace-execution-host'
-import { latestNativeChatReplyText } from '../../../src/shared/native-chat/native-chat-streaming'
 import { mobileSessionTabPaneKey } from '../session/tabs/notification-pane-tab'
 import type { MobileSessionController } from '../session/use-mobile-session-controller'
 import { mobileVoiceSessionKey, useMobileVoiceModeHost } from './voice-mode-host-context'
@@ -60,25 +59,24 @@ export function useMobileSessionVoiceMode(
   // Before any loop exists this screen is the one in front; once one does, only its session's is.
   const shown = inFront && (owner === null || owner.sessionKey === sessionKey)
 
-  // The chat's seam, stable for the screen's life; its readers stay live through the controller ref.
+  // The chat's seam, stable for the screen's life: it forwards to the controller's captured seam,
+  // which the loop's captured identity mounts, so every verb rides the chat the mic was pressed on.
   const controllerRef = useRef(controller)
   useEffect(() => {
     controllerRef.current = controller
   })
   const [seam] = useState<MobileVoiceModeChatSeam>(() => ({
-    send: (text: string) => controllerRef.current.nativeChatController.handleNativeChatSend(text),
+    send: (text: string) =>
+      controllerRef.current.nativeChatController.nativeChatVoiceSeam?.send(text) ??
+      Promise.resolve(false),
     // Steering rides the chat's send verb with the intent that reroutes the running turn, never queueing.
     steer: (text) =>
-      controllerRef.current.nativeChatController
-        .handleNativeChatSendWithOutcome(text, undefined, undefined, undefined, undefined, {
-          steer: true
-        })
-        .then((outcome) => ({ steered: outcome !== 'rejected' })),
-    turnActive: () => controllerRef.current.nativeChatController.nativeChatTurnActive,
+      controllerRef.current.nativeChatController.nativeChatVoiceSeam?.steer(text) ??
+      Promise.resolve({ steered: false }),
+    turnActive: () =>
+      controllerRef.current.nativeChatController.nativeChatVoiceSeam?.turnActive() ?? false,
     latestReplyText: () =>
-      latestNativeChatReplyText(
-        controllerRef.current.nativeChatController.nativeChatSession.messages
-      )
+      controllerRef.current.nativeChatController.nativeChatVoiceSeam?.latestReplyText() ?? ''
   }))
 
   const screenRef = useRef({ shown, toast: showToast })
@@ -112,15 +110,7 @@ export function useMobileSessionVoiceMode(
 
   // Bind the seam while this screen stands; a rebound screen's different client re-runs the loop's speak subscription.
   useEffect(
-    () =>
-      host.bindChat({
-        instance,
-        sessionKey,
-        client,
-        // The pane this screen's chat stands on now, so a screen whose tab moved cannot answer for the owner's.
-        paneKey: () => mobileSessionTabPaneKey(controllerRef.current.activeSessionTab),
-        seam
-      }),
+    () => host.bindChat({ instance, sessionKey, client, seam }),
     [host, instance, sessionKey, client, seam]
   )
 
@@ -138,7 +128,9 @@ export function useMobileSessionVoiceMode(
       ),
       paneKey,
       tabId: active.activeSessionTab?.id,
-      title: active.activeSessionTab?.title ?? ''
+      title: active.activeSessionTab?.title ?? '',
+      // The chat as it stands at the press: the loop's seam rides this snapshot for its whole life.
+      chat: active.nativeChatController.nativeChatVoiceOwnerChat() ?? null
     })
   }, [host, instance, sessionKey, hostId, worktreeId, executionHost])
 

@@ -23,7 +23,8 @@ import type { MobileSessionVoiceMode } from '../../voice-mode/use-mobile-session
 import {
   mobileVoiceSessionKey,
   MobileVoiceModeHostContext,
-  type MobileVoiceModeHost
+  type MobileVoiceModeHost,
+  type MobileVoiceModeOwnerChat
 } from '../../voice-mode/voice-mode-host-context'
 export const visible = { value: true }
 const messages: NativeChatMessage[] = []
@@ -67,9 +68,7 @@ vi.mock('../native-chat/preferences/use-mobile-native-chat-ci-result-lines', () 
   useMobileNativeChatCiResultLines: () => false
 }))
 vi.mock('../native-chat/conversation/use-mobile-native-chat-session-lane', () => ({
-  useMobileNativeChatSessionLane: () => ({ session, structuredSession, sessionCommands }),
-  // No voice loop runs in these harnesses; the chat's own visibility carries the lane.
-  useNativeChatLaneAttached: () => true
+  useMobileNativeChatSessionLane: () => ({ session, structuredSession, sessionCommands })
 }))
 setMobileNativeChatDraftText('draft', 'ordinary message')
 vi.mock('../native-chat/composer/drafts/use-mobile-native-chat-drafts', () => ({
@@ -169,14 +168,16 @@ type HarnessProps = {
   // Real active tabs carry their pane identity; the pane-holding tests name it for their keys.
   tab?: MobileNativeChatTab & Partial<PaneKeyTab>
   tabId?: string
+  /** Every tab of the session; the voice seam reads its owner tab's live status row by id. */
+  tabs?: readonly { id: string; type: string; agentStatus?: MobileNativeChatTab['agentStatus'] }[]
   connState?: ConnectionState
   hostId?: string
-  /** The pane the page's voice loop runs on, when one does; null keeps the harness hostless. */
-  voiceOwnerPane?: string | null
+  /** The chat the page's voice loop captured, when one runs; null keeps the harness hostless. */
+  voiceOwnerChat?: MobileVoiceModeOwnerChat | null
 }
-// A host whose loop runs on the given pane of this harness's session: enough of an owner for the
-// chat resolution to pin the pane's chat while the session's active tab moves off it.
-function voiceHostFor(paneKey: string): MobileVoiceModeHost {
+// A host whose loop captured the given chat of this harness's session: enough of an owner for the
+// controller to mount the captured seam while the session's active tab moves off it.
+function voiceHostFor(chat: MobileVoiceModeOwnerChat): MobileVoiceModeHost {
   const live = {
     view: idleVoiceMode.view,
     owner: {
@@ -185,9 +186,10 @@ function voiceHostFor(paneKey: string): MobileVoiceModeHost {
       client: null,
       worktreeId: 'folder:work',
       href: '',
-      paneKey,
+      paneKey: undefined,
       tabId: undefined,
-      title: ''
+      title: '',
+      chat
     },
     entryAvailable: false
   }
@@ -203,7 +205,7 @@ function voiceHostFor(paneKey: string): MobileVoiceModeHost {
     open: () => {}
   }
 }
-// The controller runs below any voice host provider, so its chat resolution sees the loop's pane.
+// The controller runs below any voice host provider, so its captured seam sees the loop's chat.
 function ChatScreen(props: HarnessProps) {
   const { tab = baseTab, tabId = 'tab-1', connState = 'connected', hostId = 'host' } = props
   const current = useMobileNativeChatController({
@@ -213,6 +215,7 @@ function ChatScreen(props: HarnessProps) {
     worktreeId: 'folder:work',
     activeSessionTab: tab,
     activeSessionTabId: tabId,
+    sessionTabs: props.tabs ?? [{ id: tabId, type: tab.type, agentStatus: tab.agentStatus }],
     activeHandleRef: handleRef,
     deviceTokenRef: { current: null },
     nativeChatTranscriptIsLocalReadable: true,
@@ -255,17 +258,17 @@ function ChatScreen(props: HarnessProps) {
 }
 
 function Harness(props: HarnessProps) {
-  const { voiceOwnerPane = null } = props
-  // The stub stays one object while the pane stands — the store's snapshot must be stable — and is
-  // rebuilt when the pane moves or the loop ends.
-  const voiceHostRef = useRef<{ paneKey: string | null; host: MobileVoiceModeHost | null }>({
-    paneKey: null,
-    host: null
-  })
-  if (voiceOwnerPane !== voiceHostRef.current.paneKey) {
+  const { voiceOwnerChat = null } = props
+  // The stub stays one object while the captured chat stands — the store's snapshot must be
+  // stable — and is rebuilt when the loop's chat changes or the loop ends.
+  const voiceHostRef = useRef<{
+    chat: MobileVoiceModeOwnerChat | null
+    host: MobileVoiceModeHost | null
+  }>({ chat: null, host: null })
+  if (voiceOwnerChat !== voiceHostRef.current.chat) {
     voiceHostRef.current = {
-      paneKey: voiceOwnerPane,
-      host: voiceOwnerPane === null ? null : voiceHostFor(voiceOwnerPane)
+      chat: voiceOwnerChat,
+      host: voiceOwnerChat === null ? null : voiceHostFor(voiceOwnerChat)
     }
   }
   const screen = createElement(ChatScreen, props)

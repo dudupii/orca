@@ -145,12 +145,10 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     }
   }, [])
 
-  // The seam standing for the loop's chat: the binding of its own session that still shows the
-  // owner's pane, else the screen that started it — never another session's screen stacked over
-  // it, nor its own session's on another pane: a screen neither on the pane nor the starting one
-  // holds nothing of the loop's chat, so none stands and the words hold for a screen that does.
-  // The starting screen's own controller is safe to fall back to — it holds the pane's chat
-  // wherever its active tab has moved while the loop runs.
+  // The seam standing for the loop's chat: the binding of its own session that started it, else
+  // that session's newest — never another session's screen stacked over it. Every screen of the
+  // session serves the same captured identity, so whichever stands carries the loop's words; with
+  // none standing none answers, and the words hold for a screen that does.
   const chatBinding = useCallback((): MobileVoiceModeChatBinding | null => {
     const owner = ownerRef.current
     const bindings = bindingsRef.current
@@ -158,15 +156,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
       return bindings.at(-1) ?? null
     }
     const own = bindings.filter((binding) => binding.sessionKey === owner.sessionKey)
-    if (own.length === 0) {
-      return null
-    }
-    const starting = own.find((binding) => binding.instance === owner.instance)
-    if (owner.paneKey === undefined) {
-      return starting ?? own.at(-1) ?? null
-    }
-    const onOwnerPane = own.filter((binding) => binding.paneKey() === owner.paneKey)
-    return onOwnerPane.at(-1) ?? starting ?? null
+    return own.find((binding) => binding.instance === owner.instance) ?? own.at(-1) ?? null
   }, [])
 
   // The chat seams answer together whenever the top binding changes: the reply polls resume or

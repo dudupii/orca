@@ -15,17 +15,15 @@ import type {
   BridgeSpeechStartResult
 } from '../mobile-web-shell/bridge/native-capabilities/bridge-speech-verbs'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
-import type { NativeChatMessage } from '../../../src/shared/native-chat/native-chat-types'
 import { MobileDictationHostContext } from '../dictation/mobile-dictation-host-context'
 import type { MobileDictationHost } from '../dictation/mobile-dictation-host-context'
 import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
 import { createMobileDictationMeter } from '../hooks/mobile-dictation-meter'
 import { useMobileVoiceModeHost } from './voice-mode-host-context'
-import type { MobileVoiceModeLive } from './voice-mode-host-context'
+import type { MobileVoiceModeLive, MobileVoiceModeOwnerChat } from './voice-mode-host-context'
 import { MobileVoiceModeHostProvider } from './voice-mode-host'
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
-import { voiceLaneAttached } from './voice-mode-host-context'
 import { VOICE_MODE_OWNER_LIVENESS_POLL_MS } from './voice-mode-owner-liveness'
 import { loadVoiceModeBargeIn } from '../storage/voice-mode-settings'
 import type { MobileSessionController } from '../session/use-mobile-session-controller'
@@ -231,6 +229,18 @@ const HOST_ID = 'host-1'
 const WORKTREE_ID = 'wt-1'
 const SESSION_KEY = JSON.stringify([HOST_ID, null, WORKTREE_ID])
 
+// The chat the mic press captures; its identity is all the host needs from the controller here.
+const OWNER_CHAT: MobileVoiceModeOwnerChat = {
+  structured: false,
+  agent: 'claude',
+  sessionId: 'session-1',
+  transcriptPath: null,
+  agentConfirmed: true,
+  sessionLive: true,
+  handle: 'term-1',
+  tabId: 'tab-1'
+}
+
 // A connected client whose host server answers the liveness reads from the seam's state; anything
 // else it is asked answers empty, so only the liveness probes notice it.
 function fakeClient(): RpcClient {
@@ -305,24 +315,21 @@ function fakeController(
   ) => Promise<MobileNativeChatSendOutcome>,
   overrides: ControllerOverrides = {}
 ): MobileSessionController {
-  // The binder reads a slice of the controller; its chat state answers live so an unbound seam still
-  // reads the truth, the way the real controller's refs do.
+  // The binder reads a slice of the controller; its captured seam answers live so an unbound seam
+  // still reads the truth, the way the real controller's refs do.
   const nativeChatController = {
     handleNativeChatSend: send,
     handleNativeChatSendWithOutcome: sendWithOutcome,
-    get nativeChatTurnActive() {
-      return seam.turnActive
+    nativeChatVoiceSeam: {
+      send,
+      steer: (text: string) =>
+        sendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
+          (outcome) => ({ steered: outcome !== 'rejected' })
+        ),
+      turnActive: () => seam.turnActive,
+      latestReplyText: () => seam.replyText
     },
-    get nativeChatSession() {
-      const reply: NativeChatMessage = {
-        id: 'reply',
-        role: 'assistant',
-        blocks: [{ type: 'text', text: seam.replyText }],
-        timestamp: 1,
-        source: 'transcript'
-      }
-      return { messages: [reply] }
-    }
+    nativeChatVoiceOwnerChat: () => OWNER_CHAT
   }
   return {
     hostId: HOST_ID,
@@ -949,7 +956,7 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(action.payload.params?.paneKey).toBe(`tab-1:${leafId}`)
   })
 
-  it('keeps the loop sending on its owner pane when the same session stacks over another pane', async () => {
+  it('keeps the loop sending through the screen that started it when its session stacks another', async () => {
     const leafId = crypto.randomUUID()
     const otherLeaf = crypto.randomUUID()
     const tab = terminalTab('tab-1', leafId)
@@ -959,8 +966,8 @@ describe('MobileVoiceModeHostProvider', () => {
     harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
     await startLoop(harness)
 
-    // A second screen of the same session, its chat on another pane, binds after the owner's; the
-    // loop's sends still ride the owner's pane, never the stacked screen's newer binding.
+    // A second screen of the same session binds after the owner's; every screen of the session
+    // serves the same captured chat, and the one that started the loop stands for it.
     harness.stackScreen(other)
     await speak(harness, 1, 'hello')
     expect(harness.send).toHaveBeenCalledWith('hello')
@@ -976,17 +983,5 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(harness.send).toHaveBeenCalledWith('hello')
     expect(seam.speakSubscribed).toBe(1)
     expect(harness.view().route).toBe('thinking')
-  })
-})
-
-describe('voiceLaneAttached', () => {
-  const otherSession = JSON.stringify(['host-1', null, 'wt-2'])
-
-  it('holds the lane attached while shown or while the loop runs on the session', () => {
-    expect(voiceLaneAttached(true, null, SESSION_KEY)).toBe(true)
-    expect(voiceLaneAttached(true, otherSession, SESSION_KEY)).toBe(true)
-    expect(voiceLaneAttached(false, SESSION_KEY, SESSION_KEY)).toBe(true)
-    expect(voiceLaneAttached(false, null, SESSION_KEY)).toBe(false)
-    expect(voiceLaneAttached(false, otherSession, SESSION_KEY)).toBe(false)
   })
 })

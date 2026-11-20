@@ -154,7 +154,7 @@ describe('async occurrences through the phone controller and rendered card actio
   })
 })
 
-describe('the voice loop holds its chat on the pane it started on', () => {
+describe('the voice loop rides the chat it captured at its start', () => {
   const structuredTab = {
     type: 'agent-session',
     id: 'tab-1',
@@ -163,42 +163,45 @@ describe('the voice loop holds its chat on the pane it started on', () => {
     agent: 'codex',
     isActive: true
   }
-  const paneKey = mobileSessionTabPaneKey(structuredTab)
   // The lane mock's send verb is typed without arguments; its calls carry the spoken text first.
   const sentText = (call: number): string =>
     (structuredSession.sendWithOutcome.mock.calls[call] as unknown as [string])[0]
 
   it('sends the held words to the structured chat while the active tab moves off it', async () => {
-    await render({ tab: structuredTab, voiceOwnerPane: paneKey })
-    expect(getController().nativeChatStructured).toBe(true)
+    await render({ tab: structuredTab, tabId: 'tab-1' })
+    const captured = getController().nativeChatVoiceOwnerChat()
+    expect(captured?.structured).toBe(true)
+    await render({ tab: structuredTab, tabId: 'tab-1', voiceOwnerChat: captured })
     await act(async () => {
-      await getController().handleNativeChatSend('held words')
+      await getController().nativeChatVoiceSeam?.send('held words')
     })
     expect(sentText(0)).toBe('held words')
 
-    // The session's active tab leaves the chat and the overlay hides; the loop's lane and its
-    // identity stand, so its sends keep riding the pane's structured chat.
+    // The session's active tab leaves the chat and the overlay hides; the visible controller
+    // resolves the live tab — no chat — while the loop's captured seam keeps its own identity.
     visible.value = false
-    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerPane: paneKey })
+    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerChat: captured })
     expect(getController().showNativeChat).toBe(false)
-    expect(getController().nativeChatStructured).toBe(true)
+    expect(getController().nativeChatStructured).toBe(false)
     await act(async () => {
-      await getController().handleNativeChatSend('more held words')
+      await getController().nativeChatVoiceSeam?.send('more held words')
     })
     expect(sentText(1)).toBe('more held words')
     expect(sendError).not.toHaveBeenCalled()
   })
 
-  it('releases the held chat when the loop ends, returning sends to the visible tab', async () => {
-    await render({ tab: structuredTab, voiceOwnerPane: paneKey })
+  it('releases the captured seam when the loop ends, returning sends to the visible tab', async () => {
+    await render({ tab: structuredTab, tabId: 'tab-1' })
+    const captured = getController().nativeChatVoiceOwnerChat()
     visible.value = false
-    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerPane: paneKey })
-    expect(getController().nativeChatStructured).toBe(true)
+    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerChat: captured })
+    expect(getController().nativeChatVoiceSeam).not.toBe(null)
 
-    // The pane's loop is gone; nothing holds the chat anymore.
-    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerPane: null })
+    // The loop is gone; nothing holds a chat anymore.
+    await render({ tab: baseTab, tabId: 'tab-2', voiceOwnerChat: null })
     expect(getController().showNativeChat).toBe(false)
     expect(getController().nativeChatStructured).toBe(false)
+    expect(getController().nativeChatVoiceSeam).toBe(null)
     await act(async () => {
       await getController().handleNativeChatSend('after words')
     })
@@ -210,66 +213,100 @@ describe('the voice loop holds its chat on the pane it started on', () => {
     )
   })
 
-  it('keeps the held words on the owner terminal while the active handle moves to another tab', async () => {
-    const ownerLeaf = crypto.randomUUID()
-    const ownerTab = { ...baseTab, id: 'tab-1', leafId: ownerLeaf }
-    const terminalPane = mobileSessionTabPaneKey(ownerTab)
-    await render({ tab: ownerTab, tabId: 'tab-1', voiceOwnerPane: terminalPane })
+  it('sends typed words to the live terminal while held words stay on the owner terminal', async () => {
+    const ownerTab = { ...baseTab, id: 'tab-1', leafId: crypto.randomUUID() }
+    await render({ tab: ownerTab, tabId: 'tab-1' })
+    const captured = getController().nativeChatVoiceOwnerChat()
+    expect(captured?.handle).toBe('term-1')
+
+    // The active tab becomes another chat-capable terminal with its own handle; everything
+    // visible — overlay, composer, typed sends — follows it, writing the user's selection.
+    handleRef.current = 'term-2'
+    await render({
+      tab: { ...baseTab, id: 'tab-2', leafId: crypto.randomUUID() },
+      tabId: 'tab-2',
+      tabs: [
+        { id: 'tab-1', type: 'terminal', agentStatus: ownerTab.agentStatus },
+        { id: 'tab-2', type: 'terminal', agentStatus: ownerTab.agentStatus }
+      ],
+      voiceOwnerChat: captured
+    })
     expect(getController().showNativeChat).toBe(true)
+    expect(getController().nativeChatStructured).toBe(false)
     await act(async () => {
-      await getController().handleNativeChatSend('spoken words')
+      await getController().handleNativeChatSend('typed words')
+    })
+    expect(client.sendRequest).toHaveBeenCalledWith(
+      'terminal.send',
+      expect.objectContaining({ text: 'typed words', terminal: 'term-2' }),
+      expect.any(Object)
+    )
+    // The loop's held words still type into the terminal it captured at the press.
+    await act(async () => {
+      await getController().nativeChatVoiceSeam?.send('spoken words')
     })
     expect(client.sendRequest).toHaveBeenCalledWith(
       'terminal.send',
       expect.objectContaining({ text: 'spoken words', terminal: 'term-1' }),
       expect.any(Object)
     )
-
-    // The active tab becomes a plain terminal of its own, with its own handle; the pane's
-    // remembered handle keeps the loop's words off it, on the terminal the loop started on.
-    handleRef.current = 'term-2'
-    await render({
-      tab: { type: 'terminal', id: 'tab-2', leafId: crypto.randomUUID() },
-      tabId: 'tab-2',
-      voiceOwnerPane: terminalPane
-    })
-    expect(getController().showNativeChat).toBe(false)
-    await act(async () => {
-      await getController().handleNativeChatSend('more spoken words')
-    })
-    expect(client.sendRequest).toHaveBeenCalledWith(
-      'terminal.send',
-      expect.objectContaining({ text: 'more spoken words', terminal: 'term-1' }),
-      expect.any(Object)
-    )
-    expect(client.sendRequest).not.toHaveBeenCalledWith(
-      'terminal.send',
-      expect.objectContaining({ terminal: 'term-2' }),
-      expect.any(Object)
-    )
   })
 
-  it('keeps the loop on its structured chat when the active tab moves to another chat pane', async () => {
-    await render({ tab: structuredTab, tabId: 'tab-1', voiceOwnerPane: paneKey })
-    expect(getController().nativeChatStructured).toBe(true)
+  it('keeps held words on the captured structured chat while the visible chat follows a live terminal', async () => {
+    await render({ tab: structuredTab, tabId: 'tab-1' })
+    const captured = getController().nativeChatVoiceOwnerChat()
+    expect(captured?.structured).toBe(true)
 
-    // Another pane's chat goes live and shown; the loop's chat still stands on its own pane, so
-    // its sends ride that pane's structured session, never the newly live chat's terminal.
+    // Another pane's chat-capable terminal goes live and shown; the visible controller resolves
+    // it exactly as before voice mode, and typed sends ride its terminal.
     await render({
       tab: { ...baseTab, id: 'tab-2', leafId: crypto.randomUUID() },
       tabId: 'tab-2',
-      voiceOwnerPane: paneKey
+      voiceOwnerChat: captured
     })
     expect(getController().showNativeChat).toBe(true)
-    expect(getController().nativeChatStructured).toBe(true)
-    expect(getController().nativeChatAgent).toBe('codex')
+    expect(getController().nativeChatStructured).toBe(false)
     await act(async () => {
-      await getController().handleNativeChatSend('held words')
+      await getController().handleNativeChatSend('typed words')
+    })
+    expect(client.sendRequest).toHaveBeenCalledWith(
+      'terminal.send',
+      expect.objectContaining({ text: 'typed words' }),
+      expect.any(Object)
+    )
+    // The loop's held words still ride the structured session it captured, never the terminal.
+    await act(async () => {
+      await getController().nativeChatVoiceSeam?.send('held words')
     })
     expect(sentText(0)).toBe('held words')
-    expect(client.sendRequest).not.toHaveBeenCalledWith(
+    expect(sendError).not.toHaveBeenCalled()
+  })
+
+  it('keeps held words on a paneless owner terminal while the active handle moves', async () => {
+    const ownerTab = { ...baseTab }
+    expect(mobileSessionTabPaneKey(ownerTab)).toBeUndefined()
+    await render({ tab: ownerTab, tabId: 'tab-1' })
+    const captured = getController().nativeChatVoiceOwnerChat()
+    expect(captured?.handle).toBe('term-1')
+
+    // The owner names no pane, and the session's active handle moves to another chat-capable
+    // terminal; the seam still sends through the terminal it captured at the press.
+    handleRef.current = 'term-2'
+    await render({
+      tab: { ...baseTab, id: 'tab-2' },
+      tabId: 'tab-2',
+      tabs: [
+        { id: 'tab-1', type: 'terminal', agentStatus: ownerTab.agentStatus },
+        { id: 'tab-2', type: 'terminal', agentStatus: ownerTab.agentStatus }
+      ],
+      voiceOwnerChat: captured
+    })
+    await act(async () => {
+      await getController().nativeChatVoiceSeam?.send('held words')
+    })
+    expect(client.sendRequest).toHaveBeenCalledWith(
       'terminal.send',
-      expect.objectContaining({ text: 'held words' }),
+      expect.objectContaining({ text: 'held words', terminal: 'term-1' }),
       expect.any(Object)
     )
   })

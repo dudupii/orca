@@ -8,27 +8,6 @@ import { useMobileStructuredAgentSession } from '../agent-session/use-mobile-str
 import { useMobileStructuredSessionCommands } from '../composer/commands/use-mobile-structured-session-commands'
 import type { MobileNativeChatResolution } from './mobile-native-chat-eligibility'
 import type { MobileNativeChatSendErrorReporter } from '../composer/delivery/use-mobile-native-chat-send-error'
-import { useWorkspaceExecutionHost } from '../../../navigation/workspace-execution-host'
-import {
-  mobileVoiceSessionKey,
-  useMobileVoiceModeOwnerSession,
-  voiceLaneAttached
-} from '../../../voice-mode/voice-mode-host-context'
-
-/** Whether the lane stays attached: the chat shown, or carried by the page's voice loop on its session. */
-export function useNativeChatLaneAttached(args: {
-  hostId: string
-  worktreeId: string
-  showNativeChat: boolean
-}): boolean {
-  const executionHost = useWorkspaceExecutionHost()
-  const voiceOwnerSession = useMobileVoiceModeOwnerSession()
-  return voiceLaneAttached(
-    args.showNativeChat,
-    voiceOwnerSession,
-    mobileVoiceSessionKey(args.hostId, executionHost, args.worktreeId)
-  )
-}
 
 // Run both hooks in fixed order and starve the inactive lane’s identity so flips preserve cached transcripts.
 export function useMobileNativeChatSessionLane({

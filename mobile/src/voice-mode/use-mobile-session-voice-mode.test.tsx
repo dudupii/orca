@@ -14,7 +14,7 @@ import type {
   BridgeSpeechStartResult
 } from '../mobile-web-shell/bridge/native-capabilities/bridge-speech-verbs'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
-import type { NativeChatMessage } from '../../../src/shared/native-chat/native-chat-types'
+import type { MobileVoiceModeOwnerChat } from './voice-mode-host-context'
 import { MobileDictationHostContext } from '../dictation/mobile-dictation-host-context'
 import type { MobileDictationHost } from '../dictation/mobile-dictation-host-context'
 import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
@@ -54,6 +54,18 @@ const seam = vi.hoisted((): Seam => ({
   sendOutcome: 'accepted',
   speakSink: null
 }))
+
+// The chat the mic press captures; its identity is all the host needs from the controller here.
+const OWNER_CHAT: MobileVoiceModeOwnerChat = {
+  structured: false,
+  agent: 'claude',
+  sessionId: 'session-1',
+  transcriptPath: null,
+  agentConfirmed: true,
+  sessionLive: true,
+  handle: 'term-1',
+  tabId: 'tab-1'
+}
 
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
 function settle<T>(value: T | Error): Promise<T> {
@@ -230,7 +242,7 @@ function mountVoiceMode(): Harness {
     getIdleDictation: () => dictation,
     getUnderway: () => dictation.isStarting || dictation.isRecording || dictation.isProcessing
   }
-  // The binder reads a slice of the controller; its chat state answers live the way the real
+  // The binder reads a slice of the controller; its captured seam answers live the way the real
   // controller's refs do, so no rerender is needed to move the seam's truth.
   const controller = {
     hostId: 'host-1',
@@ -243,19 +255,16 @@ function mountVoiceMode(): Harness {
     nativeChatController: {
       handleNativeChatSend: send,
       handleNativeChatSendWithOutcome: sendWithOutcome,
-      get nativeChatTurnActive() {
-        return seam.turnActive
+      nativeChatVoiceSeam: {
+        send,
+        steer: (text: string) =>
+          sendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
+            (outcome) => ({ steered: outcome !== 'rejected' })
+          ),
+        turnActive: () => seam.turnActive,
+        latestReplyText: () => seam.replyText
       },
-      get nativeChatSession() {
-        const reply: NativeChatMessage = {
-          id: 'reply',
-          role: 'assistant',
-          blocks: [{ type: 'text', text: seam.replyText }],
-          timestamp: 1,
-          source: 'transcript'
-        }
-        return { messages: [reply] }
-      }
+      nativeChatVoiceOwnerChat: () => OWNER_CHAT
     }
   } as unknown as MobileSessionController
   let voiceMode: MobileSessionVoiceMode | null = null
