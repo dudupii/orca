@@ -7,10 +7,12 @@ import {
   useState,
   type ReactNode
 } from 'react'
+import { AppState } from 'react-native'
 import { useDictationCapture } from '../platform/audio-capture/dictation-capture'
 import type { DictationCaptureOpen } from '../platform/audio-capture/dictation-capture-contract'
 import { nativeMicrophoneScreenLock } from '../platform/audio-capture/native-audio-device'
 import { useOnDeviceSpeech } from '../platform/speech/on-device-speech'
+import { useOnDeviceTone } from '../platform/tone/on-device-tone'
 import { useOnDeviceTts } from '../platform/tts/on-device-tts'
 import { useMobileDictationHost } from '../dictation/mobile-dictation-host-context'
 import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
@@ -88,6 +90,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   const dictationHost = useMobileDictationHost()
   const speech = useOnDeviceSpeech()
   const tts = useOnDeviceTts()
+  const tone = useOnDeviceTone()
   const capture = useDictationCapture()
   const [view, setView] = useState<VoiceLoopView>(IDLE_VIEW)
   const [owner, setOwner] = useState<MobileVoiceModeOwner | null>(null)
@@ -100,6 +103,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   const ttsRef = useRef(tts)
   const captureRef = useRef(capture)
   const dictationHostRef = useRef(dictationHost)
+  const toneRef = useRef(tone)
   const delaySecondsRef = useRef(1.5)
   // The loop's one playback owner; its broadcasts land here while the loop runs.
   const readoutRef = useRef<VoiceReadout | null>(null)
@@ -117,7 +121,17 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     ttsRef.current = tts
     captureRef.current = capture
     dictationHostRef.current = dictationHost
-  }, [speech, tts, capture, dictationHost])
+    toneRef.current = tone
+  }, [speech, tts, capture, dictationHost, tone])
+
+  // The app's own comings and goings pause and resume the loop. Change events only — Android also
+  // fires blur and focus for the app's own sheets, and an in-app sheet must never pause the voice.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      shellRef.current?.setForeground(state === 'active')
+    })
+    return () => subscription.remove()
+  }, [])
 
   useEffect(() => {
     void loadVoiceModeResponseDelaySeconds().then((seconds) => {
@@ -329,6 +343,8 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
           holdScreen: () => nativeMicrophoneScreenLock.hold(),
           releaseScreen: () => nativeMicrophoneScreenLock.release(),
           readout,
+          // The loop keeps the tone it started with; a grant that arrives mid-loop chimes from the next one.
+          tone: toneRef.current,
           // Both toggles are fixed for this loop's life: a change applies to the loop after this one.
           bargeIn,
           fallbackReadout,
