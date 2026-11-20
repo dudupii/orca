@@ -7,6 +7,7 @@ import type { RpcClient } from '../../transport/rpc/rpc-client-contract'
 import type { RpcResponse } from '../../transport/rpc/rpc-wire-types'
 import type { ConnectionState } from '../../transport/connection/connection-state'
 import type { MobileNativeChatTab } from '../native-chat/conversation/mobile-native-chat-eligibility'
+import type { PaneKeyTab } from '../tabs/notification-pane-tab'
 import type { MobileNativeChatController } from '../native-chat/mobile-native-chat-controller-contract'
 import { act, type ReactTestRenderer } from 'react-test-renderer'
 import { createWithQueryClient } from '../../test-support/query-client-test-renderer'
@@ -165,7 +166,8 @@ const idleVoiceMode: MobileSessionVoiceMode = {
   exit: () => {}
 }
 type HarnessProps = {
-  tab?: MobileNativeChatTab
+  // Real active tabs carry their pane identity; the pane-holding tests name it for their keys.
+  tab?: MobileNativeChatTab & Partial<PaneKeyTab>
   tabId?: string
   connState?: ConnectionState
   hostId?: string
@@ -184,6 +186,7 @@ function voiceHostFor(paneKey: string): MobileVoiceModeHost {
       worktreeId: 'folder:work',
       href: '',
       paneKey,
+      tabId: undefined,
       title: ''
     },
     entryAvailable: false

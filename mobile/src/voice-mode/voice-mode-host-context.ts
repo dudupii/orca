@@ -16,6 +16,8 @@ export type MobileVoiceModeOwner = {
   readonly href: string
   // The chat tab's pane key, for a screen still in the stack to switch back to it.
   readonly paneKey: string | undefined
+  // The chat tab's own id, watched for removal when no pane key names its pane.
+  readonly tabId: string | undefined
   // The chat tab's title, for the pill and its toasts.
   readonly title: string
 }

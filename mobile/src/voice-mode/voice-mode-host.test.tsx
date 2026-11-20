@@ -672,8 +672,8 @@ describe('MobileVoiceModeHostProvider', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150)
     })
-    // The send is in flight when its seam leaves; it accepts after the unbind, so its wait is born
-    // with no seam standing — born paused, or the grace window would settle it against nothing.
+    // The send is in flight when its seam leaves; its wait — registered before the send awaited —
+    // pauses with the unbind, so it accepts into a poll that can never run against no chat.
     let releaseSend: ((accepted: boolean) => void) | null = null
     harness.send.mockImplementation(
       () => new Promise<boolean>((resolve) => (releaseSend = resolve))
@@ -706,6 +706,50 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(seam.ttsSpeakCalls).toEqual([
       { text: 'The reply that survived the unbind.', locale: null }
     ])
+    expect(harness.view().route).toBe('listening')
+  })
+
+  it('freezes an unbind stretch out of the reply clocks when the send resolves after the rebind', async () => {
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150)
+    })
+    let releaseSend: ((accepted: boolean) => void) | null = null
+    harness.send.mockImplementation(
+      () => new Promise<boolean>((resolve) => (releaseSend = resolve))
+    )
+    // The send pends while its seam stands bound; its wait's clock runs most of the grace window.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200 + 1500 + 100)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_000)
+    })
+    expect(harness.view().route).toBe('thinking')
+
+    harness.unbindScreen()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000)
+    })
+    // The unbound stretch is frozen out of the wait's clocks, so it cannot settle against nothing.
+    expect(harness.view().route).toBe('thinking')
+    harness.rebindScreen()
+    await act(async () => {
+      releaseSend?.(true)
+      await flushEntry()
+    })
+    // The bound time alone has passed — still inside the grace window — so the polls hold for a
+    // turn that never started instead of the whole wall since the send settling them at once.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+    expect(harness.view().route).toBe('thinking')
+    // Past the grace window on the send's bound time the wait settles and the loop listens again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
     expect(harness.view().route).toBe('listening')
   })
 
@@ -805,6 +849,41 @@ describe('MobileVoiceModeHostProvider', () => {
     await startLoop(harness)
     harness.unbindScreen()
     // No screen stands for the chat anymore; only the page's own watch can see the pane go.
+    seam.sessionTabs = { tabs: [] }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)
+    })
+    expect(harness.view().route).toBe('closed')
+    expect(seam.calls).toContain('screen.release')
+    expect(seam.calls).toContain('speech.cancel')
+    expect(seam.calls).toContain('capture.end')
+    expect(harness.subscriptionLive()).toBe(false)
+  })
+
+  it('ends the loop when its paneless owning tab is proven closed after its screen left', async () => {
+    // A terminal tab without a leaf names no pane; the loop's lifetime watches the tab itself.
+    const tab = {
+      type: 'terminal',
+      id: 'tab-1',
+      title: 'Tab tab-1',
+      isActive: true,
+      terminal: null
+    } satisfies MobileSessionTab
+    const harness = mountVoiceModeHost()
+    seam.sessionTabs = { tabs: [rawPaneTab({ type: 'terminal', id: 'tab-1', title: 'Tab tab-1' })] }
+    harness.refresh({ activeSessionTab: tab, sessionTabs: [tab] })
+    await startLoop(harness)
+    expect(harness.owner()?.paneKey).toBeUndefined()
+    expect(harness.owner()?.tabId).toBe('tab-1')
+
+    harness.unbindScreen()
+    // The paneless tab still stands; the loop keeps running with its screen gone.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)
+    })
+    expect(harness.view().route).toBe('listening')
+
+    // The tab's removal ends the loop the way a pane's does, with everything it holds released.
     seam.sessionTabs = { tabs: [] }
     await act(async () => {
       await vi.advanceTimersByTimeAsync(VOICE_MODE_OWNER_LIVENESS_POLL_MS * 2 + 100)

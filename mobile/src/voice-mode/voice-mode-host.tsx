@@ -72,6 +72,8 @@ function screenFor(
 type ReplyWait = {
   readonly settle: () => void
   readonly setSeam: (bound: boolean) => void
+  /** The poll's answer, settled when the turn does; awaiting it is safe whenever the send resolves. */
+  readonly done: () => Promise<string>
 }
 
 /**
@@ -144,8 +146,11 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   }, [])
 
   // The seam standing for the loop's chat: the binding of its own session that still shows the
-  // owner's pane, else the screen that started it with its pane held, else the session's newest —
-  // never another session's screen stacked over it, nor its own session's on another pane.
+  // owner's pane, else the screen that started it — never another session's screen stacked over
+  // it, nor its own session's on another pane: a screen neither on the pane nor the starting one
+  // holds nothing of the loop's chat, so none stands and the words hold for a screen that does.
+  // The starting screen's own controller is safe to fall back to — it holds the pane's chat
+  // wherever its active tab has moved while the loop runs.
   const chatBinding = useCallback((): MobileVoiceModeChatBinding | null => {
     const owner = ownerRef.current
     const bindings = bindingsRef.current
@@ -156,16 +161,12 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     if (own.length === 0) {
       return null
     }
-    const onOwnerPane =
-      owner.paneKey !== undefined
-        ? own.filter((binding) => binding.paneKey() === owner.paneKey)
-        : []
-    return (
-      onOwnerPane.at(-1) ??
-      own.find((binding) => binding.instance === owner.instance) ??
-      own.at(-1) ??
-      null
-    )
+    const starting = own.find((binding) => binding.instance === owner.instance)
+    if (owner.paneKey === undefined) {
+      return starting ?? own.at(-1) ?? null
+    }
+    const onOwnerPane = own.filter((binding) => binding.paneKey() === owner.paneKey)
+    return onOwnerPane.at(-1) ?? starting ?? null
   }, [])
 
   // The chat seams answer together whenever the top binding changes: the reply polls resume or
@@ -194,66 +195,70 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   }, [chatBinding])
 
   // The reply renders in the chat behind the overlay: wait out the turn the send started, then
-  // hold its latest text out for the readout to speak. An unbound pause neither settles nor
-  // advances — a frozen turnActive would speak a stale reply or hang to the settle timeout.
-  const awaitReply = (loop: VoiceLoopShell): Promise<string> =>
-    new Promise((resolve) => {
-      let sawActive = chatBinding()?.seam.turnActive() ?? false
-      let startedAt = Date.now()
-      let poller: ReturnType<typeof setInterval> | null = null
-      let pausedAt: number | null = null
-      const settle = () => {
+  // hold its latest text out for the readout to speak. The wait is registered before its send
+  // awaits, so an unbind while that send is still pending reaches it — a wait created only after
+  // the send resolved could never have seen the transition, and its clocks would run unbeknownst
+  // through the unbound stretch. An unbound pause neither settles nor advances: a frozen
+  // turnActive would speak a stale reply or hang to the settle timeout.
+  const startReplyWait = (loop: VoiceLoopShell): ReplyWait => {
+    let resolveReply!: (text: string) => void
+    const reply = new Promise<string>((resolve) => {
+      resolveReply = resolve
+    })
+    let sawActive = chatBinding()?.seam.turnActive() ?? false
+    let startedAt = Date.now()
+    let poller: ReturnType<typeof setInterval> | null = null
+    let pausedAt: number | null = null
+    const settle = () => {
+      if (poller !== null) {
+        clearInterval(poller)
+      }
+      replyWaitsRef.current.delete(wait)
+      resolveReply(chatBinding()?.seam.latestReplyText() ?? '')
+    }
+    const poll = () => {
+      // The loop that asked is gone; nothing of its turn is worth waiting for.
+      if (shellRef.current !== loop) {
+        settle()
+        return
+      }
+      const turnActive = chatBinding()?.seam.turnActive() ?? false
+      if (!turnActive && (sawActive || Date.now() - startedAt > TURN_START_GRACE_MS)) {
+        settle()
+        return
+      }
+      if (turnActive) {
+        sawActive = true
+      }
+      if (Date.now() - startedAt > TURN_SETTLE_TIMEOUT_MS) {
+        settle()
+      }
+    }
+    const wait: ReplyWait = {
+      settle,
+      setSeam: (bound) => {
+        if (bound) {
+          if (poller === null && pausedAt !== null) {
+            startedAt += Date.now() - pausedAt
+            pausedAt = null
+            poller = setInterval(poll, TURN_SETTLE_POLL_MS)
+          }
+          return
+        }
         if (poller !== null) {
           clearInterval(poller)
+          poller = null
+          pausedAt = Date.now()
         }
-        replyWaitsRef.current.delete(wait)
-        resolve(chatBinding()?.seam.latestReplyText() ?? '')
-      }
-      const poll = () => {
-        // The loop that asked is gone; nothing of its turn is worth waiting for.
-        if (shellRef.current !== loop) {
-          settle()
-          return
-        }
-        const turnActive = chatBinding()?.seam.turnActive() ?? false
-        if (!turnActive && (sawActive || Date.now() - startedAt > TURN_START_GRACE_MS)) {
-          settle()
-          return
-        }
-        if (turnActive) {
-          sawActive = true
-        }
-        if (Date.now() - startedAt > TURN_SETTLE_TIMEOUT_MS) {
-          settle()
-        }
-      }
-      const wait: ReplyWait = {
-        settle,
-        setSeam: (bound) => {
-          if (bound) {
-            if (poller === null && pausedAt !== null) {
-              startedAt += Date.now() - pausedAt
-              pausedAt = null
-              poller = setInterval(poll, TURN_SETTLE_POLL_MS)
-            }
-            return
-          }
-          if (poller !== null) {
-            clearInterval(poller)
-            poller = null
-            pausedAt = Date.now()
-          }
-        }
-      }
-      // A send that resolved after its seam left finds none standing: the poll is born paused, so it
-      // can never run against no chat — only a rebind's clocks start it and its seam settles it.
-      if (chatBinding() === null) {
-        pausedAt = Date.now()
-      } else {
-        poller = setInterval(poll, TURN_SETTLE_POLL_MS)
-      }
-      replyWaitsRef.current.add(wait)
-    })
+      },
+      done: () => reply
+    }
+    // The send that starts this wait is already bound — its own guard read the seam — so the poll
+    // runs from the send's start; only the seam leaving can pause it.
+    poller = setInterval(poll, TURN_SETTLE_POLL_MS)
+    replyWaitsRef.current.add(wait)
+    return wait
+  }
 
   const start = useCallback(
     (next: MobileVoiceModeOwner) => {
@@ -344,11 +349,15 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
             if (!seam) {
               return { sent: false }
             }
+            // The wait stands before the send awaits, so an unbind while the send is still pending
+            // pauses its clocks through the transition; a late wait could never have seen it.
+            const wait = startReplyWait(loop)
             const accepted = await seam.send(text)
             if (!accepted) {
+              wait.settle()
               return { sent: false }
             }
-            return { sent: true, reply: await awaitReply(loop) }
+            return { sent: true, reply: await wait.done() }
           },
           // A mid-turn utterance reroutes the turn the send started; idle speech still only ever sends.
           steer: (text) => chatBinding()?.seam.steer(text) ?? Promise.resolve({ steered: false }),

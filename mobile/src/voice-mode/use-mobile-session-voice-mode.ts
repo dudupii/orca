@@ -137,6 +137,7 @@ export function useMobileSessionVoiceMode(
         executionHost
       ),
       paneKey,
+      tabId: active.activeSessionTab?.id,
       title: active.activeSessionTab?.title ?? ''
     })
   }, [host, instance, sessionKey, hostId, worktreeId, executionHost])

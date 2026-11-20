@@ -39,9 +39,10 @@ function readSessionTabsAnswer(reply: unknown): SessionTabsAnswer | null {
 
 /**
  * Watches the loop's chat from the page, outliving the screen that started it: its worktree and its
- * pane are asked of the host server on the loop's client, and only agreeing answers end it. Reads
- * that cannot answer — no client, no connection, a refused or unreadable reply — prove nothing and
- * keep the loop; the page's teardown stays its final disposal.
+ * pane — the owning tab itself when no pane key names it — are asked of the host server on the
+ * loop's client, and only agreeing answers end it. Reads that cannot answer — no client, no
+ * connection, a refused or unreadable reply — prove nothing and keep the loop; the page's teardown
+ * stays its final disposal.
  */
 export class VoiceModeOwnerLiveness {
   private readonly owner: MobileVoiceModeOwner
@@ -84,8 +85,7 @@ export class VoiceModeOwnerLiveness {
   }
 
   private async paneProvenGone(client: RpcClient): Promise<boolean> {
-    const paneKey = this.owner.paneKey
-    if (paneKey === undefined) {
+    if (this.owner.paneKey === undefined && this.owner.tabId === undefined) {
       return false
     }
     let answer: SessionTabsAnswer | null = null
@@ -101,10 +101,21 @@ export class VoiceModeOwnerLiveness {
       return this.countPaneRead(false)
     }
     // Unverifiable chat rows are preserved rather than reported gone, so their absence proves nothing.
-    const paneStands =
-      notificationPaneTab(answer.tabs, paneKey) !== undefined ||
-      answer.agentSessionsUnverifiable === true
-    return this.countPaneRead(!paneStands)
+    if (answer.agentSessionsUnverifiable === true) {
+      return this.countPaneRead(false)
+    }
+    return this.countPaneRead(!this.ownerStands(answer.tabs))
+  }
+
+  // The owner's pane stands while the tab that names it does: the keyed pane's tab when a pane key
+  // names it, else — a paneless owner, as a terminal tab without a leaf — the owning tab itself.
+  private ownerStands(tabs: readonly PaneMatchTab[]): boolean {
+    const paneKey = this.owner.paneKey
+    if (paneKey !== undefined) {
+      return notificationPaneTab(tabs, paneKey) !== undefined
+    }
+    const tabId = this.owner.tabId
+    return tabId !== undefined && tabs.some((tab) => tab.id === tabId)
   }
 
   private countWorktreeRead(proven: boolean): boolean {

@@ -48,7 +48,6 @@ export function useMobileNativeChatController(args: {
     worktreeId,
     activeSessionTab,
     activeSessionTabId,
-    activeHandleRef,
     deviceTokenRef,
     nativeChatInputLeaseReady,
     connState,
@@ -63,6 +62,7 @@ export function useMobileNativeChatController(args: {
     activeChatResolution,
     activeChatSessionId,
     activeChatStructured,
+    chatHandleRef,
     isTabChatView,
     sessionViewReady,
     setTabView,
@@ -131,7 +131,8 @@ export function useMobileNativeChatController(args: {
   const { stop: handleNativeChatStop, ...bridgePromptWrites } = useMobileBridgeChatPromptWrites({
     client,
     enabled: inputSendable && !activeChatStructured,
-    handleRef: activeHandleRef,
+    // The chat's handle, pinned to the voice loop's pane while it holds this chat.
+    handleRef: chatHandleRef,
     deviceTokenRef,
     agentRef: activeChatAgentRef,
     sessionId: activeChatSessionId,
@@ -201,7 +202,8 @@ export function useMobileNativeChatController(args: {
   } = useMobileNativeChatMessageSend({
     client,
     enabled: inputSendable && !activeChatStructured,
-    handleRef: activeHandleRef,
+    // The chat's handle, pinned to the voice loop's pane while it holds this chat.
+    handleRef: chatHandleRef,
     deviceTokenRef,
     agentRef: activeChatAgentRef,
     commandSendRef: recordSessionOptionCommandRef,
