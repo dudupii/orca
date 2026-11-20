@@ -6,6 +6,7 @@ import {
 } from '../../../src/shared/voice/voice-loop-machine'
 import { VoiceLoopTranscriptLedger, spokenText } from './voice-loop-transcript-ledger'
 import { VoiceLoopForeground, type VoiceLoopDeferredSpeak } from './voice-loop-foreground'
+import { VoiceLoopPlatformSession } from './voice-loop-platform-session'
 import type {
   VoiceLoopShellDeps,
   VoiceLoopTranscriptRead,
@@ -43,6 +44,7 @@ export class VoiceLoopShell {
   private readonly readIntervalMs: number
   private readonly machine: ReturnType<typeof createVoiceLoopMachine>
   private readonly foreground: VoiceLoopForeground
+  private readonly platform: VoiceLoopPlatformSession
   private view: VoiceLoopView = { route: 'idle', transcript: '', pending: null, reply: null }
   private generation = 0
   private readTimer: ReturnType<typeof setTimeout> | null = null
@@ -52,14 +54,12 @@ export class VoiceLoopShell {
   private starting = false
   private started = false
   private exited = false
-  private armedSpeech = false
-  private micOpened = false
-  private screenHeld = false
 
   constructor(private readonly deps: VoiceLoopShellDeps) {
     this.thresholds = { ...defaultVoiceLoopThresholds, ...deps.thresholds }
     this.readIntervalMs = deps.readIntervalMs ?? DEFAULT_READ_INTERVAL_MS
     this.foreground = new VoiceLoopForeground({ tone: deps.tone ?? null })
+    this.platform = new VoiceLoopPlatformSession(deps)
     this.machine = createVoiceLoopMachine({
       now: deps.now,
       thresholds: this.thresholds,
@@ -90,7 +90,7 @@ export class VoiceLoopShell {
       if (!this.exited) {
         this.starting = false
         this.deps.onNotice('mic-unavailable')
-        this.releasePlatform()
+        this.platform.release()
         this.settleClosed()
       }
     }
@@ -116,9 +116,8 @@ export class VoiceLoopShell {
       this.settleClosed()
       return
     }
-    this.armedSpeech = true
-    this.deps.holdScreen()
-    this.screenHeld = true
+    this.platform.markSpeechArmed()
+    this.platform.holdScreen()
     if (this.foreground.isBackgrounded()) {
       // The app left while the recognizer was arming: the loop comes up already paused, its
       // microphone and reads waiting for the return.
@@ -128,14 +127,16 @@ export class VoiceLoopShell {
     const micOpen = await this.deps.openMic()
     if (this.exited) {
       // The exit before the open could not release what had not opened; the late open is ours.
-      this.micOpened = micOpen
-      this.releasePlatform()
+      if (micOpen) {
+        this.platform.markMicOpened()
+      }
+      this.platform.release()
       return
     }
     if (!micOpen) {
       this.starting = false
       this.deps.onNotice('mic-unavailable')
-      this.releasePlatform()
+      this.platform.release()
       this.settleClosed()
       return
     }
@@ -145,7 +146,7 @@ export class VoiceLoopShell {
       this.beginLoop()
       return
     }
-    this.micOpened = true
+    this.platform.markMicOpened()
     this.beginLoop()
     this.scheduleRead()
   }
@@ -225,11 +226,8 @@ export class VoiceLoopShell {
       clearTimeout(this.readTimer)
       this.readTimer = null
     }
-    if (this.micOpened) {
-      // Idempotent over the native listener that already ended capture on the activity's pause.
-      this.micOpened = false
-      this.deps.closeMic()
-    }
+    // Idempotent over the native listener that already ended capture on the activity's pause.
+    this.platform.closeMic()
   }
 
   private async resume(): Promise<void> {
@@ -257,7 +255,7 @@ export class VoiceLoopShell {
       this.exit()
       return
     }
-    this.micOpened = true
+    this.platform.markMicOpened()
     this.scheduleRead()
   }
 
@@ -292,7 +290,7 @@ export class VoiceLoopShell {
     if (this.machine.getState().route !== 'closed') {
       this.machine.dispatch({ type: 'closeTab' })
     }
-    this.releasePlatform()
+    this.platform.release()
     this.publish()
   }
 
@@ -306,24 +304,6 @@ export class VoiceLoopShell {
       this.machine.dispatch({ type: 'closeTab' })
     }
     this.publish()
-  }
-
-  // Each release clears its flag, so an exit racing a pending open releases everything once.
-  private releasePlatform(): void {
-    // Silence playback first: a loop that ends must not keep the speaker past its mic and screen.
-    this.deps.readout.stop()
-    if (this.armedSpeech) {
-      this.armedSpeech = false
-      this.deps.cancelSpeech()
-    }
-    if (this.micOpened) {
-      this.micOpened = false
-      this.deps.closeMic()
-    }
-    if (this.screenHeld) {
-      this.screenHeld = false
-      this.deps.releaseScreen()
-    }
   }
 
   private scheduleRead(): void {
