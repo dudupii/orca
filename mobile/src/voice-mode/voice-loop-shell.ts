@@ -4,6 +4,7 @@ import {
   type VoiceLoopEffect,
   type VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
+import { VoiceLoopTranscriptLedger, spokenText } from './voice-loop-transcript-ledger'
 import type {
   VoiceLoopShellDeps,
   VoiceLoopTranscriptRead,
@@ -33,6 +34,8 @@ function effectOf<K extends VoiceLoopEffect['kind']>(
  * it settles), and platform release order. The delay window arms after the machine's own
  * silence window has passed with the words held, so the commit still happens through the
  * machine's own event, sending the buffer in listening or steering the running turn in thinking.
+ * While no chat seam is bound (chatBound false) the commit stage holds its fire — the wait
+ * never arms and the words stay held in the machine until a seam binds again.
  */
 export class VoiceLoopShell {
   private readonly thresholds: VoiceLoopThresholds
@@ -42,10 +45,7 @@ export class VoiceLoopShell {
   private generation = 0
   private readTimer: ReturnType<typeof setTimeout> | null = null
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
-  private revision = -1
-  private committedSeen = ''
-  private tentativeSeen = ''
-  private lastActivityAt: number | null = null
+  private readonly ledger = new VoiceLoopTranscriptLedger()
   private suppressPending = false
   private starting = false
   private started = false
@@ -252,33 +252,15 @@ export class VoiceLoopShell {
 
   /** Records one new transcript revision; returns whether the drawn words changed. */
   private ingest(read: VoiceLoopTranscriptRead): boolean {
-    if (read.revision <= this.revision) {
-      return false
-    }
-    this.revision = read.revision
-    const committed = read.committed.trim()
-    const seen = this.committedSeen
-    let spoke = committed !== seen
-    if (committed.startsWith(seen) && committed !== seen) {
-      // Committed text is the whole final text so far: feed the machine only the new words.
-      const delta = committed.slice(seen.length).trim()
-      if (delta) {
-        const heard = this.machine.dispatch({ type: 'speech', text: delta })
-        if (effectOf(heard.effects, 'stopPlayback') !== null) {
-          // Barge-in: the machine cut the playback; the speaker goes silent and its play settles stopped.
-          this.deps.readout.stop()
-        }
+    const heard = this.ledger.ingest(read, this.deps.now())
+    if (heard.delta !== null) {
+      const outcome = this.machine.dispatch({ type: 'speech', text: heard.delta })
+      if (effectOf(outcome.effects, 'stopPlayback') !== null) {
+        // Barge-in: the machine cut the playback; the speaker goes silent and its play settles stopped.
+        this.deps.readout.stop()
       }
-      this.committedSeen = committed
-    } else if (committed !== seen) {
-      // A rewrite of already-committed words has no machine event; adopt it and wait for more.
-      this.committedSeen = committed
     }
-    const tentative = read.tentative.trim()
-    spoke = spoke || tentative !== this.tentativeSeen
-    this.tentativeSeen = tentative
-    if (spoke) {
-      this.lastActivityAt = this.deps.now()
+    if (heard.spoke) {
       // Speech during the wait un-finalizes the utterance: the buffer keeps growing.
       if (this.view.pending !== null) {
         this.clearPendingTimer()
@@ -286,24 +268,29 @@ export class VoiceLoopShell {
       }
       this.suppressPending = false
     }
-    return spoke
+    return heard.spoke
   }
 
   private armPendingIfQuiet(): void {
     if (this.view.pending !== null || this.suppressPending) {
       return
     }
+    // No chat seam is bound: the wait stays un-armed, its words held in the machine for the rebind.
+    if (this.deps.chatBound?.() === false) {
+      return
+    }
     const state = this.machine.getState()
     // The wait arms for either commit: the running turn's steer or the next send's buffer.
     const held =
       state.route === 'thinking' ? state.steering : state.route === 'listening' ? state.buffer : []
-    if (held.length === 0 || this.lastActivityAt === null) {
+    const activityAt = this.ledger.activityAt()
+    if (held.length === 0 || activityAt === null) {
       return
     }
-    if (this.deps.now() - this.lastActivityAt < this.thresholds.silenceWindowMs) {
+    if (this.deps.now() - activityAt < this.thresholds.silenceWindowMs) {
       return
     }
-    this.view = { ...this.view, pending: spokenText(held, this.tentativeSeen) }
+    this.view = { ...this.view, pending: spokenText(held, this.ledger.tentative()) }
     this.pendingTimer = setTimeout(() => {
       this.pendingTimer = null
       void this.commit()
@@ -313,6 +300,11 @@ export class VoiceLoopShell {
 
   private async commit(flush: 'silence' | 'send' = 'silence'): Promise<void> {
     if (this.exited) {
+      return
+    }
+    // The wait came due with no chat seam bound: hold the words in the machine; the rebind arms them again.
+    if (this.deps.chatBound?.() === false) {
+      this.view = { ...this.view, pending: null }
       return
     }
     const generation = this.generation
@@ -383,17 +375,10 @@ export class VoiceLoopShell {
     const state = this.machine.getState()
     this.view = {
       route: state.route,
-      transcript: spokenText([...state.buffer, ...state.steering], this.tentativeSeen),
+      transcript: spokenText([...state.buffer, ...state.steering], this.ledger.tentative()),
       pending: this.view.pending,
       reply: this.view.reply
     }
     this.deps.onState(this.view)
   }
-}
-
-/** The utterance as it stands: the machine's held chunks, buffered or steering, plus the tail. */
-function spokenText(chunks: readonly string[], tentative: string): string {
-  const spoken = chunks.filter(Boolean).join(' ')
-  const tail = tentative.trim()
-  return spoken && tail ? `${spoken} ${tail}` : spoken || tail
 }
