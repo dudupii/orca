@@ -164,6 +164,11 @@ vi.mock('expo-router', () => ({
   useNavigation: () => undefined
 }))
 
+// The host provider reads AppState for the loop's foreground policy; this file never drives it.
+vi.mock('react-native', () => ({
+  AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) }
+}))
+
 vi.mock('./speak-broadcast', () => ({
   subscribeToSpeakBroadcasts: (
     _client: RpcClient,

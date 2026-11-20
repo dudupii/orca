@@ -96,7 +96,12 @@ function settleBegin(): boolean {
   return seam.beginResult
 }
 
+// The host subscribes to AppState; the pill harness keeps the app forever active.
 vi.mock('react-native', () => ({
+  AppState: {
+    currentState: 'active',
+    addEventListener: (_type: string, _handler: (state: string) => void) => ({ remove: () => {} })
+  },
   View: 'View',
   Text: 'Text',
   Pressable: 'Pressable',

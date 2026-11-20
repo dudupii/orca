@@ -9,6 +9,7 @@ import type {
   DictationCaptureOpen
 } from '../platform/audio-capture/dictation-capture-contract'
 import type { OnDeviceSpeech } from '../platform/speech/on-device-speech-contract'
+import type { OnDeviceTone, OnDeviceToneKind } from '../platform/tone/on-device-tone-contract'
 import type { OnDeviceTtsChannelStatus } from '../platform/tts/on-device-tts-contract'
 import type {
   BridgeSpeechRead,
@@ -50,6 +51,8 @@ type Seam = {
   ttsStatus: OnDeviceTtsChannelStatus
   ttsSpeakCalls: { text: string; locale: string | null }[]
   ttsStopCalls: number
+  tone: OnDeviceTone | null
+  toneCalls: string[]
   sendOutcome: MobileNativeChatSendOutcome
   routerPushes: string[]
   navigations: unknown[]
@@ -74,6 +77,8 @@ const seam = vi.hoisted((): Seam => ({
   ttsStatus: 'done',
   ttsSpeakCalls: [],
   ttsStopCalls: 0,
+  tone: null,
+  toneCalls: [],
   sendOutcome: 'accepted',
   routerPushes: [],
   navigations: [],
@@ -86,6 +91,17 @@ const seam = vi.hoisted((): Seam => ({
   livenessRequests: []
 }))
 
+// The AppState the host subscribes to: change handlers only ever registered for 'change', fired by hand.
+const appState = vi.hoisted(() => ({
+  listeners: [] as ((state: string) => void)[],
+  subscribedTypes: [] as string[],
+  fire: (state: string) => {
+    for (const listener of appState.listeners) {
+      listener(state)
+    }
+  }
+}))
+
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
 function settle<T>(value: T | Error): Promise<T> {
   return value instanceof Error ? Promise.reject(value) : Promise.resolve(value)
@@ -96,6 +112,37 @@ function settleBegin(): boolean {
     throw seam.beginResult
   }
   return seam.beginResult
+}
+
+vi.mock('react-native', () => ({
+  AppState: {
+    currentState: 'active',
+    addEventListener: (type: string, handler: (state: string) => void) => {
+      appState.subscribedTypes.push(type)
+      appState.listeners.push(handler)
+      return {
+        remove: () => {
+          const at = appState.listeners.indexOf(handler)
+          if (at !== -1) {
+            appState.listeners.splice(at, 1)
+          }
+        }
+      }
+    }
+  }
+}))
+
+vi.mock('../platform/tone/on-device-tone', () => ({
+  useOnDeviceTone: () => seam.tone
+}))
+
+// A tone whose every chime records how many playbacks had begun when it sounded, pinning order.
+function recordingTone(): OnDeviceTone {
+  return {
+    play: (kind: OnDeviceToneKind) => {
+      seam.toneCalls.push(`${kind}@${seam.ttsSpeakCalls.length}`)
+    }
+  }
 }
 
 vi.mock('../platform/speech/on-device-speech', () => {
@@ -535,6 +582,10 @@ describe('MobileVoiceModeHostProvider', () => {
     seam.ttsStatus = 'done'
     seam.ttsSpeakCalls.length = 0
     seam.ttsStopCalls = 0
+    seam.tone = null
+    seam.toneCalls.length = 0
+    appState.listeners.length = 0
+    appState.subscribedTypes.length = 0
     seam.sendOutcome = 'accepted'
     seam.routerPushes.length = 0
     seam.navigations.length = 0
@@ -1041,5 +1092,107 @@ describe('MobileVoiceModeHostProvider', () => {
     await startLoop(harness)
     await speak(harness, 1, 'afresh')
     expect(harness.send).toHaveBeenCalledWith('afresh')
+  })
+
+  it('pauses the loop when the app backgrounds and resumes it on the return, change events only', async () => {
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    expect(seam.calls.filter((call) => call === 'capture.open')).toHaveLength(1)
+    // Only 'change' is ever subscribed: Android's blur and focus for the app's own sheets reach nothing.
+    expect(appState.subscribedTypes).toEqual(['change'])
+
+    await act(async () => {
+      appState.fire('background')
+    })
+    expect(seam.calls.filter((call) => call === 'capture.end')).toHaveLength(1)
+    expect(harness.view().route).toBe('listening')
+
+    await act(async () => {
+      appState.fire('active')
+    })
+    expect(seam.calls.filter((call) => call === 'capture.open')).toHaveLength(2)
+    expect(seam.calls.filter((call) => call === 'capture.begin')).toHaveLength(2)
+    expect(seam.calls.filter((call) => call === 'capture.end')).toHaveLength(1)
+  })
+
+  it('chimes and speaks the parked reply when one landed while backgrounded', async () => {
+    seam.tone = recordingTone()
+    seam.replyText = 'Answered while away.'
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    await speak(harness, 1, 'hello')
+    expect(harness.send).toHaveBeenCalledWith('hello')
+
+    await act(async () => {
+      appState.fire('background')
+    })
+    // The turn's grace window runs out while away; its reply parks instead of playing.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000)
+    })
+    expect(harness.view().route).toBe('speaking')
+    expect(seam.ttsSpeakCalls).toEqual([])
+
+    await act(async () => {
+      appState.fire('active')
+    })
+    // The chime precedes the playback it announces; the microphone reopened after both.
+    expect(seam.toneCalls).toEqual(['restore@0'])
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Answered while away.', locale: null }])
+    expect(seam.calls.filter((call) => call === 'capture.open')).toHaveLength(2)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150 + 300)
+    })
+    expect(harness.view().route).toBe('listening')
+  })
+
+  it('keeps a return with nothing advanced silent, and never chimes a navigation or a tap', async () => {
+    seam.tone = recordingTone()
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    await act(async () => {
+      appState.fire('background')
+    })
+    await act(async () => {
+      appState.fire('active')
+    })
+    expect(seam.toneCalls).toEqual([])
+
+    // Bringing the chat back and tapping at the loop are not returns from away: no chime, ever.
+    harness.open()
+    act(() => {
+      harness.voiceMode().tapPending()
+      harness.voiceMode().stopSpeaking()
+    })
+    expect(seam.toneCalls).toEqual([])
+  })
+
+  it('chimes a straddling turn as its reply answers after the return', async () => {
+    seam.tone = recordingTone()
+    seam.turnActive = true
+    seam.replyText = 'The answer that outlasted the away.'
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    await speak(harness, 1, 'hello')
+
+    await act(async () => {
+      appState.fire('background')
+    })
+    await act(async () => {
+      appState.fire('active')
+    })
+    // The turn still ran at the return: a silent restore, with the microphone back.
+    expect(seam.toneCalls).toEqual([])
+    expect(seam.calls.filter((call) => call === 'capture.open')).toHaveLength(2)
+
+    seam.turnActive = false
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 100)
+    })
+    expect(seam.toneCalls).toEqual(['restore@0'])
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The answer that outlasted the away.', locale: null }
+    ])
   })
 })
