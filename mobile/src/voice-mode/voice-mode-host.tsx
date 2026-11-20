@@ -342,12 +342,19 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
             // The wait stands before the send awaits, so an unbind while the send is still pending
             // pauses its clocks through the transition; a late wait could never have seen it.
             const wait = startReplyWait(loop)
-            const accepted = await seam.send(text)
-            if (!accepted) {
+            try {
+              const accepted = await seam.send(text)
+              if (!accepted) {
+                wait.settle()
+                return { sent: false }
+              }
+              return { sent: true, reply: await wait.done() }
+            } catch {
+              // A send that rejects outright settles its wait here — nothing of its turn is left
+              // to poll or pause — and reports the failure for the loop's send-failed notice.
               wait.settle()
               return { sent: false }
             }
-            return { sent: true, reply: await wait.done() }
           },
           // A mid-turn utterance reroutes the turn the send started; idle speech still only ever sends.
           steer: (text) => chatBinding()?.seam.steer(text) ?? Promise.resolve({ steered: false }),

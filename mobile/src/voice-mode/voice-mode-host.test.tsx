@@ -984,4 +984,61 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(seam.speakSubscribed).toBe(1)
     expect(harness.view().route).toBe('thinking')
   })
+
+  it('settles the reply wait and stops the loop cleanly when the send rejects while bound', async () => {
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    harness.send.mockImplementation(() => Promise.reject(new Error('chat refused the write')))
+    await speak(harness, 1, 'hello')
+    expect(harness.send).toHaveBeenCalledWith('hello')
+
+    // The rejection settles the wait it pre-registered — nothing of its turn keeps polling — and
+    // the failure still reaches the loop: the send-failed notice toasts and the loop closes.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200)
+    })
+    expect(harness.showToast).toHaveBeenCalledWith(
+      'Voice mode stopped: the message could not be sent.'
+    )
+    expect(harness.view().route).toBe('closed')
+    expect(vi.getTimerCount()).toBe(0)
+    expect(harness.send).toHaveBeenCalledOnce()
+  })
+
+  it('parks nothing when the send rejects after the unbind, and a fresh loop sends again', async () => {
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    seam.read = { revision: 1, committed: 'hello', tentative: '', failure: null }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150)
+    })
+    let rejectSend: ((err: Error) => void) | null = null
+    harness.send.mockImplementation(
+      () => new Promise<boolean>((_, reject) => (rejectSend = reject))
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200 + 1500 + 100)
+    })
+    expect(harness.send).toHaveBeenCalledWith('hello')
+    harness.unbindScreen()
+    await act(async () => {
+      rejectSend?.(new Error('chat gone with the screen'))
+      await flushEntry()
+    })
+
+    // No wait stays paused forever against a chat that failed definitively: the loop closes with
+    // everything released, and nothing polls on.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200)
+    })
+    expect(harness.view().route).toBe('closed')
+    expect(vi.getTimerCount()).toBe(0)
+
+    // The closed loop is gone for good; a fresh one starts and its sends ride the seam again.
+    harness.rebindScreen()
+    harness.send.mockImplementation(async () => true)
+    await startLoop(harness)
+    await speak(harness, 1, 'afresh')
+    expect(harness.send).toHaveBeenCalledWith('afresh')
+  })
 })
