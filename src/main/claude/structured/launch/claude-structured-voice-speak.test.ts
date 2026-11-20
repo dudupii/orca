@@ -2,26 +2,48 @@ import { describe, expect, it, vi } from 'vitest'
 import { agentSessionRecordFixture } from '../../../native-chat/testing/agent-session-record-test-fixture'
 import { createClaudeStructuredLaunchResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
 
 const SESSION_ID = 'session-voice-1'
 const IDENTITY = { sessionId: SESSION_ID } as Parameters<
   ReturnType<typeof createClaudeStructuredLaunchResolver>
 >[0]['identity']
+const identityFor = (sessionId: string): typeof IDENTITY => ({ sessionId }) as typeof IDENTITY
 
 const INJECTION: VoiceSpeakLaunchInjection = {
   serverUrl: 'http://127.0.0.1:45123/mcp',
   token: 'token-1'
 }
 
-function resolverDeps(voiceDeps: {
-  resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
-}) {
+/**
+ * The exact briefings these tests expect a voice-capable spawn to append, hardcoded in full
+ * rather than rebuilt through the builder they judge: a builder that drops the session
+ * sentence, interpolates the wrong session id, or drifts on wording fails against these
+ * literals instead of moving the expectations with it.
+ */
+const OWN_SESSION_BRIEFING =
+  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
+  'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
+  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
+  "worth hearing aloud. This conversation's session id is session-voice-1: pass it as the " +
+  'session argument on every `speak` call so the briefing plays only here.'
+const OTHER_SESSION_BRIEFING =
+  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
+  'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
+  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
+  "worth hearing aloud. This conversation's session id is session-voice-2: pass it as the " +
+  'session argument on every `speak` call so the briefing plays only here.'
+
+function resolverDeps(
+  voiceDeps: {
+    resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
+  },
+  sessionId: string = SESSION_ID
+) {
   return {
     store: {
       getRecord: () =>
         agentSessionRecordFixture({
-          sessionId: SESSION_ID,
+          sessionId,
           provider: 'claude',
           location: { workspaceKind: 'git-worktree' }
         }),
@@ -51,7 +73,19 @@ describe('claude structured launch: voice.speak.v1 injection', () => {
     expect(launch.options.systemPrompt).toEqual({
       type: 'preset',
       preset: 'claude_code',
-      append: VOICE_SPEAK_BRIEFING_PROMPT_APPEND
+      append: OWN_SESSION_BRIEFING
+    })
+  })
+
+  it('appends a briefing that names the identity of the spawn, not another session', async () => {
+    const other = 'session-voice-2'
+    const spoken = await createClaudeStructuredLaunchResolver(
+      resolverDeps({ resolveVoiceSpeak: async () => INJECTION }, other)
+    )({ identity: identityFor(other) })
+    expect(spoken.options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: OTHER_SESSION_BRIEFING
     })
   })
 

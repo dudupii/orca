@@ -1,7 +1,7 @@
 import type { CodexAppServerConnection } from '../../app-server/codex-app-server-connection-types'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
 import { VOICE_SPEAK_TOKEN_HEADER } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
+import { voiceSpeakBriefingPromptAppend } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
 
 /**
  * Thread/start config keys that add the speak MCP server for a spawn that found a
@@ -34,13 +34,14 @@ function readReportedDeveloperInstructions(answer: unknown): string | null | und
  * The developer instructions one voice-capable spawn seals. Codex's developer-instruction
  * carriers — the config overlay key as much as the thread-level `developerInstructions`
  * parameter — replace the effective value rather than append to it, so the sealed value
- * carries the user's existing instructions with the voice briefing appended. When the
+ * carries the user's existing instructions with the voice briefing appended — the briefing
+ * naming the spawn's session id, so every `speak` call the model makes carries it. When the
  * effective instructions cannot be read, the seal is null: the spawn keeps the speak tool
  * without a prompt override rather than risk discarding the user's instructions.
  */
 export async function sealCodexVoiceSpeakInstructions(
   connection: Pick<CodexAppServerConnection, 'request'>,
-  input: { cwd: string; timeoutMs?: number }
+  input: { cwd: string; sessionId: string; timeoutMs?: number }
 ): Promise<{ developerInstructions: string } | null> {
   let reported: string | null | undefined
   try {
@@ -56,9 +57,8 @@ export async function sealCodexVoiceSpeakInstructions(
   if (reported === undefined) {
     return null
   }
+  const briefing = voiceSpeakBriefingPromptAppend(input.sessionId)
   return {
-    developerInstructions: reported
-      ? `${reported}\n\n${VOICE_SPEAK_BRIEFING_PROMPT_APPEND}`
-      : VOICE_SPEAK_BRIEFING_PROMPT_APPEND
+    developerInstructions: reported ? `${reported}\n\n${briefing}` : briefing
   }
 }
