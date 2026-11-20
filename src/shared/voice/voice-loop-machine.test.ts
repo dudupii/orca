@@ -39,12 +39,24 @@ function speakingMachine() {
   return { m, clock }
 }
 
+/** A machine driven to `thinking`, its own turn running and nothing steered yet. */
+function thinkingMachine() {
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'run the tests' })
+  clock.advanceTo(1000)
+  m.dispatch({ type: 'silence' })
+  return { m, clock }
+}
+
 const routeStates: Record<VoiceLoopRoute, VoiceLoopState> = {
   idle: initialVoiceLoopState(),
   listening: {
     route: 'listening',
     visibility: 'foreground',
     buffer: [],
+    steering: [],
     lastSpeechAt: null,
     echoUntil: null
   },
@@ -52,6 +64,7 @@ const routeStates: Record<VoiceLoopRoute, VoiceLoopState> = {
     route: 'thinking',
     visibility: 'foreground',
     buffer: [],
+    steering: [],
     lastSpeechAt: null,
     echoUntil: null
   },
@@ -59,6 +72,7 @@ const routeStates: Record<VoiceLoopRoute, VoiceLoopState> = {
     route: 'speaking',
     visibility: 'foreground',
     buffer: [],
+    steering: [],
     lastSpeechAt: null,
     echoUntil: null
   },
@@ -66,6 +80,7 @@ const routeStates: Record<VoiceLoopRoute, VoiceLoopState> = {
     route: 'closed',
     visibility: 'foreground',
     buffer: [],
+    steering: [],
     lastSpeechAt: null,
     echoUntil: null
   }
@@ -109,9 +124,9 @@ const routingRows: RouteRow[] = [
   { route: 'listening', event: { type: 'visibility', foreground: true }, nextRoute: 'listening' },
   { route: 'listening', event: { type: 'closeTab' }, nextRoute: 'closed' },
   { route: 'thinking', event: { type: 'start' }, refusal: 'already-started' },
-  { route: 'thinking', event: { type: 'speech', text: 'hi' }, refusal: 'unexpected-event' },
+  { route: 'thinking', event: { type: 'speech', text: 'hi' }, nextRoute: 'thinking' },
   { route: 'thinking', event: { type: 'silence' }, refusal: 'unexpected-event' },
-  { route: 'thinking', event: { type: 'send' }, refusal: 'unexpected-event' },
+  { route: 'thinking', event: { type: 'send' }, refusal: 'empty-send' },
   {
     route: 'thinking',
     event: { type: 'reply', text: 'hi' },
@@ -223,6 +238,79 @@ it('sends on demand and refuses to send an empty buffer', () => {
   const sent = m.dispatch({ type: 'send' })
   expect(sent.effects).toEqual([{ kind: 'send', text: 'go now' }])
   expect(sent.state.route).toBe('thinking')
+})
+
+it('holds mid-turn speech as steering instead of refusing it', () => {
+  const { m, clock } = thinkingMachine()
+  clock.advanceTo(1100)
+  const held = m.dispatch({ type: 'speech', text: 'no, the other plan' })
+  expect(held.accepted).toBe(true)
+  expect(held.state.route).toBe('thinking')
+  expect(held.state.steering).toEqual(['no, the other plan'])
+  expect(held.state.buffer).toEqual([])
+  expect(held.effects).toEqual([])
+})
+
+it('refuses mid-turn speech inside the AEC-tail window as echo', () => {
+  const clock = fakeClock(500)
+  const outcome = voiceLoopTransition(
+    { ...routeStates.thinking, echoUntil: 800 },
+    { type: 'speech', text: 'too soon' },
+    { now: clock.now, thresholds }
+  )
+  expect(outcome.refusal).toBe('echo')
+  expect(outcome.state.steering).toEqual([])
+})
+
+it('steers the held words once the silence window closes and stays in thinking', () => {
+  const { m, clock } = thinkingMachine()
+  clock.advanceTo(1100)
+  m.dispatch({ type: 'speech', text: 'no,' })
+  clock.advanceTo(1200)
+  m.dispatch({ type: 'speech', text: 'the other plan' })
+  clock.advanceTo(2199)
+  expect(m.dispatch({ type: 'silence' }).effects).toEqual([])
+  clock.advanceTo(2200)
+  const steered = m.dispatch({ type: 'silence' })
+  expect(steered.effects).toEqual([{ kind: 'steer', text: 'no, the other plan' }])
+  expect(steered.state.steering).toEqual([])
+  expect(steered.state.route).toBe('thinking')
+})
+
+it('steers immediately on a tap and refuses one with nothing held', () => {
+  const { m, clock } = thinkingMachine()
+  clock.advanceTo(1100)
+  m.dispatch({ type: 'speech', text: 'flip it' })
+  clock.advanceTo(1150)
+  const steered = m.dispatch({ type: 'send' })
+  expect(steered.effects).toEqual([{ kind: 'steer', text: 'flip it' }])
+  expect(steered.state.steering).toEqual([])
+  expect(steered.state.route).toBe('thinking')
+  clock.advanceTo(1200)
+  expect(m.dispatch({ type: 'send' }).refusal).toBe('empty-send')
+})
+
+it('drops steering when the reply lands first, without a steer effect', () => {
+  const { m, clock } = thinkingMachine()
+  clock.advanceTo(1100)
+  m.dispatch({ type: 'speech', text: 'too late words' })
+  clock.advanceTo(1500)
+  const spoken = m.dispatch({ type: 'reply', text: 'Done already.' })
+  expect(spoken.effects).toEqual([{ kind: 'speak', text: 'Done already.' }])
+  expect(spoken.state.steering).toEqual([])
+  expect(spoken.state.route).toBe('speaking')
+})
+
+it('treats idle speech as a plain turn start: one send, never a steer', () => {
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'fresh question' })
+  clock.advanceTo(1000)
+  const sent = m.dispatch({ type: 'silence' })
+  expect(sent.effects).toEqual([{ kind: 'send', text: 'fresh question' }])
+  expect(sent.state.route).toBe('thinking')
+  expect(sent.state.steering).toEqual([])
 })
 
 it('rejects a start while an exclusive mic session is active instead of queuing it', () => {
