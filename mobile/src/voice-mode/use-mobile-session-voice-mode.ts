@@ -34,7 +34,7 @@ export type MobileSessionVoiceMode = {
   exit: () => void
 }
 
-/** The chat seams the loop rides: sending, steering the running turn, the chat's visibility, its latest reply, and the host's speak broadcasts. */
+/** The chat seams the loop rides: sending, steering the running turn, the chat's visibility, its latest reply, the host's speak broadcasts, and which conversation the loop speaks for. */
 export type VoiceModeChatSeam = {
   handleNativeChatSend: (text: string, images?: string[]) => Promise<boolean>
   /** Reroutes the running turn with a mid-turn utterance; false reports the chat refused it. */
@@ -45,6 +45,8 @@ export type VoiceModeChatSeam = {
   subscribeSpeakBroadcasts: (onBroadcast: (broadcast: VoiceSpeakBroadcast) => void) => () => void
   /** The chat's latest reply text, sampled when a turn settles. */
   latestReplyText: () => string
+  /** The active conversation's structured agent-session id — the same id the host names on its speak broadcasts; null when no conversation resolves. */
+  activeSessionId: () => string | null
 }
 
 // One recognizer per phone: busy while the page's dictation is starting, recording or finishing.
@@ -55,6 +57,22 @@ function dictationHoldsRecognizer(dictation: UseMobileDictationResult): boolean 
 // A reply poll stops when its turn settles; this clears and settles every live poll at once.
 type ReplyWait = {
   readonly settle: () => void
+}
+
+// The session gate for speak broadcasts. The host names each broadcast with the structured
+// agent-session id and the phone's agent-session tab carries that same id, so a named session that
+// is not the active conversation's id is another conversation's briefing: dropped before the
+// readout, which stays session-agnostic per its contract. A null session is the host's unaddressed
+// broadcast — with no name nothing can mismatch — so it stays audible whichever conversation, if
+// any, is active.
+function briefingAddressesActiveSession(
+  broadcast: VoiceSpeakBroadcast,
+  activeSessionId: () => string | null
+): boolean {
+  if (broadcast.session === null) {
+    return true
+  }
+  return activeSessionId() === broadcast.session
 }
 
 // The session screen's side of voice mode: one loop over the chat's send seam, left when the chat hides.
@@ -82,6 +100,7 @@ export function useMobileSessionVoiceMode(
   const startingLoopRef = useRef(false)
   const mountedRef = useRef(true)
   const latestReplyTextRef = useRef<() => string>(() => '')
+  const activeSessionIdRef = useRef<() => string | null>(() => null)
   const subscribeSpeakRef = useRef<(typeof chat)['subscribeSpeakBroadcasts']>(() => () => undefined)
   // The loop's one playback owner; its broadcasts land here while the loop runs.
   const readoutRef = useRef<VoiceReadout | null>(null)
@@ -98,6 +117,7 @@ export function useMobileSessionVoiceMode(
     turnActiveRef.current = chat.nativeChatTurnActive
     dictationHostRef.current = dictationHost
     latestReplyTextRef.current = chat.latestReplyText
+    activeSessionIdRef.current = chat.activeSessionId
     subscribeSpeakRef.current = chat.subscribeSpeakBroadcasts
     chatVisibleRef.current = chat.showNativeChat
   }, [speech, tts, capture, chat, dictationHost])
@@ -177,7 +197,11 @@ export function useMobileSessionVoiceMode(
       const readout = createVoiceReadout({ playback: ttsRef.current })
       readoutRef.current = readout
       unsubscribeSpeakRef.current = subscribeSpeakRef.current((broadcast) => {
-        readoutRef.current?.briefingArrived(broadcast)
+        // The session gate wraps briefingArrived here, never inside the readout: playback
+        // ownership is untouched by a dropped broadcast, which simply never becomes a briefing.
+        if (briefingAddressesActiveSession(broadcast, activeSessionIdRef.current)) {
+          readoutRef.current?.briefingArrived(broadcast)
+        }
       })
       const next = new VoiceLoopShell({
         now: Date.now,

@@ -127,6 +127,9 @@ export function MobileSessionActiveContent({
       client ? subscribeToSpeakBroadcasts(client, onBroadcast) : () => {},
     latestReplyText: () =>
       latestNativeChatReplyText(nativeChatController.nativeChatSession.messages),
+    // The structured agent-session id the host names on its speak broadcasts; voice mode's gate
+    // drops a broadcast naming any other session.
+    activeSessionId: () => resolveMobileNativeChatSessionId(controller.activeSessionTab),
     steer: (text) =>
       chatSendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
         (outcome) => ({ steered: outcome !== 'rejected' })
