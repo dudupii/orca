@@ -242,8 +242,9 @@ export class VoiceLoopShell {
       void this.playDeferred(deferred)
     }
     const opened = await this.deps.openMic()
-    if (this.exited) {
-      // The exit could not close a microphone that had not reopened yet; the late open is ours.
+    if (this.exited || this.foreground.isBackgrounded()) {
+      // The exit could not close, and a second leave cannot adopt, a microphone that had not
+      // reopened yet; the late open is ours to close, and the next return opens its own.
       if (opened) {
         this.deps.closeMic()
       }

@@ -847,4 +847,39 @@ describe('VoiceLoopShell', () => {
     expect(harness.deps.closeMic).not.toHaveBeenCalled()
     expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBeGreaterThan(0)
   })
+
+  it('a second leave while the restore open is pending closes that late open and keeps the loop away', async () => {
+    let resolveReopen: (opened: boolean) => void = () => {}
+    const openMic = vi
+      .fn(async () => true)
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveReopen = resolve
+          })
+      )
+    const harness = createHarness({ openMic })
+    await harness.shell.start()
+    harness.shell.setForeground(false)
+    const readsAtPause = vi.mocked(harness.deps.readSpeech).mock.calls.length
+
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(openMic).toHaveBeenCalledTimes(2)
+    // The rapid leave cannot close a microphone that has not reopened yet.
+    harness.shell.setForeground(false)
+    resolveReopen(true)
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS * 5)
+    // The late open belongs to the away window: closed, never adopted, and nothing polls.
+    expect(harness.deps.closeMic).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBe(readsAtPause)
+
+    // The next return reopens in order; the raced window cost the loop nothing but time.
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(openMic).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(vi.mocked(harness.deps.readSpeech).mock.calls.length).toBeGreaterThan(readsAtPause)
+  })
 })
