@@ -107,11 +107,13 @@ export async function openCodexStructuredSession(
     ...(launch.visuals ? { [NATIVE_CHAT_SCRATCH_DIR_ENV]: launch.visuals.folder } : {})
   }
   // The prompt half of a voice-capable spawn seals here, once: the user's effective developer
-  // instructions plus the briefing, fixed for this thread and every turn it starts.
+  // instructions plus the briefing naming this session, fixed for this thread and every turn it
+  // starts.
   const voiceSpeakSeal = launch.voiceSpeak
     ? await waitForPromiseWithSignal(
         sealCodexVoiceSpeakInstructions(connection, {
           cwd: launch.cwd,
+          sessionId,
           ...(deps.requestTimeoutMs !== undefined ? { timeoutMs: deps.requestTimeoutMs } : {})
         }),
         openInput.signal

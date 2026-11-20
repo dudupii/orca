@@ -2,26 +2,30 @@ import { describe, expect, it, vi } from 'vitest'
 import { agentSessionRecordFixture } from '../../../native-chat/testing/agent-session-record-test-fixture'
 import { createClaudeStructuredLaunchResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
+import { voiceSpeakBriefingPromptAppend } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
 
 const SESSION_ID = 'session-voice-1'
 const IDENTITY = { sessionId: SESSION_ID } as Parameters<
   ReturnType<typeof createClaudeStructuredLaunchResolver>
 >[0]['identity']
+const identityFor = (sessionId: string): typeof IDENTITY => ({ sessionId }) as typeof IDENTITY
 
 const INJECTION: VoiceSpeakLaunchInjection = {
   serverUrl: 'http://127.0.0.1:45123/mcp',
   token: 'token-1'
 }
 
-function resolverDeps(voiceDeps: {
-  resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
-}) {
+function resolverDeps(
+  voiceDeps: {
+    resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
+  },
+  sessionId: string = SESSION_ID
+) {
   return {
     store: {
       getRecord: () =>
         agentSessionRecordFixture({
-          sessionId: SESSION_ID,
+          sessionId,
           provider: 'claude',
           location: { workspaceKind: 'git-worktree' }
         }),
@@ -51,8 +55,21 @@ describe('claude structured launch: voice.speak.v1 injection', () => {
     expect(launch.options.systemPrompt).toEqual({
       type: 'preset',
       preset: 'claude_code',
-      append: VOICE_SPEAK_BRIEFING_PROMPT_APPEND
+      append: voiceSpeakBriefingPromptAppend(SESSION_ID)
     })
+  })
+
+  it('appends a briefing that names the identity of the spawn, not another session', async () => {
+    const other = 'session-voice-2'
+    const spoken = await createClaudeStructuredLaunchResolver(
+      resolverDeps({ resolveVoiceSpeak: async () => INJECTION }, other)
+    )({ identity: identityFor(other) })
+    expect(spoken.options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: voiceSpeakBriefingPromptAppend(other)
+    })
+    expect(JSON.stringify(spoken.options.systemPrompt)).not.toContain(SESSION_ID)
   })
 
   it('keeps the no-capability spawn byte-identical: a null injection changes nothing exactly', async () => {

@@ -298,7 +298,7 @@ export function claudeStructuredLaunchPart(
         options: {
           ...CLAUDE_STRUCTURED_BASE_OPTIONS,
           ...permission,
-          ...(voiceSpeak ? claudeVoiceSpeakOptions(voiceSpeak) : {}),
+          ...(voiceSpeak ? claudeVoiceSpeakOptions(voiceSpeak, identity.sessionId) : {}),
           ...(additionalDirectories.length ? { additionalDirectories } : {}),
           ...(visuals?.pluginDir ? { plugins: [{ type: 'local', path: visuals.pluginDir }] } : {}),
           extraArgs: {

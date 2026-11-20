@@ -3,7 +3,8 @@ import type { CodexAppServerConnection } from '../../app-server/codex-app-server
 import { agentSessionRecordFixture } from '../../../native-chat/testing/agent-session-record-test-fixture'
 import { createCodexStructuredLaunchResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
+import { voiceSpeakBriefingPromptAppend } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
+import { claudeVoiceSpeakOptions } from '../../../claude/structured/launch/claude-structured-voice-speak'
 import {
   codexVoiceSpeakThreadConfig,
   sealCodexVoiceSpeakInstructions
@@ -64,8 +65,14 @@ function sealingConnection(developerInstructions: string | null | { error: true 
   return { connection: { request }, requests }
 }
 
-async function openVoiceSpeakThread(connection: Pick<CodexAppServerConnection, 'request'>) {
-  const seal = await sealCodexVoiceSpeakInstructions(connection, { cwd: '/workspace/project' })
+async function openVoiceSpeakThread(
+  connection: Pick<CodexAppServerConnection, 'request'>,
+  sessionId: string = SESSION_ID
+) {
+  const seal = await sealCodexVoiceSpeakInstructions(connection, {
+    cwd: '/workspace/project',
+    sessionId
+  })
   expect(seal).not.toBeNull()
   await openCodexThread(
     connection,
@@ -99,21 +106,46 @@ describe('codex structured launch: voice.speak.v1 injection', () => {
     expect(requests[1].params.config).toEqual(codexVoiceSpeakThreadConfig(INJECTION))
     expect(requests[1].params.config).not.toHaveProperty('developer_instructions')
     expect(requests[1].params.developerInstructions).toBe(seal?.developerInstructions)
-    expect(seal?.developerInstructions).toBe(VOICE_SPEAK_BRIEFING_PROMPT_APPEND)
+    expect(seal?.developerInstructions).toBe(voiceSpeakBriefingPromptAppend(SESSION_ID))
+  })
+
+  it('seals a briefing that names its own session and no other', async () => {
+    const other = 'session-voice-2'
+    const mine = await openVoiceSpeakThread(sealingConnection(null).connection)
+    const theirs = await openVoiceSpeakThread(sealingConnection(null).connection, other)
+    expect(mine?.developerInstructions).toBe(voiceSpeakBriefingPromptAppend(SESSION_ID))
+    expect(mine?.developerInstructions).not.toContain(other)
+    expect(theirs?.developerInstructions).toBe(voiceSpeakBriefingPromptAppend(other))
+    expect(theirs?.developerInstructions).not.toContain(SESSION_ID)
+  })
+
+  it('seals the same shared wording a claude spawn seals for the same session', async () => {
+    const { connection } = sealingConnection(null)
+    const seal = await openVoiceSpeakThread(connection)
+    // One builder serves every provider: the codex appendix and the claude preset-append are the
+    // same per-session wording, never provider-local copies.
+    expect(claudeVoiceSpeakOptions(INJECTION, SESSION_ID).systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: seal?.developerInstructions
+    })
   })
 
   it('preserves the user effective developer instructions under the appended briefing', async () => {
     const { connection, requests } = sealingConnection('Keep answers terse.')
     const seal = await openVoiceSpeakThread(connection)
     expect(requests[1].params.developerInstructions).toBe(
-      `Keep answers terse.\n\n${VOICE_SPEAK_BRIEFING_PROMPT_APPEND}`
+      `Keep answers terse.\n\n${voiceSpeakBriefingPromptAppend(SESSION_ID)}`
     )
     expect(seal?.developerInstructions).toContain('Keep answers terse.')
   })
 
   it('injects the tool without a prompt override when the effective instructions cannot be read', async () => {
     const { connection, requests } = sealingConnection({ error: true })
-    const seal = await sealCodexVoiceSpeakInstructions(connection, { cwd: '/workspace/project' })
+    const seal = await sealCodexVoiceSpeakInstructions(connection, {
+      cwd: '/workspace/project',
+      sessionId: SESSION_ID
+    })
     expect(seal).toBeNull()
     await openCodexThread(
       connection,
