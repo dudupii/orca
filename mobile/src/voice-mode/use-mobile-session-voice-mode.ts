@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDictationCapture } from '../platform/audio-capture/dictation-capture'
+import type { DictationCaptureOpen } from '../platform/audio-capture/dictation-capture-contract'
 import { nativeMicrophoneScreenLock } from '../platform/audio-capture/native-audio-device'
 import { useOnDeviceSpeech } from '../platform/speech/on-device-speech'
+import { useMobileDictationHost } from '../dictation/mobile-dictation-host-context'
+import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
 import { loadVoiceModeResponseDelaySeconds } from '../storage/voice-mode-settings'
 import { voiceModeCopy } from './voice-mode-copy'
-import { VoiceLoopShell, type VoiceLoopSendOutcome, type VoiceLoopView } from './voice-loop-shell'
+import { VoiceLoopShell } from './voice-loop-shell'
+import type { VoiceLoopSendOutcome, VoiceLoopView } from './voice-loop-shell-contract'
 
 // How long a send may wait for its turn to start before the loop resumes listening.
 const TURN_START_GRACE_MS = 10_000
+// A turn that never settles must not hold the loop in thinking forever.
+const TURN_SETTLE_TIMEOUT_MS = 10 * 60_000
 const TURN_SETTLE_POLL_MS = 250
 
 const IDLE_VIEW: VoiceLoopView = { route: 'idle', transcript: '', pending: null, reply: null }
@@ -27,21 +33,24 @@ export type VoiceModeChatSeam = {
   showNativeChat: boolean
 }
 
-/** The app's own dictation holds the microphone exclusively while any of these is true. */
-export type VoiceModeMicState = {
-  isStarting: boolean
-  isRecording: boolean
-  isProcessing: boolean
+// One recognizer per phone: busy while the page's dictation is starting, recording or finishing.
+function dictationHoldsRecognizer(dictation: UseMobileDictationResult): boolean {
+  return dictation.isStarting || dictation.isRecording || dictation.isProcessing
+}
+
+// A reply poll stops when its turn settles; this clears and settles every live poll at once.
+type ReplyWait = {
+  readonly settle: () => void
 }
 
 // The session screen's side of voice mode: one loop over the chat's send seam, left when the chat hides.
 export function useMobileSessionVoiceMode(
   showToast: (message: string) => void,
-  chat: VoiceModeChatSeam,
-  mic: VoiceModeMicState
+  chat: VoiceModeChatSeam
 ): MobileSessionVoiceMode {
   const speech = useOnDeviceSpeech()
   const capture = useDictationCapture()
+  const dictationHost = useMobileDictationHost()
   const [view, setView] = useState<VoiceLoopView>(IDLE_VIEW)
   const [shell, setShell] = useState<VoiceLoopShell | null>(null)
   const shellRef = useRef<VoiceLoopShell | null>(null)
@@ -49,18 +58,18 @@ export function useMobileSessionVoiceMode(
   const captureRef = useRef(capture)
   const sendChatRef = useRef((text: string) => chat.handleNativeChatSend(text))
   const turnActiveRef = useRef(chat.nativeChatTurnActive)
-  const micBusyRef = useRef(mic.isStarting || mic.isRecording || mic.isProcessing)
+  const dictationHostRef = useRef(dictationHost)
   const delaySecondsRef = useRef(1.5)
-  // Reply polls outlive their shell only if the loop exits mid-wait; they stop with the loop.
-  const replyPollersRef = useRef(new Set<ReturnType<typeof setInterval>>())
+  // Reply polls belong to one loop: ending the loop settles them, so no timer outlives the shell.
+  const replyWaitsRef = useRef(new Set<ReplyWait>())
 
   useEffect(() => {
     speechRef.current = speech
     captureRef.current = capture
     sendChatRef.current = (text: string) => chat.handleNativeChatSend(text)
     turnActiveRef.current = chat.nativeChatTurnActive
-    micBusyRef.current = mic.isStarting || mic.isRecording || mic.isProcessing
-  }, [speech, capture, chat, mic])
+    dictationHostRef.current = dictationHost
+  }, [speech, capture, chat, dictationHost])
 
   useEffect(() => {
     void loadVoiceModeResponseDelaySeconds().then((seconds) => {
@@ -68,23 +77,41 @@ export function useMobileSessionVoiceMode(
     })
   }, [])
 
+  const settleReplyWaits = useCallback(() => {
+    for (const wait of replyWaitsRef.current) {
+      wait.settle()
+    }
+  }, [])
+
   // The reply renders in the chat behind the overlay: wait out the turn the send started.
-  const awaitReply = (): Promise<string> =>
+  const awaitReply = (owner: VoiceLoopShell): Promise<string> =>
     new Promise((resolve) => {
       let sawActive = turnActiveRef.current
       const startedAt = Date.now()
+      const settle = () => {
+        clearInterval(poller)
+        replyWaitsRef.current.delete(wait)
+        resolve('')
+      }
+      const wait: ReplyWait = { settle }
       const poller = setInterval(() => {
-        if (turnActiveRef.current) {
-          sawActive = true
+        // The loop that asked is gone; nothing of its turn is worth waiting for.
+        if (shellRef.current !== owner) {
+          settle()
           return
         }
-        if (sawActive || Date.now() - startedAt > TURN_START_GRACE_MS) {
-          clearInterval(poller)
-          replyPollersRef.current.delete(poller)
-          resolve('')
+        if (!turnActiveRef.current && (sawActive || Date.now() - startedAt > TURN_START_GRACE_MS)) {
+          settle()
+          return
+        }
+        if (turnActiveRef.current) {
+          sawActive = true
+        }
+        if (Date.now() - startedAt > TURN_SETTLE_TIMEOUT_MS) {
+          settle()
         }
       }, TURN_SETTLE_POLL_MS)
-      replyPollersRef.current.add(poller)
+      replyWaitsRef.current.add(wait)
     })
 
   const start = useCallback(() => {
@@ -97,24 +124,41 @@ export function useMobileSessionVoiceMode(
     }
     const next = new VoiceLoopShell({
       now: Date.now,
-      // The phone's own dictation holds the microphone while it runs; that hold is exclusive.
+      // The page's dictation holds the recognizer wherever it started; voice mode refuses it, never steals it.
       startSpeech: async () => {
-        if (micBusyRef.current) {
+        if (dictationHoldsRecognizer(dictationHostRef.current.getDictation())) {
           return { started: false, busy: true }
         }
-        const started = await speechRef.current!.start()
-        return started.started
-          ? { started: true, busy: false }
-          : { started: false, busy: started.reason === 'busy' }
+        try {
+          const started = await speechRef.current!.start()
+          return started.started
+            ? { started: true, busy: false }
+            : { started: false, busy: started.reason === 'busy' }
+        } catch {
+          // A bridge refusal rejects; a start that cannot even ask reports unavailable, not busy.
+          return { started: false, busy: false }
+        }
       },
       cancelSpeech: () => speechRef.current?.cancel(),
       readSpeech: () => speechRef.current!.read(),
       openMic: async () => {
-        const opened = await captureRef.current.open()
+        let opened: DictationCaptureOpen
+        try {
+          opened = await captureRef.current.open()
+        } catch {
+          // The capture contract lets a bridge refusal reject; that is a refused open here.
+          return false
+        }
         if (!opened.ok) {
           return false
         }
-        if (!captureRef.current.begin()) {
+        try {
+          if (!captureRef.current.begin()) {
+            void captureRef.current.end()
+            return false
+          }
+        } catch {
+          // Native recording can throw part-way; treat it like a refused begin so the microphone is released.
           void captureRef.current.end()
           return false
         }
@@ -135,7 +179,7 @@ export function useMobileSessionVoiceMode(
         if (!accepted) {
           return { sent: false }
         }
-        return { sent: true, reply: await awaitReply() }
+        return { sent: true, reply: await awaitReply(next) }
       },
       responseDelayMs: () => delaySecondsRef.current * 1000,
       onState: setView,
@@ -147,14 +191,17 @@ export function useMobileSessionVoiceMode(
   }, [showToast])
 
   const tapPending = useCallback(() => shellRef.current?.tapPending(), [])
-  const exit = useCallback(() => shellRef.current?.exit(), [])
+  const exit = useCallback(() => {
+    shellRef.current?.exit()
+    settleReplyWaits()
+  }, [settleReplyWaits])
 
   // Leaving the chat tab ends the loop; the machine settles and the mic and screen release.
   useEffect(() => {
     if (shellRef.current !== null && !chat.showNativeChat) {
-      shellRef.current.exit()
+      exit()
     }
-  }, [chat.showNativeChat])
+  }, [chat.showNativeChat, exit])
 
   // A closed loop is dropped so the next long press starts a fresh one; nothing of it may leak.
   useEffect(() => {
@@ -162,19 +209,17 @@ export function useMobileSessionVoiceMode(
       shell.dispose()
       shellRef.current = null
       setShell(null)
+      settleReplyWaits()
     }
-  }, [shell, view.route])
+  }, [shell, view.route, settleReplyWaits])
 
   useEffect(() => {
     return () => {
       shellRef.current?.dispose()
       shellRef.current = null
-      for (const poller of replyPollersRef.current) {
-        clearInterval(poller)
-      }
-      replyPollersRef.current.clear()
+      settleReplyWaits()
     }
-  }, [])
+  }, [settleReplyWaits])
 
   return {
     view,

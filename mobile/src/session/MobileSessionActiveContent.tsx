@@ -121,7 +121,7 @@ export function MobileSessionActiveContent({
   const { keyboardLift, activeTerminalKeyboardLift, toastAnimatedStyle } =
     useMobileSessionContentKeyboardLift(controller)
   // Voice mode runs over the chat: one loop, entered from the mic's long press, left with the chat.
-  const voiceMode = useMobileSessionVoiceMode(showToast, nativeChatController, dictation)
+  const voiceMode = useMobileSessionVoiceMode(showToast, nativeChatController)
   const openUrlInOrca = useOpenUrlInOrca(controller)
   const hostProfile = useHostProfile(hostId)
   const hostTitle = useHostDisplay(hostProfile).title

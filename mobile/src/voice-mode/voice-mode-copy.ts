@@ -1,5 +1,5 @@
 import { translate } from '../i18n/mobile-i18n'
-import type { VoiceLoopNotice, VoiceLoopRoute } from './voice-loop-shell'
+import type { VoiceLoopNotice, VoiceLoopRoute } from './voice-loop-shell-contract'
 
 // One set of voice-mode labels for the overlay and the notices the session surface shows.
 export const voiceModeCopy = {

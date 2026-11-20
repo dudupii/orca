@@ -1,52 +1,13 @@
 import {
   createVoiceLoopMachine,
   defaultVoiceLoopThresholds,
-  type VoiceLoopRoute,
   type VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
-
-export type { VoiceLoopRoute } from '../../../src/shared/voice/voice-loop-machine'
-
-/** One poll of the recognizer: whole committed text so far plus the unstable tail. */
-export type VoiceLoopTranscriptRead = {
-  readonly revision: number
-  readonly committed: string
-  readonly tentative: string
-  readonly failure: string | null
-}
-
-/** The chat's answer to one delivered utterance; the reply text renders silently in T5. */
-export type VoiceLoopSendOutcome = { sent: false } | { sent: true; reply: string }
-
-export type VoiceLoopNotice = 'mic-exclusive' | 'mic-unavailable' | 'speech-failed' | 'send-failed'
-
-/** What the overlay draws: the loop's route, the live words, the revocable wait, the last reply. */
-export type VoiceLoopView = {
-  readonly route: VoiceLoopRoute
-  readonly transcript: string
-  readonly pending: string | null
-  readonly reply: string | null
-}
-
-export type VoiceLoopShellDeps = {
-  readonly now: () => number
-  /** Arms the recognizer; busy reports another session's exclusive hold of the microphone. */
-  readonly startSpeech: () => Promise<{ started: boolean; busy: boolean }>
-  readonly cancelSpeech: () => void
-  readonly readSpeech: () => Promise<VoiceLoopTranscriptRead>
-  /** Opens the microphone; false when permission or the device refused. */
-  readonly openMic: () => Promise<boolean>
-  readonly closeMic: () => void
-  /** Keeps the screen on while the loop runs; released when the loop ends. */
-  readonly holdScreen: () => void
-  readonly releaseScreen: () => void
-  readonly send: (text: string) => Promise<VoiceLoopSendOutcome>
-  readonly responseDelayMs: () => number
-  readonly onState: (view: VoiceLoopView) => void
-  readonly onNotice: (notice: VoiceLoopNotice) => void
-  readonly thresholds?: Partial<VoiceLoopThresholds>
-  readonly readIntervalMs?: number
-}
+import type {
+  VoiceLoopShellDeps,
+  VoiceLoopTranscriptRead,
+  VoiceLoopView
+} from './voice-loop-shell-contract'
 
 // Same pace the dictation drain reads at; the bridge has no push lane for transcripts.
 const DEFAULT_READ_INTERVAL_MS = 150
@@ -89,10 +50,30 @@ export class VoiceLoopShell {
   }
 
   async start(): Promise<void> {
-    if (this.starting || this.started || this.exited) {
+    // A closed machine is terminal and a spent shell stays spent; the entry makes a fresh shell.
+    if (
+      this.starting ||
+      this.started ||
+      this.exited ||
+      this.machine.getState().route === 'closed'
+    ) {
       return
     }
     this.starting = true
+    try {
+      await this.startPlatform()
+    } catch {
+      // A seam that throws mid-startup leaves nothing usable: report it, unwind, stay retryable.
+      if (!this.exited) {
+        this.starting = false
+        this.deps.onNotice('mic-unavailable')
+        this.releasePlatform()
+        this.settleClosed()
+      }
+    }
+  }
+
+  private async startPlatform(): Promise<void> {
     const armed = await this.deps.startSpeech()
     if (this.exited) {
       if (armed.started) {
@@ -109,6 +90,7 @@ export class VoiceLoopShell {
       } else {
         this.deps.onNotice('mic-unavailable')
       }
+      this.settleClosed()
       return
     }
     this.armedSpeech = true
@@ -116,6 +98,8 @@ export class VoiceLoopShell {
     this.screenHeld = true
     const micOpen = await this.deps.openMic()
     if (this.exited) {
+      // The exit before the open could not release what had not opened; the late open is ours.
+      this.micOpened = micOpen
       this.releasePlatform()
       return
     }
@@ -123,6 +107,7 @@ export class VoiceLoopShell {
       this.starting = false
       this.deps.onNotice('mic-unavailable')
       this.releasePlatform()
+      this.settleClosed()
       return
     }
     this.micOpened = true
@@ -170,14 +155,26 @@ export class VoiceLoopShell {
     this.exit()
   }
 
+  /** Ends a loop that never began, through the machine's own close, so its holder can drop it. */
+  private settleClosed(): void {
+    if (this.machine.getState().route !== 'closed') {
+      this.machine.dispatch({ type: 'closeTab' })
+    }
+    this.publish()
+  }
+
+  // Each release clears its flag, so an exit racing a pending open releases everything once.
   private releasePlatform(): void {
     if (this.armedSpeech) {
+      this.armedSpeech = false
       this.deps.cancelSpeech()
     }
     if (this.micOpened) {
+      this.micOpened = false
       this.deps.closeMic()
     }
     if (this.screenHeld) {
+      this.screenHeld = false
       this.deps.releaseScreen()
     }
   }

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  VoiceLoopShell,
-  type VoiceLoopNotice,
-  type VoiceLoopSendOutcome,
-  type VoiceLoopShellDeps,
-  type VoiceLoopTranscriptRead,
-  type VoiceLoopView
-} from './voice-loop-shell'
+import { VoiceLoopShell } from './voice-loop-shell'
+import type {
+  VoiceLoopNotice,
+  VoiceLoopSendOutcome,
+  VoiceLoopShellDeps,
+  VoiceLoopTranscriptRead,
+  VoiceLoopView
+} from './voice-loop-shell-contract'
 
 // The machine's own silence window; the shell adds the response-delay window on top of it.
 const SILENCE_WINDOW_MS = 1200
@@ -217,5 +217,63 @@ describe('VoiceLoopShell', () => {
     harness.shell.exit()
     expect(harness.deps.closeMic).toHaveBeenCalledOnce()
     expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+  })
+
+  it('an exit while the microphone open is pending closes the late open exactly once', async () => {
+    let resolveOpen: (opened: boolean) => void = () => {}
+    const openMic = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveOpen = resolve
+        })
+    )
+    const harness = createHarness({ openMic })
+    const starting = harness.shell.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(openMic).toHaveBeenCalledOnce()
+
+    // The exit could not close a microphone that had not opened yet.
+    harness.shell.exit()
+    expect(harness.deps.cancelSpeech).toHaveBeenCalledOnce()
+    expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+    expect(harness.deps.closeMic).not.toHaveBeenCalled()
+
+    // The open succeeds anyway: the late success belongs to the cancelled start, closed once.
+    resolveOpen(true)
+    await starting
+    expect(harness.deps.closeMic).toHaveBeenCalledOnce()
+    expect(harness.deps.cancelSpeech).toHaveBeenCalledOnce()
+    expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a throwing microphone open reports unavailable, releases what it held, and settles closed', async () => {
+    const harness = createHarness({
+      openMic: vi.fn(async () => {
+        throw new Error('bridge refused')
+      })
+    })
+    await harness.shell.start()
+
+    expect(harness.notices).toEqual(['mic-unavailable'])
+    expect(harness.deps.cancelSpeech).toHaveBeenCalledOnce()
+    expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+    expect(harness.deps.closeMic).not.toHaveBeenCalled()
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a throwing recognizer start reports unavailable and acquires nothing', async () => {
+    const harness = createHarness({
+      startSpeech: vi.fn(async () => {
+        throw new Error('bridge refused')
+      })
+    })
+    await harness.shell.start()
+
+    expect(harness.notices).toEqual(['mic-unavailable'])
+    expect(harness.deps.holdScreen).not.toHaveBeenCalled()
+    expect(harness.deps.openMic).not.toHaveBeenCalled()
+    expect(harness.views.at(-1)?.route).toBe('closed')
   })
 })

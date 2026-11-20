@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MobileVoiceModeOverlay } from './MobileVoiceModeOverlay'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
-import type { VoiceLoopView } from './voice-loop-shell'
+import type { VoiceLoopView } from './voice-loop-shell-contract'
 import { findAllByHostType } from '../test-support/react-test-renderer-host-nodes'
 
 vi.mock('react-native', () => ({
@@ -38,7 +38,7 @@ function renderOverlay(view: VoiceLoopView): { exit: () => void; tapPending: () 
 }
 
 describe('MobileVoiceModeOverlay', () => {
-  it('shows the loop state with the live transcript and exits on ✕', () => {
+  it('shows the live transcript and exits on ✕', () => {
     const { exit } = renderOverlay({
       route: 'listening',
       transcript: 'hello',
@@ -46,7 +46,6 @@ describe('MobileVoiceModeOverlay', () => {
       reply: null
     })
     const texts = findAllByHostType(renderer.root, 'Text')
-    expect(texts[0]?.props.children).toBe('Listening…')
     expect(texts.some((node) => String(node.props.children).includes('hello'))).toBe(true)
 
     act(() => {

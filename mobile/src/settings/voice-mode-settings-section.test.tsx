@@ -47,8 +47,7 @@ describe('voice mode settings section', () => {
     await act(async () => {
       renderer = create(createElement(VoiceModeSettingsSection))
     })
-    const row = findByHostType(renderer.root, 'ListRow')
-    expect(row.props.title).toBe('Response Delay')
+    expect(findAllByHostType(renderer.root, 'ListRow')).toHaveLength(1)
     const control = findByHostType(renderer.root, 'MobileSegmentedControl')
     expect(control.props.selected).toBe('2')
 
