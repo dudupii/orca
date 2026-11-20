@@ -15,9 +15,10 @@ const DEFAULT_READ_INTERVAL_MS = 150
 /**
  * Binds T1's voice-loop machine to the phone's seams. The machine owns every route and buffer
  * decision; this shell owns only what the machine's table does not model: when to poll, the
- * response-delay window that makes a finalized utterance revocable, and platform release order.
- * The delay window arms after the machine's own silence window has passed with the buffer held,
- * so the commit still happens through the machine's silence event.
+ * response-delay window that makes a finalized utterance — or held steering — revocable, and
+ * platform release order. The delay window arms after the machine's own silence window has
+ * passed with the words held, so the commit still happens through the machine's own event,
+ * sending the buffer in listening or steering the running turn in thinking.
  */
 export class VoiceLoopShell {
   private readonly thresholds: VoiceLoopThresholds
@@ -118,13 +119,18 @@ export class VoiceLoopShell {
     this.scheduleRead()
   }
 
-  /** A tap on the waiting utterance cancels its send; the words stay buffered for more speech. */
+  /** A tap on the waiting utterance cancels its send; a waiting steer is handed to the turn now. */
   tapPending(): void {
     if (this.view.pending === null) {
       return
     }
     this.clearPendingTimer()
     this.view = { ...this.view, pending: null }
+    if (this.machine.getState().route === 'thinking') {
+      // The turn is running; an eager tap steers it now rather than waiting out the delay.
+      void this.commit('send')
+      return
+    }
     // Quiet alone must not re-arm the wait; only new speech does.
     this.suppressPending = true
     this.publish()
@@ -255,13 +261,16 @@ export class VoiceLoopShell {
       return
     }
     const state = this.machine.getState()
-    if (state.route !== 'listening' || state.buffer.length === 0 || this.lastActivityAt === null) {
+    // The wait arms for either commit: the running turn's steer or the next send's buffer.
+    const held =
+      state.route === 'thinking' ? state.steering : state.route === 'listening' ? state.buffer : []
+    if (held.length === 0 || this.lastActivityAt === null) {
       return
     }
     if (this.deps.now() - this.lastActivityAt < this.thresholds.silenceWindowMs) {
       return
     }
-    this.view = { ...this.view, pending: spokenText(state.buffer, this.tentativeSeen) }
+    this.view = { ...this.view, pending: spokenText(held, this.tentativeSeen) }
     this.pendingTimer = setTimeout(() => {
       this.pendingTimer = null
       void this.commit()
@@ -269,23 +278,29 @@ export class VoiceLoopShell {
     this.publish()
   }
 
-  private async commit(): Promise<void> {
+  private async commit(flush: 'silence' | 'send' = 'silence'): Promise<void> {
     if (this.exited) {
       return
     }
     const generation = this.generation
     this.view = { ...this.view, pending: null }
-    // The commit itself is the machine's call: its silence event sends the buffered utterance.
-    const outcome = this.machine.dispatch({ type: 'silence' })
+    // The commit itself is the machine's call: its event sends the buffer or steers the turn.
+    const outcome = this.machine.dispatch({ type: flush })
     this.publish()
-    const send = outcome.effects.find(
-      (effect): effect is Extract<(typeof outcome.effects)[number], { kind: 'send' }> =>
-        effect.kind === 'send'
-    )
-    if (!send) {
+    const effect = outcome.effects[0]
+    if (effect?.kind === 'steer') {
+      // The turn keeps running; the send that started it still owns the loop's reply wait.
+      const steered = await this.deps.steer(effect.text)
+      if (!steered.steered && !this.exited && generation === this.generation) {
+        this.deps.onNotice('send-failed')
+        this.exit()
+      }
       return
     }
-    const delivered = await this.deps.send(send.text)
+    if (effect?.kind !== 'send') {
+      return
+    }
+    const delivered = await this.deps.send(effect.text)
     if (this.exited || generation !== this.generation) {
       return
     }
@@ -294,6 +309,9 @@ export class VoiceLoopShell {
       this.exit()
       return
     }
+    // The reply ends the turn; steering still waiting out its window died with it.
+    this.clearPendingTimer()
+    this.view = { ...this.view, pending: null }
     this.machine.dispatch({ type: 'reply', text: delivered.reply })
     // T5 renders the reply silently, so playback is over the moment it renders; T6 holds this open.
     this.machine.dispatch({ type: 'playbackEnd' })
@@ -312,7 +330,7 @@ export class VoiceLoopShell {
     const state = this.machine.getState()
     this.view = {
       route: state.route,
-      transcript: spokenText(state.buffer, this.tentativeSeen),
+      transcript: spokenText([...state.buffer, ...state.steering], this.tentativeSeen),
       pending: this.view.pending,
       reply: this.view.reply
     }
@@ -320,9 +338,9 @@ export class VoiceLoopShell {
   }
 }
 
-/** The utterance as it stands: the machine's buffered chunks plus the unstable tail. */
-function spokenText(buffer: readonly string[], tentative: string): string {
-  const spoken = buffer.filter(Boolean).join(' ')
+/** The utterance as it stands: the machine's held chunks, buffered or steering, plus the tail. */
+function spokenText(chunks: readonly string[], tentative: string): string {
+  const spoken = chunks.filter(Boolean).join(' ')
   const tail = tentative.trim()
   return spoken && tail ? `${spoken} ${tail}` : spoken || tail
 }

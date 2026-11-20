@@ -35,6 +35,7 @@ function createHarness(overrides: Partial<VoiceLoopShellDeps> = {}): Harness {
     holdScreen: vi.fn(),
     releaseScreen: vi.fn(),
     send: vi.fn(async (): Promise<VoiceLoopSendOutcome> => ({ sent: true, reply: 'Done' })),
+    steer: vi.fn(async () => ({ steered: true })),
     responseDelayMs: () => RESPONSE_DELAY_MS,
     onState: (view) => views.push(view),
     onNotice: (notice) => notices.push(notice),
@@ -50,6 +51,21 @@ function createHarness(overrides: Partial<VoiceLoopShellDeps> = {}): Harness {
       read = next
     }
   }
+}
+
+// A send that never settles keeps the loop waiting on its running turn, as a real turn would.
+function hangSend(): {
+  send: VoiceLoopShellDeps['send']
+  resolve: (outcome: VoiceLoopSendOutcome) => void
+} {
+  let settle: (outcome: VoiceLoopSendOutcome) => void = () => {}
+  const send = vi.fn(
+    () =>
+      new Promise<VoiceLoopSendOutcome>((resolve) => {
+        settle = resolve
+      })
+  )
+  return { send, resolve: (outcome) => settle(outcome) }
 }
 
 // Speaks one committed utterance and runs the clock out to the moment its send commits.
@@ -182,6 +198,93 @@ describe('VoiceLoopShell', () => {
     expect(harness.views.at(-1)?.route).toBe('closed')
     expect(harness.deps.closeMic).toHaveBeenCalledOnce()
     expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+  })
+
+  it('delivers mid-turn speech through the steer seam while the turn runs, and its reply ends it', async () => {
+    const hanging = hangSend()
+    const steer = vi.fn(async (_text: string) => ({ steered: true }))
+    const harness = createHarness({ send: hanging.send, steer })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('thinking')
+    // The turn the send started is still running; nothing has steered it.
+    expect(steer).not.toHaveBeenCalled()
+
+    harness.setRead({ revision: 2, committed: 'hello no wait', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(harness.views.at(-1)?.transcript).toBe('no wait')
+
+    // The held steering waits out the same revocable window a send does.
+    await vi.advanceTimersByTimeAsync(SILENCE_WINDOW_MS)
+    expect(harness.views.at(-1)?.pending).toBe('no wait')
+    await vi.advanceTimersByTimeAsync(RESPONSE_DELAY_MS)
+    expect(steer).toHaveBeenCalledOnce()
+    expect(steer.mock.calls[0][0]).toBe('no wait')
+    // The running turn was rerouted, not re-sent.
+    expect(harness.deps.send).toHaveBeenCalledOnce()
+    expect(harness.views.at(-1)?.route).toBe('thinking')
+
+    hanging.resolve({ sent: true, reply: 'Done' })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+    expect(harness.views.at(-1)?.reply).toBe('Done')
+  })
+
+  it('a tap on the waiting steering hands it to the running turn early, exactly once', async () => {
+    const hanging = hangSend()
+    const steer = vi.fn(async (_text: string) => ({ steered: true }))
+    const harness = createHarness({ send: hanging.send, steer })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    harness.setRead({ revision: 2, committed: 'hello go left', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS + SILENCE_WINDOW_MS)
+    expect(harness.views.at(-1)?.pending).toBe('go left')
+
+    harness.shell.tapPending()
+    expect(steer).toHaveBeenCalledOnce()
+    expect(steer.mock.calls[0][0]).toBe('go left')
+    expect(harness.views.at(-1)?.pending).toBeNull()
+
+    // The flushed window never fires again, and quiet alone arms no new one.
+    await vi.advanceTimersByTimeAsync(RESPONSE_DELAY_MS * 3)
+    expect(steer).toHaveBeenCalledOnce()
+    expect(harness.views.at(-1)?.route).toBe('thinking')
+  })
+
+  it('a steer the chat refuses exits voice mode with a notice', async () => {
+    const hanging = hangSend()
+    const steer = vi.fn(async (_text: string) => ({ steered: false }))
+    const harness = createHarness({ send: hanging.send, steer })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    harness.setRead({ revision: 2, committed: 'hello stop', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS + SILENCE_WINDOW_MS + RESPONSE_DELAY_MS)
+
+    expect(harness.notices).toEqual(['send-failed'])
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(harness.deps.closeMic).toHaveBeenCalledOnce()
+    expect(harness.deps.releaseScreen).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a reply that lands before the steering window closes drops the held words', async () => {
+    const hanging = hangSend()
+    const steer = vi.fn(async (_text: string) => ({ steered: true }))
+    const harness = createHarness({ send: hanging.send, steer })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    harness.setRead({ revision: 2, committed: 'hello quieter', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS + SILENCE_WINDOW_MS)
+    expect(harness.views.at(-1)?.pending).toBe('quieter')
+
+    // The turn finishes first: the machine drops the late steering, and no window outlives it.
+    hanging.resolve({ sent: true, reply: 'Done' })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+    expect(harness.views.at(-1)?.pending).toBeNull()
+    expect(harness.views.at(-1)?.route).toBe('listening')
+    await vi.advanceTimersByTimeAsync(RESPONSE_DELAY_MS * 3)
+    expect(steer).not.toHaveBeenCalled()
+    expect(harness.deps.send).toHaveBeenCalledOnce()
   })
 
   it('a refused microphone open cancels the armed recognizer and reports it', async () => {

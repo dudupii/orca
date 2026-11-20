@@ -18,6 +18,8 @@ export type VoiceLoopShellDeps = {
   readonly holdScreen: () => void
   readonly releaseScreen: () => void
   readonly send: (text: string) => Promise<VoiceLoopSendOutcome>
+  /** Reroutes the turn the loop is running with a mid-turn utterance; false reports the chat refused it. */
+  readonly steer: (text: string) => Promise<{ steered: boolean }>
   readonly responseDelayMs: () => number
   readonly onState: (view: VoiceLoopView) => void
   readonly onNotice: (notice: VoiceLoopNotice) => void

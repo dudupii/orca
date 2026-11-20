@@ -66,8 +66,6 @@ export function MobileSessionActiveContent({
     dictationMode,
     dictationEnabled,
     toastMessage,
-    handleTerminalInteraction,
-    handleTerminalTap,
     browserScreencastSupported,
     showToast,
     nativeChatSendError,
@@ -97,15 +95,9 @@ export function MobileSessionActiveContent({
     handleFileTap,
     handleNativeChatFileTap,
     handleTerminalOpenUrl,
-    handleTerminalInput,
-    handleTerminalQueryReply,
     handleSelectionMode,
     handleSelectionCopy,
     handleSelectionEvicted,
-    handleClipboardWrite,
-    handleModesChanged,
-    handleKeyboardAvoidanceMetrics,
-    handleHaptic,
     nativeChatImages,
     nativeChatStructuredComposer,
     activeMarkdownTab,
@@ -121,7 +113,15 @@ export function MobileSessionActiveContent({
   const { keyboardLift, activeTerminalKeyboardLift, toastAnimatedStyle } =
     useMobileSessionContentKeyboardLift(controller)
   // Voice mode runs over the chat: one loop, entered from the mic's long press, left with the chat.
-  const voiceMode = useMobileSessionVoiceMode(showToast, nativeChatController)
+  // Steering rides the chat's send verb with the intent that reroutes the running turn, never queueing.
+  const { handleNativeChatSendWithOutcome: chatSendWithOutcome } = nativeChatController
+  const voiceMode = useMobileSessionVoiceMode(showToast, {
+    ...nativeChatController,
+    steer: (text) =>
+      chatSendWithOutcome(text, undefined, undefined, undefined, undefined, { steer: true }).then(
+        (outcome) => ({ steered: outcome !== 'rejected' })
+      )
+  })
   const openUrlInOrca = useOpenUrlInOrca(controller)
   const hostProfile = useHostProfile(hostId)
   const hostTitle = useHostDisplay(hostProfile).title
@@ -323,14 +323,14 @@ export function MobileSessionActiveContent({
               onSelectionMode={handleSelectionMode}
               onSelectionCopy={handleSelectionCopy}
               onSelectionEvicted={handleSelectionEvicted}
-              onClipboardWrite={handleClipboardWrite}
-              onModesChanged={handleModesChanged}
-              onKeyboardAvoidanceMetrics={handleKeyboardAvoidanceMetrics}
-              onHaptic={handleHaptic}
-              onTerminalInput={handleTerminalInput}
-              onTerminalQueryReply={handleTerminalQueryReply}
-              onTerminalInteraction={handleTerminalInteraction}
-              onTerminalTap={handleTerminalTap}
+              onClipboardWrite={controller.handleClipboardWrite}
+              onModesChanged={controller.handleModesChanged}
+              onKeyboardAvoidanceMetrics={controller.handleKeyboardAvoidanceMetrics}
+              onHaptic={controller.handleHaptic}
+              onTerminalInput={controller.handleTerminalInput}
+              onTerminalQueryReply={controller.handleTerminalQueryReply}
+              onTerminalInteraction={controller.handleTerminalInteraction}
+              onTerminalTap={controller.handleTerminalTap}
               onFileTap={handleFileTap}
               onOpenUrl={handleTerminalOpenUrl}
             />
