@@ -26,8 +26,8 @@ function machine(clock = fakeClock()) {
   return createVoiceLoopMachine({ now: clock.now, thresholds })
 }
 
-/** A machine driven to `speaking`, one utterance already sent and one reply playing. */
-function speakingMachine() {
+/** A machine driven to `thinking`: one utterance sent, the reply not yet arrived. */
+function thinkingMachine() {
   const clock = fakeClock()
   const m = machine(clock)
   m.dispatch({ type: 'start' })
@@ -35,6 +35,12 @@ function speakingMachine() {
   clock.advanceTo(1000)
   m.dispatch({ type: 'silence' })
   clock.advanceTo(1100)
+  return { m, clock }
+}
+
+/** A machine driven to `speaking`, one utterance already sent and one reply playing. */
+function speakingMachine() {
+  const { m, clock } = thinkingMachine()
   m.dispatch({ type: 'reply', text: 'One. Two. Three. Four.' })
   return { m, clock }
 }
@@ -304,4 +310,100 @@ it('auto-sends from a clock that starts away from zero', () => {
   expect(m.dispatch({ type: 'silence' }).effects).toEqual([])
   clock.advanceTo(6_000)
   expect(m.dispatch({ type: 'silence' }).effects).toEqual([{ kind: 'send', text: 'clock driven' }])
+})
+
+it('speaks a model-authored briefing verbatim, its language riding the speak effect', () => {
+  const clock = fakeClock()
+  const m = machine(clock)
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'go on' })
+  clock.advanceTo(1000)
+  m.dispatch({ type: 'silence' })
+  clock.advanceTo(1100)
+  const spoken = m.dispatch({
+    type: 'reply',
+    text: 'One. Two. Three. Four.',
+    briefing: { text: 'Done. All checks pass. First. Second. Third. Fourth.', lang: 'zh-CN' }
+  })
+  expect(spoken.state.route).toBe('speaking')
+  // The briefing is never condensed and its lang overrides the phone's own language.
+  expect(spoken.effects).toEqual([
+    { kind: 'speak', text: 'Done. All checks pass. First. Second. Third. Fourth.', locale: 'zh-CN' }
+  ])
+})
+
+it('a briefing without a language leaves the locale to the phone', () => {
+  const { m } = thinkingMachine()
+  const spoken = m.dispatch({
+    type: 'reply',
+    text: 'ignored',
+    briefing: { text: 'Brief words.', lang: null }
+  })
+  expect(spoken.effects).toEqual([{ kind: 'speak', text: 'Brief words.' }])
+})
+
+it('returns to listening without playback when there is nothing to read aloud', () => {
+  const { m, clock } = thinkingMachine()
+  const silent = m.dispatch({ type: 'reply', text: '' })
+  expect(silent.accepted).toBe(true)
+  expect(silent.effects).toEqual([])
+  expect(silent.state.route).toBe('listening')
+  // No playback happened, so no echo gate arms: the next words are heard at once.
+  expect(m.dispatch({ type: 'speech', text: 'still here' }).accepted).toBe(true)
+  clock.advanceTo(2100)
+  expect(m.dispatch({ type: 'silence' }).effects).toEqual([{ kind: 'send', text: 'still here' }])
+})
+
+it('refuses barge-in speech while the setting is off, leaving playback intact', () => {
+  const clock = fakeClock()
+  const m = createVoiceLoopMachine({ now: clock.now, thresholds, bargeIn: false })
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'hello there' })
+  clock.advanceTo(1000)
+  m.dispatch({ type: 'silence' })
+  clock.advanceTo(1100)
+  m.dispatch({ type: 'reply', text: 'One. Two. Three. Four.' })
+
+  clock.advanceTo(1200)
+  const overheard = m.dispatch({ type: 'speech', text: 'wait' })
+  expect(overheard.accepted).toBe(false)
+  expect(overheard.refusal).toBe('barge-in-disabled')
+  // Playback was never cut and the words spoken over it are not buffered.
+  expect(overheard.state.route).toBe('speaking')
+  expect(overheard.state.buffer).toEqual([])
+
+  clock.advanceTo(4000)
+  expect(m.dispatch({ type: 'playbackEnd' }).state.route).toBe('listening')
+  // The echo gate still arms after the natural end; the buffer stays empty.
+  clock.advanceTo(4199)
+  expect(m.dispatch({ type: 'speech', text: 'echo' }).refusal).toBe('echo')
+  clock.advanceTo(4200)
+  const next = m.dispatch({ type: 'speech', text: 'now my turn' })
+  expect(next.accepted).toBe(true)
+  expect(next.state.buffer).toEqual(['now my turn'])
+})
+
+it('mutes the fallback prose while the setting is off, yet an authored briefing still speaks', () => {
+  const clock = fakeClock()
+  const m = createVoiceLoopMachine({ now: clock.now, thresholds, fallbackReadout: false })
+  m.dispatch({ type: 'start' })
+  m.dispatch({ type: 'speech', text: 'hello there' })
+  clock.advanceTo(1000)
+  m.dispatch({ type: 'silence' })
+  clock.advanceTo(1100)
+  const muted = m.dispatch({ type: 'reply', text: 'One. Two. Three. Four.' })
+  expect(muted.state.route).toBe('listening')
+  expect(muted.effects).toEqual([])
+
+  clock.advanceTo(2000)
+  m.dispatch({ type: 'speech', text: 'again' })
+  clock.advanceTo(3000)
+  m.dispatch({ type: 'silence' })
+  clock.advanceTo(3100)
+  const spoken = m.dispatch({
+    type: 'reply',
+    text: 'ignored',
+    briefing: { text: 'Authored words.', lang: null }
+  })
+  expect(spoken.effects).toEqual([{ kind: 'speak', text: 'Authored words.' }])
 })

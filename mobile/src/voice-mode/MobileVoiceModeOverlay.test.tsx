@@ -12,7 +12,7 @@ vi.mock('react-native', () => ({
   Pressable: 'Pressable',
   StyleSheet: { create: (value: unknown) => value }
 }))
-vi.mock('lucide-react-native', () => ({ X: 'Icon' }))
+vi.mock('lucide-react-native', () => ({ Square: 'StopIcon', X: 'Icon' }))
 
 let renderer: ReactTestRenderer
 
@@ -21,20 +21,26 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
-function renderOverlay(view: VoiceLoopView): { exit: () => void; tapPending: () => void } {
+function renderOverlay(view: VoiceLoopView): {
+  exit: () => void
+  tapPending: () => void
+  stopSpeaking: () => void
+} {
   const exit = vi.fn()
   const tapPending = vi.fn()
+  const stopSpeaking = vi.fn()
   const voiceMode: MobileSessionVoiceMode = {
     view,
     entryAvailable: true,
     start: () => {},
     tapPending,
+    stopSpeaking,
     exit
   }
   act(() => {
     renderer = create(createElement(MobileVoiceModeOverlay, { voiceMode }))
   })
-  return { exit, tapPending }
+  return { exit, tapPending, stopSpeaking }
 }
 
 describe('MobileVoiceModeOverlay', () => {
@@ -75,5 +81,31 @@ describe('MobileVoiceModeOverlay', () => {
   it('renders nothing once the loop has closed', () => {
     renderOverlay({ route: 'closed', transcript: '', pending: null, reply: null })
     expect(findAllByHostType(renderer.root, 'View')).toHaveLength(0)
+  })
+
+  it('offers a stop control only while speaking, and a tap stops the readout', () => {
+    const speaking = renderOverlay({
+      route: 'speaking',
+      transcript: '',
+      pending: null,
+      reply: 'Read aloud'
+    })
+    const stop = findAllByHostType(renderer.root, 'Pressable').find((node) =>
+      String(node.props.accessibilityLabel ?? '').includes('Stop readout')
+    )
+    expect(stop).toBeDefined()
+
+    act(() => {
+      stop?.props.onPress()
+    })
+    expect(speaking.stopSpeaking).toHaveBeenCalledOnce()
+
+    // While only listening there is nothing playing, so no stop control is offered.
+    renderOverlay({ route: 'listening', transcript: 'hello', pending: null, reply: null })
+    expect(
+      findAllByHostType(renderer.root, 'Pressable').find((node) =>
+        String(node.props.accessibilityLabel ?? '').includes('Stop readout')
+      )
+    ).toBeUndefined()
   })
 })

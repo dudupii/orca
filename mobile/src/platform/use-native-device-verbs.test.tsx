@@ -36,7 +36,10 @@ vi.mock('@orca/expo-two-way-audio', () => ({
   requestMicrophonePermissionsAsync: () =>
     Promise.resolve({ granted: true, canAskAgain: true, status: 'granted', expires: 'never' }),
   tearDown: () => {},
-  toggleRecording: () => true
+  toggleRecording: () => true,
+  // The tts engine the session page reaches through the verb; playback itself is never exercised here.
+  ttsSpeak: () => Promise.resolve(true),
+  ttsStop: () => {}
 }))
 vi.mock('expo-keep-awake', () => ({
   activateKeepAwakeAsync: (tag: string) => {

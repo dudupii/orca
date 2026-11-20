@@ -35,6 +35,8 @@ import { markdownTabDraftKey } from '../drafts/document-edit-draft-rows'
 import { workspaceDraftRowKey } from '../drafts/durable-draft-rows'
 import { loadMarkdownPreviewImage } from '../files/markdown/mobile-markdown-image-source'
 import { useMobileSessionVoiceMode } from '../voice-mode/use-mobile-session-voice-mode'
+import { subscribeToSpeakBroadcasts } from '../voice-mode/speak-broadcast'
+import { latestNativeChatReplyText } from '../../../src/shared/native-chat/native-chat-streaming'
 
 export function MobileSessionActiveContent({
   controller
@@ -121,7 +123,17 @@ export function MobileSessionActiveContent({
   const { keyboardLift, activeTerminalKeyboardLift, toastAnimatedStyle } =
     useMobileSessionContentKeyboardLift(controller)
   // Voice mode runs over the chat: one loop, entered from the mic's long press, left with the chat.
-  const voiceMode = useMobileSessionVoiceMode(showToast, nativeChatController)
+  // Its speaking side reads the host's speak broadcasts off the notifications stream and the chat's
+  // latest reply text, both sampled through the same seam as its sends.
+  const voiceMode = useMobileSessionVoiceMode(showToast, {
+    handleNativeChatSend: nativeChatController.handleNativeChatSend,
+    nativeChatTurnActive: nativeChatController.nativeChatTurnActive,
+    showNativeChat: nativeChatController.showNativeChat,
+    subscribeSpeakBroadcasts: (onBroadcast) =>
+      client ? subscribeToSpeakBroadcasts(client, onBroadcast) : () => {},
+    latestReplyText: () =>
+      latestNativeChatReplyText(nativeChatController.nativeChatSession.messages)
+  })
   const openUrlInOrca = useOpenUrlInOrca(controller)
   const hostProfile = useHostProfile(hostId)
   const hostTitle = useHostDisplay(hostProfile).title

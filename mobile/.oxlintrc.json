@@ -32,6 +32,32 @@
           }
         ]
       }
+    },
+    {
+      "files": ["src/voice-mode/voice-loop-shell.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 330,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/MobileSessionActiveContent.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 412,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
     }
   ]
 }

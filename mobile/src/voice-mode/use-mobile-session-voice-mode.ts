@@ -3,10 +3,17 @@ import { useDictationCapture } from '../platform/audio-capture/dictation-capture
 import type { DictationCaptureOpen } from '../platform/audio-capture/dictation-capture-contract'
 import { nativeMicrophoneScreenLock } from '../platform/audio-capture/native-audio-device'
 import { useOnDeviceSpeech } from '../platform/speech/on-device-speech'
+import { useOnDeviceTts } from '../platform/tts/on-device-tts'
 import { useMobileDictationHost } from '../dictation/mobile-dictation-host-context'
 import type { UseMobileDictationResult } from '../hooks/mobile-dictation-session-state'
-import { loadVoiceModeResponseDelaySeconds } from '../storage/voice-mode-settings'
+import {
+  loadVoiceModeBargeIn,
+  loadVoiceModeFallbackReadout,
+  loadVoiceModeResponseDelaySeconds
+} from '../storage/voice-mode-settings'
 import { voiceModeCopy } from './voice-mode-copy'
+import { createVoiceReadout } from './voice-readout'
+import type { VoiceReadout, VoiceSpeakBroadcast } from './voice-readout-contract'
 import { VoiceLoopShell } from './voice-loop-shell'
 import type { VoiceLoopSendOutcome, VoiceLoopView } from './voice-loop-shell-contract'
 
@@ -23,14 +30,19 @@ export type MobileSessionVoiceMode = {
   entryAvailable: boolean
   start: () => void
   tapPending: () => void
+  stopSpeaking: () => void
   exit: () => void
 }
 
-/** The chat seams the loop rides: sending, the running turn, and the chat's visibility. */
+/** The chat seams the loop rides: sending, the running turn, the chat's visibility, its latest reply, and the host's speak broadcasts. */
 export type VoiceModeChatSeam = {
   handleNativeChatSend: (text: string, images?: string[]) => Promise<boolean>
   nativeChatTurnActive: boolean
   showNativeChat: boolean
+  /** The host's speak broadcasts, the same notifications stream the push path reads. */
+  subscribeSpeakBroadcasts: (onBroadcast: (broadcast: VoiceSpeakBroadcast) => void) => () => void
+  /** The chat's latest reply text, sampled when a turn settles. */
+  latestReplyText: () => string
 }
 
 // One recognizer per phone: busy while the page's dictation is starting, recording or finishing.
@@ -49,31 +61,49 @@ export function useMobileSessionVoiceMode(
   chat: VoiceModeChatSeam
 ): MobileSessionVoiceMode {
   const speech = useOnDeviceSpeech()
+  const tts = useOnDeviceTts()
   const capture = useDictationCapture()
   const dictationHost = useMobileDictationHost()
   const [view, setView] = useState<VoiceLoopView>(IDLE_VIEW)
   const [shell, setShell] = useState<VoiceLoopShell | null>(null)
   const shellRef = useRef<VoiceLoopShell | null>(null)
   const speechRef = useRef(speech)
+  const ttsRef = useRef(tts)
   const captureRef = useRef(capture)
   const sendChatRef = useRef((text: string) => chat.handleNativeChatSend(text))
   const turnActiveRef = useRef(chat.nativeChatTurnActive)
   const dictationHostRef = useRef(dictationHost)
   const delaySecondsRef = useRef(1.5)
+  const bargeInRef = useRef(true)
+  const fallbackReadoutRef = useRef(true)
+  const latestReplyTextRef = useRef<() => string>(() => '')
+  const subscribeSpeakRef = useRef<(typeof chat)['subscribeSpeakBroadcasts']>(() => () => undefined)
+  // The loop's one playback owner; its broadcasts land here while the loop runs.
+  const readoutRef = useRef<VoiceReadout | null>(null)
+  const unsubscribeSpeakRef = useRef<(() => void) | null>(null)
   // Reply polls belong to one loop: ending the loop settles them, so no timer outlives the shell.
   const replyWaitsRef = useRef(new Set<ReplyWait>())
 
   useEffect(() => {
     speechRef.current = speech
+    ttsRef.current = tts
     captureRef.current = capture
     sendChatRef.current = (text: string) => chat.handleNativeChatSend(text)
     turnActiveRef.current = chat.nativeChatTurnActive
     dictationHostRef.current = dictationHost
-  }, [speech, capture, chat, dictationHost])
+    latestReplyTextRef.current = chat.latestReplyText
+    subscribeSpeakRef.current = chat.subscribeSpeakBroadcasts
+  }, [speech, tts, capture, chat, dictationHost])
 
   useEffect(() => {
     void loadVoiceModeResponseDelaySeconds().then((seconds) => {
       delaySecondsRef.current = seconds
+    })
+    void loadVoiceModeBargeIn().then((bargeIn) => {
+      bargeInRef.current = bargeIn
+    })
+    void loadVoiceModeFallbackReadout().then((fallback) => {
+      fallbackReadoutRef.current = fallback
     })
   }, [])
 
@@ -83,7 +113,13 @@ export function useMobileSessionVoiceMode(
     }
   }, [])
 
-  // The reply renders in the chat behind the overlay: wait out the turn the send started.
+  const stopSpeakSubscription = useCallback(() => {
+    unsubscribeSpeakRef.current?.()
+    unsubscribeSpeakRef.current = null
+  }, [])
+
+  // The reply renders in the chat behind the overlay: wait out the turn the send started, then
+  // hold its latest text out for the readout to speak.
   const awaitReply = (owner: VoiceLoopShell): Promise<string> =>
     new Promise((resolve) => {
       let sawActive = turnActiveRef.current
@@ -91,7 +127,7 @@ export function useMobileSessionVoiceMode(
       const settle = () => {
         clearInterval(poller)
         replyWaitsRef.current.delete(wait)
-        resolve('')
+        resolve(latestReplyTextRef.current())
       }
       const wait: ReplyWait = { settle }
       const poller = setInterval(() => {
@@ -122,6 +158,12 @@ export function useMobileSessionVoiceMode(
       showToast(voiceModeCopy.notice('mic-unavailable'))
       return
     }
+    // The speaking side's single owner for this loop; a shell without the tts verb stays silent, never broken.
+    const readout = createVoiceReadout({ playback: ttsRef.current })
+    readoutRef.current = readout
+    unsubscribeSpeakRef.current = subscribeSpeakRef.current((broadcast) => {
+      readoutRef.current?.briefingArrived(broadcast)
+    })
     const next = new VoiceLoopShell({
       now: Date.now,
       // The page's dictation holds the recognizer wherever it started; voice mode refuses it, never steals it.
@@ -174,6 +216,10 @@ export function useMobileSessionVoiceMode(
       },
       holdScreen: () => nativeMicrophoneScreenLock.hold(),
       releaseScreen: () => nativeMicrophoneScreenLock.release(),
+      readout,
+      // Both toggles are read once here: a change applies to the loop after this one.
+      bargeIn: bargeInRef.current,
+      fallbackReadout: fallbackReadoutRef.current,
       send: async (text): Promise<VoiceLoopSendOutcome> => {
         const accepted = await sendChatRef.current(text)
         if (!accepted) {
@@ -191,10 +237,12 @@ export function useMobileSessionVoiceMode(
   }, [showToast])
 
   const tapPending = useCallback(() => shellRef.current?.tapPending(), [])
+  const stopSpeaking = useCallback(() => shellRef.current?.stopSpeaking(), [])
   const exit = useCallback(() => {
     shellRef.current?.exit()
     settleReplyWaits()
-  }, [settleReplyWaits])
+    stopSpeakSubscription()
+  }, [settleReplyWaits, stopSpeakSubscription])
 
   // Leaving the chat tab ends the loop; the machine settles and the mic and screen release.
   useEffect(() => {
@@ -210,22 +258,25 @@ export function useMobileSessionVoiceMode(
       shellRef.current = null
       setShell(null)
       settleReplyWaits()
+      stopSpeakSubscription()
     }
-  }, [shell, view.route, settleReplyWaits])
+  }, [shell, view.route, settleReplyWaits, stopSpeakSubscription])
 
   useEffect(() => {
     return () => {
       shellRef.current?.dispose()
       shellRef.current = null
       settleReplyWaits()
+      stopSpeakSubscription()
     }
-  }, [settleReplyWaits])
+  }, [settleReplyWaits, stopSpeakSubscription])
 
   return {
     view,
     entryAvailable: speech !== null,
     start,
     tapPending,
+    stopSpeaking,
     exit
   }
 }

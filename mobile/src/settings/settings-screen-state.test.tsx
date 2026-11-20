@@ -44,6 +44,9 @@ vi.mock('./voice-transcribe-on-section', () => ({
 vi.mock('./voice-mode-settings-section', () => ({
   VoiceModeSettingsSection: () => null
 }))
+vi.mock('./voice-speaking-settings-section', () => ({
+  VoiceSpeakingSettingsSection: () => null
+}))
 vi.mock('../dictation/use-dictation-setup-poller', () => ({
   useDictationSetupPoller: ({ refresh }: { refresh: () => Promise<unknown> }) => {
     useEffect(() => {

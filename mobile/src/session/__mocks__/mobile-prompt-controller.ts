@@ -145,6 +145,7 @@ const idleVoiceMode: MobileSessionVoiceMode = {
   entryAvailable: false,
   start: () => {},
   tapPending: () => {},
+  stopSpeaking: () => {},
   exit: () => {}
 }
 type HarnessProps = {

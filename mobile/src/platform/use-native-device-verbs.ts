@@ -9,6 +9,9 @@ import {
 } from './audio-capture/native-audio-device'
 import { createNativeSpeechServer } from './speech/native-speech'
 import { nativeSpeechDeviceEngine } from './speech/native-speech-device'
+import { createNativeTtsServer } from './tts/native-tts'
+import { nativeTtsDeviceEngine } from './tts/native-tts-device'
+import { createNativeTtsVerbServer } from './tts/native-tts-verb-server'
 import { serveNativeClipboardVerb } from './clipboard/native-clipboard'
 import { serveNativeAnnounceVerb } from './accessibility/native-accessibility-announce'
 import { createNativeMediaVerbServer } from './media-picking/native-media'
@@ -33,6 +36,12 @@ export function useNativeDeviceVerbs(
   useEffect(() => () => audio.dispose(), [audio])
   const speech = useMemo(() => createNativeSpeechServer(nativeSpeechDeviceEngine), [sessionId])
   useEffect(() => () => speech.dispose(), [speech])
+  // Playback outlives no page either: a new session's server silences what its predecessor left playing.
+  const tts = useMemo(
+    () => createNativeTtsVerbServer(createNativeTtsServer(nativeTtsDeviceEngine)),
+    [sessionId]
+  )
+  useEffect(() => () => tts.dispose(), [tts])
   return useMemo(
     () => (verb, params) => {
       if (verb === 'native.clipboard.write' || verb === 'native.clipboard.read') {
@@ -40,6 +49,9 @@ export function useNativeDeviceVerbs(
       }
       if (verb === 'native.speech.act') {
         return speech.serve(params)
+      }
+      if (verb === 'native.tts.act') {
+        return tts.serve(params)
       }
       if (verb === 'native.a11y.announce') {
         return Promise.resolve(serveNativeAnnounceVerb(params))
@@ -57,6 +69,6 @@ export function useNativeDeviceVerbs(
       }
       return verb.startsWith('native.audio.') ? audio.serve(verb, params) : serveMedia(verb, params)
     },
-    [audio, serveMedia, speech]
+    [audio, serveMedia, speech, tts]
   )
 }

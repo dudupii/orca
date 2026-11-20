@@ -52,3 +52,37 @@ describe('voice mode response delay storage', () => {
     expect(await second.loadVoiceModeResponseDelaySeconds()).toBe(1.5)
   })
 })
+
+describe('voice mode speaking toggles storage', () => {
+  beforeEach(() => {
+    stored.clear()
+    vi.resetModules()
+  })
+
+  it('round-trips each toggle independently', async () => {
+    const {
+      saveVoiceModeBargeIn,
+      loadVoiceModeBargeIn,
+      saveVoiceModeFallbackReadout,
+      loadVoiceModeFallbackReadout
+    } = await fresh()
+    expect(await loadVoiceModeBargeIn()).toBe(true)
+    expect(await loadVoiceModeFallbackReadout()).toBe(true)
+    await saveVoiceModeBargeIn(false)
+    await saveVoiceModeFallbackReadout(false)
+    expect(await loadVoiceModeBargeIn()).toBe(false)
+    expect(await loadVoiceModeFallbackReadout()).toBe(false)
+    // One toggle off leaves the other as it was saved.
+    await saveVoiceModeFallbackReadout(true)
+    expect(await loadVoiceModeBargeIn()).toBe(false)
+    expect(await loadVoiceModeFallbackReadout()).toBe(true)
+  })
+
+  it('reads the default when nothing is saved or the value is not a boolean', async () => {
+    stored.set('orca:voiceModeBargeIn', 'yes')
+    stored.set('orca:voiceModeFallbackReadout', '1')
+    const { loadVoiceModeBargeIn, loadVoiceModeFallbackReadout } = await fresh()
+    expect(await loadVoiceModeBargeIn()).toBe(true)
+    expect(await loadVoiceModeFallbackReadout()).toBe(true)
+  })
+})

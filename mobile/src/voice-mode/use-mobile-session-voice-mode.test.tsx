@@ -23,6 +23,10 @@ type Seam = {
   openResult: DictationCaptureOpen | Error
   beginResult: boolean | Error
   turnActive: boolean
+  replyText: string
+  ttsAvailable: boolean
+  ttsSpeakCalls: { text: string; locale: string | null }[]
+  ttsStopCalls: number
 }
 
 const seam = vi.hoisted((): Seam => ({
@@ -31,7 +35,11 @@ const seam = vi.hoisted((): Seam => ({
   speechStartResult: { started: true, locale: 'en-US', reason: null },
   openResult: { ok: true },
   beginResult: true,
-  turnActive: false
+  turnActive: false,
+  replyText: '',
+  ttsAvailable: true,
+  ttsSpeakCalls: [],
+  ttsStopCalls: 0
 }))
 
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
@@ -95,10 +103,32 @@ vi.mock('../platform/audio-capture/native-audio-device', () => ({
   }
 }))
 
+vi.mock('../platform/tts/on-device-tts', () => {
+  // A channel whose utterances are already done by the first poll, so a playback settles within one read.
+  let revision = 0
+  const channel = {
+    speak: (utterance: { text: string; locale: string | null }) => {
+      seam.ttsSpeakCalls.push({ text: utterance.text, locale: utterance.locale })
+      revision += 1
+      return Promise.resolve({ revision })
+    },
+    stop: () => {
+      seam.ttsStopCalls += 1
+      return Promise.resolve()
+    },
+    read: () => Promise.resolve({ revision, status: 'done', reason: null })
+  }
+  return { useOnDeviceTts: () => (seam.ttsAvailable ? channel : null) }
+})
+
 vi.mock('../storage/voice-mode-settings', () => ({
   VOICE_MODE_RESPONSE_DELAY_DEFAULT_SECONDS: 1.5,
   loadVoiceModeResponseDelaySeconds: vi.fn(async () => 1.5),
-  saveVoiceModeResponseDelaySeconds: vi.fn(async () => {})
+  saveVoiceModeResponseDelaySeconds: vi.fn(async () => {}),
+  loadVoiceModeBargeIn: vi.fn(async () => true),
+  saveVoiceModeBargeIn: vi.fn(async () => {}),
+  loadVoiceModeFallbackReadout: vi.fn(async () => true),
+  saveVoiceModeFallbackReadout: vi.fn(async () => {})
 }))
 
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
@@ -127,6 +157,9 @@ type Harness = {
   showToast: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
   setDictationBusy: (busy: boolean) => void
+  setTurnActive: (active: boolean) => void
+  broadcast: (broadcast: { text: string; lang: string | null; session: string | null }) => void
+  subscriptionLive: () => boolean
   unmount: () => void
 }
 
@@ -147,20 +180,33 @@ function mountVoiceMode(): Harness {
     getUnderway: () => dictation.isStarting || dictation.isRecording || dictation.isProcessing
   }
   let voiceMode: MobileSessionVoiceMode | null = null
+  let speakSink:
+    | ((broadcast: { text: string; lang: string | null; session: string | null }) => void)
+    | null = null
   function Probe(): null {
     voiceMode = useMobileSessionVoiceMode(showToast, {
       handleNativeChatSend: send,
       nativeChatTurnActive: seam.turnActive,
-      showNativeChat: true
+      showNativeChat: true,
+      subscribeSpeakBroadcasts: (onBroadcast) => {
+        speakSink = onBroadcast
+        return () => {
+          speakSink = null
+        }
+      },
+      latestReplyText: () => seam.replyText
     })
     return null
   }
   let renderer: ReactTestRenderer
-  act(() => {
-    renderer = create(
-      createElement(MobileDictationHostContext.Provider, { value: host }, createElement(Probe))
-    )
-  })
+  const render = () => {
+    act(() => {
+      renderer = create(
+        createElement(MobileDictationHostContext.Provider, { value: host }, createElement(Probe))
+      )
+    })
+  }
+  render()
   return {
     voiceMode: () => {
       if (voiceMode === null) {
@@ -173,6 +219,20 @@ function mountVoiceMode(): Harness {
     setDictationBusy: (busy) => {
       dictation = fakeDictation(busy)
     },
+    setTurnActive: (active) => {
+      seam.turnActive = active
+      act(() => {
+        renderer.update(
+          createElement(MobileDictationHostContext.Provider, { value: host }, createElement(Probe))
+        )
+      })
+    },
+    broadcast: (broadcast) => {
+      act(() => {
+        speakSink?.(broadcast)
+      })
+    },
+    subscriptionLive: () => speakSink !== null,
     unmount: () => act(() => renderer.unmount())
   }
 }
@@ -205,6 +265,10 @@ describe('useMobileSessionVoiceMode', () => {
     seam.openResult = { ok: true }
     seam.beginResult = true
     seam.turnActive = false
+    seam.replyText = ''
+    seam.ttsAvailable = true
+    seam.ttsSpeakCalls.length = 0
+    seam.ttsStopCalls = 0
   })
 
   afterEach(() => {
@@ -312,5 +376,68 @@ describe('useMobileSessionVoiceMode', () => {
     harness.unmount()
     expect(vi.getTimerCount()).toBe(0)
     await vi.advanceTimersByTimeAsync(60_000)
+  })
+
+  it('speaks the reply text the chat holds when its turn settles and no briefing arrived', async () => {
+    seam.turnActive = true
+    seam.replyText = 'The build passed. Tests are green.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    // No briefing arrived, so the reply's condensed prose is spoken in the phone's language.
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The build passed. Tests are green.', locale: null }
+    ])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('speaks a briefing broadcast that arrived while the reply streamed, over the reply prose', async () => {
+    seam.turnActive = true
+    seam.replyText = 'A very long reply. Not the readout. More words here.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.broadcast({ text: 'Checks pass.', lang: 'zh-CN', session: null })
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    // The briefing wins over the reply prose and carries its own language.
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Checks pass.', locale: 'zh-CN' }])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('stays silent with no tts verb, yet the loop still returns to listening', async () => {
+    seam.ttsAvailable = false
+    seam.turnActive = true
+    seam.replyText = 'Words that cannot play.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([])
+    expect(harness.voiceMode().view.route).toBe('listening')
+  })
+
+  it('drops the speak subscription with the loop, so broadcasts after an exit land nowhere', async () => {
+    seam.turnActive = true
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+    expect(harness.subscriptionLive()).toBe(true)
+
+    act(() => {
+      harness.voiceMode().exit()
+    })
+    expect(harness.subscriptionLive()).toBe(false)
+
+    harness.broadcast({ text: 'Late words.', lang: null, session: null })
+    expect(seam.ttsSpeakCalls).toEqual([])
   })
 })

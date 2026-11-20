@@ -5,8 +5,11 @@ import { condenseReplyForReadout } from './fallback-prose-extractor'
  * speaking — framed by idle before the session starts and the terminal closed after a
  * close-tab exit. Speech during speaking is a barge-in: playback stops and the loop
  * re-enters listening, but speech inside the AEC-tail window after any playback stop is
- * echo, not the user, and is refused. Time comes only from the injected clock; later
- * platform tickets bind this machine and never extend its table.
+ * echo, not the user, and is refused. A reply carries either a model-authored briefing,
+ * spoken verbatim, or the reply's own condensed prose; with neither, or with the fallback
+ * muted by its setting, there is nothing to say and the loop returns to listening without
+ * playback. Time comes only from the injected clock; later platform tickets bind this
+ * machine and never extend its table.
  */
 export type VoiceLoopRoute = 'idle' | 'listening' | 'thinking' | 'speaking' | 'closed'
 
@@ -40,14 +43,14 @@ export type VoiceLoopEvent =
   | { type: 'speech'; text: string }
   | { type: 'silence' }
   | { type: 'send' }
-  | { type: 'reply'; text: string }
+  | { type: 'reply'; text: string; briefing?: { text: string; lang: string | null } }
   | { type: 'playbackEnd' }
   | { type: 'visibility'; foreground: boolean }
   | { type: 'closeTab' }
 
 export type VoiceLoopEffect =
   | { kind: 'send'; text: string }
-  | { kind: 'speak'; text: string }
+  | { kind: 'speak'; text: string; locale?: string }
   | { kind: 'stopPlayback' }
 
 export type VoiceLoopRefusal =
@@ -55,6 +58,7 @@ export type VoiceLoopRefusal =
   | 'already-started'
   | 'closed'
   | 'echo'
+  | 'barge-in-disabled'
   | 'empty-send'
   | 'unexpected-event'
 
@@ -68,6 +72,10 @@ export type VoiceLoopOutcome = {
 export type VoiceLoopDeps = {
   now: () => number
   thresholds?: Partial<VoiceLoopThresholds>
+  /** False refuses barge-in: speech during playback never stops it. A tap still can. */
+  bargeIn?: boolean
+  /** False mutes the reply's fallback prose; an authored briefing still speaks. The loop never stalls either way. */
+  fallbackReadout?: boolean
 }
 
 export function initialVoiceLoopState(): VoiceLoopState {
@@ -112,6 +120,10 @@ export function voiceLoopTransition(
       if (state.echoUntil !== null && at < state.echoUntil) {
         return refused(state, 'echo')
       }
+      if (state.route === 'speaking' && deps.bargeIn === false) {
+        // The setting asks for uninterrupted playback; the words spoken over it are dropped, not buffered.
+        return refused(state, 'barge-in-disabled')
+      }
       const buffered = { ...state, buffer: [...state.buffer, event.text.trim()], lastSpeechAt: at }
       if (state.route === 'speaking') {
         return stopped({ ...buffered, route: 'listening' }, at, thresholds)
@@ -146,8 +158,26 @@ export function voiceLoopTransition(
       if (state.route !== 'thinking') {
         return refused(state, 'unexpected-event')
       }
+      // A model-authored briefing is spoken verbatim; without one the reply's condensed prose is the readout,
+      // unless the fallback setting mutes it.
+      const readout =
+        event.briefing !== undefined
+          ? event.briefing.text
+          : deps.fallbackReadout === false
+            ? ''
+            : condenseReplyForReadout(event.text)
+      if (!readout) {
+        // Nothing authored and no prose to read: silence, never a stalled loop.
+        return moved({ ...state, route: 'listening' })
+      }
       return moved({ ...state, route: 'speaking', echoUntil: null }, [
-        { kind: 'speak', text: condenseReplyForReadout(event.text) }
+        {
+          kind: 'speak',
+          text: readout,
+          ...(event.briefing !== undefined && event.briefing.lang !== null
+            ? { locale: event.briefing.lang }
+            : {})
+        }
       ])
     }
     case 'playbackEnd': {

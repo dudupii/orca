@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from 'react-native'
-import { X } from 'lucide-react-native'
+import { Square, X } from 'lucide-react-native'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
 import { themedStyleSheet } from '../theme/themed-styles'
@@ -9,8 +9,9 @@ import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 
 /**
  * The voice loop drawn over the chat: its route, the words heard so far (or the finalized
- * utterance waiting out the response delay, where a tap cancels the send), the silently
- * rendered reply, and the ✕ that exits voice mode. Touches outside the panel reach the chat.
+ * utterance waiting out the response delay, where a tap cancels the send), the reply being
+ * read aloud (where a tap stops the readout), and the ✕ that exits voice mode. Touches
+ * outside the panel reach the chat.
  */
 export function MobileVoiceModeOverlay({
   voiceMode
@@ -19,7 +20,7 @@ export function MobileVoiceModeOverlay({
 }): React.JSX.Element | null {
   useMobileColorScheme()
   useMobileTranslation()
-  const { view, tapPending, exit } = voiceMode
+  const { view, tapPending, stopSpeaking, exit } = voiceMode
   if (view.route === 'idle' || view.route === 'closed') {
     return null
   }
@@ -29,14 +30,31 @@ export function MobileVoiceModeOverlay({
       <View style={styles.panel}>
         <View style={styles.header}>
           <Text style={styles.state}>{voiceModeCopy.stateLabel(view.route)}</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={voiceModeCopy.exit()}
-            style={({ pressed }) => [styles.exit, pressed && styles.pressed]}
-            onPress={exit}
-          >
-            <X pointerEvents="none" size={18} color={colors.textPrimary} strokeWidth={2.4} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            {view.route === 'speaking' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={voiceModeCopy.stopReadout()}
+                style={({ pressed }) => [styles.exit, pressed && styles.pressed]}
+                onPress={stopSpeaking}
+              >
+                <Square
+                  pointerEvents="none"
+                  size={16}
+                  color={colors.textPrimary}
+                  strokeWidth={2.4}
+                />
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={voiceModeCopy.exit()}
+              style={({ pressed }) => [styles.exit, pressed && styles.pressed]}
+              onPress={exit}
+            >
+              <X pointerEvents="none" size={18} color={colors.textPrimary} strokeWidth={2.4} />
+            </Pressable>
+          </View>
         </View>
         {view.reply ? (
           <Text style={styles.reply} numberOfLines={4}>
@@ -86,6 +104,11 @@ const styles = themedStyleSheet(() => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
   },
   state: {
     color: colors.textPrimary,

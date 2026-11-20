@@ -1,6 +1,7 @@
 import {
   createVoiceLoopMachine,
   defaultVoiceLoopThresholds,
+  type VoiceLoopEffect,
   type VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
 import type {
@@ -12,12 +13,25 @@ import type {
 // Same pace the dictation drain reads at; the bridge has no push lane for transcripts.
 const DEFAULT_READ_INTERVAL_MS = 150
 
+/** The first effect of a kind, if the transition emitted one; the machine never emits doubles. */
+function effectOf<K extends VoiceLoopEffect['kind']>(
+  effects: readonly VoiceLoopEffect[],
+  kind: K
+): Extract<VoiceLoopEffect, { kind: K }> | null {
+  return (
+    effects.find(
+      (effect): effect is Extract<VoiceLoopEffect, { kind: K }> => effect.kind === kind
+    ) ?? null
+  )
+}
+
 /**
  * Binds T1's voice-loop machine to the phone's seams. The machine owns every route and buffer
  * decision; this shell owns only what the machine's table does not model: when to poll, the
- * response-delay window that makes a finalized utterance revocable, and platform release order.
- * The delay window arms after the machine's own silence window has passed with the buffer held,
- * so the commit still happens through the machine's silence event.
+ * response-delay window that makes a finalized utterance revocable, playback (the machine's
+ * speak effect plays through the readout and playbackEnd arrives when it settles), and platform
+ * release order. The delay window arms after the machine's own silence window has passed with
+ * the buffer held, so the commit still happens through the machine's silence event.
  */
 export class VoiceLoopShell {
   private readonly thresholds: VoiceLoopThresholds
@@ -42,7 +56,12 @@ export class VoiceLoopShell {
   constructor(private readonly deps: VoiceLoopShellDeps) {
     this.thresholds = { ...defaultVoiceLoopThresholds, ...deps.thresholds }
     this.readIntervalMs = deps.readIntervalMs ?? DEFAULT_READ_INTERVAL_MS
-    this.machine = createVoiceLoopMachine({ now: deps.now, thresholds: this.thresholds })
+    this.machine = createVoiceLoopMachine({
+      now: deps.now,
+      thresholds: this.thresholds,
+      bargeIn: deps.bargeIn,
+      fallbackReadout: deps.fallbackReadout
+    })
   }
 
   currentView(): VoiceLoopView {
@@ -130,6 +149,14 @@ export class VoiceLoopShell {
     this.publish()
   }
 
+  /** A tap on the readout stops it; the loop returns to listening through the machine's echo gate. */
+  stopSpeaking(): void {
+    if (this.machine.getState().route !== 'speaking') {
+      return
+    }
+    this.deps.readout.stop()
+  }
+
   /** Ends the loop: the machine settles terminal, then the recognizer, mic and screen release. */
   exit(): void {
     if (this.exited) {
@@ -165,6 +192,8 @@ export class VoiceLoopShell {
 
   // Each release clears its flag, so an exit racing a pending open releases everything once.
   private releasePlatform(): void {
+    // Silence playback first: a loop that ends must not keep the speaker past its mic and screen.
+    this.deps.readout.stop()
     if (this.armedSpeech) {
       this.armedSpeech = false
       this.deps.cancelSpeech()
@@ -228,7 +257,11 @@ export class VoiceLoopShell {
       // Committed text is the whole final text so far: feed the machine only the new words.
       const delta = committed.slice(seen.length).trim()
       if (delta) {
-        this.machine.dispatch({ type: 'speech', text: delta })
+        const heard = this.machine.dispatch({ type: 'speech', text: delta })
+        if (effectOf(heard.effects, 'stopPlayback') !== null) {
+          // Barge-in: the machine cut the playback; the speaker goes silent and its play settles stopped.
+          this.deps.readout.stop()
+        }
       }
       this.committedSeen = committed
     } else if (committed !== seen) {
@@ -278,13 +311,12 @@ export class VoiceLoopShell {
     // The commit itself is the machine's call: its silence event sends the buffered utterance.
     const outcome = this.machine.dispatch({ type: 'silence' })
     this.publish()
-    const send = outcome.effects.find(
-      (effect): effect is Extract<(typeof outcome.effects)[number], { kind: 'send' }> =>
-        effect.kind === 'send'
-    )
+    const send = effectOf(outcome.effects, 'send')
     if (!send) {
       return
     }
+    // The turn begins with its send; briefings the model authors while it streams are kept for its reply.
+    this.deps.readout.beginTurn()
     const delivered = await this.deps.send(send.text)
     if (this.exited || generation !== this.generation) {
       return
@@ -294,11 +326,29 @@ export class VoiceLoopShell {
       this.exit()
       return
     }
-    this.machine.dispatch({ type: 'reply', text: delivered.reply })
-    // T5 renders the reply silently, so playback is over the moment it renders; T6 holds this open.
-    this.machine.dispatch({ type: 'playbackEnd' })
+    const briefing = this.deps.readout.settleBriefing()
+    const replied = this.machine.dispatch({
+      type: 'reply',
+      text: delivered.reply,
+      ...(briefing !== null ? { briefing } : {})
+    })
     this.view = { ...this.view, reply: delivered.reply }
     this.publish()
+    const speak = effectOf(replied.effects, 'speak')
+    if (!speak) {
+      // Muted by setting, or nothing to say: the machine is already listening again.
+      return
+    }
+    // Playback is held open here: its settle — end, interruption, failure — walks the machine back
+    // to listening, or never has to because a barge-in or exit already did.
+    await this.deps.readout.play({ text: speak.text, locale: speak.locale ?? null })
+    if (this.exited || generation !== this.generation) {
+      return
+    }
+    if (this.machine.getState().route === 'speaking') {
+      this.machine.dispatch({ type: 'playbackEnd' })
+      this.publish()
+    }
   }
 
   private clearPendingTimer(): void {

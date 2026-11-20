@@ -2,6 +2,7 @@ import type {
   VoiceLoopRoute,
   VoiceLoopThresholds
 } from '../../../src/shared/voice/voice-loop-machine'
+import type { VoiceReadout } from './voice-readout-contract'
 
 export type { VoiceLoopRoute } from '../../../src/shared/voice/voice-loop-machine'
 
@@ -17,6 +18,12 @@ export type VoiceLoopShellDeps = {
   /** Keeps the screen on while the loop runs; released when the loop ends. */
   readonly holdScreen: () => void
   readonly releaseScreen: () => void
+  /** The speaking side's single owner: the shell plays the machine's words through it and stops it on barge-in or exit. */
+  readonly readout: VoiceReadout
+  /** Read at loop start; false keeps speech from cutting playback. A tap still stops it. */
+  readonly bargeIn?: boolean
+  /** Read at loop start; false mutes the reply's fallback prose. An authored briefing still speaks. */
+  readonly fallbackReadout?: boolean
   readonly send: (text: string) => Promise<VoiceLoopSendOutcome>
   readonly responseDelayMs: () => number
   readonly onState: (view: VoiceLoopView) => void

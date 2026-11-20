@@ -30,3 +30,26 @@ export type OnDeviceTts = {
   readonly stop: () => void
   readonly state: () => OnDeviceTtsPlayback
 }
+
+// The page-side view of the shell's playback. A speak reply only claims a revision; how the utterance
+// ended — done, stopped by the loop, interrupted by a newer claim, failed — arrives on later reads,
+// because the bridge has no push lane and playback outlives the speak call that started it.
+export type OnDeviceTtsChannel = {
+  readonly speak: (utterance: OnDeviceTtsUtterance) => Promise<{ revision: number }>
+  readonly stop: () => Promise<void>
+  readonly read: () => Promise<OnDeviceTtsChannelRead>
+}
+
+export type OnDeviceTtsChannelRead = {
+  readonly revision: number
+  readonly status: OnDeviceTtsChannelStatus
+  readonly reason: OnDeviceTtsFailure | null
+}
+
+export type OnDeviceTtsChannelStatus =
+  | 'idle'
+  | 'speaking'
+  | 'done'
+  | 'stopped'
+  | 'interrupted'
+  | 'failed'

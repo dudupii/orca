@@ -7,15 +7,96 @@ import type {
   VoiceLoopTranscriptRead,
   VoiceLoopView
 } from './voice-loop-shell-contract'
+import type {
+  VoiceReadout,
+  VoiceReadoutBriefing,
+  VoiceReadoutEnd,
+  VoiceSpeakBroadcast
+} from './voice-readout-contract'
 
 // The machine's own silence window; the shell adds the response-delay window on top of it.
 const SILENCE_WINDOW_MS = 1200
 const RESPONSE_DELAY_MS = 1500
 const READ_INTERVAL_MS = 100
+// How long the fake readout's playback runs before it ends on its own.
+const PLAYBACK_MS = 300
+
+// A readout the tests drive by hand: plays end after PLAYBACK_MS unless a stop settles them first,
+// mirroring the real seam, where a stop ends the poll's claim early.
+type FakeReadout = VoiceReadout & {
+  readonly beginTurns: number
+  readonly briefings: VoiceSpeakBroadcast[]
+  readonly plays: { text: string; locale: string | null }[]
+  readonly stops: number
+  /** What settleBriefing hands the shell; beginTurn clears it, briefingArrived sets it. */
+  nextBriefing: VoiceReadoutBriefing | null
+}
+
+function fakeReadout(): FakeReadout {
+  let beginTurns = 0
+  let stops = 0
+  const briefings: VoiceSpeakBroadcast[] = []
+  const plays: { text: string; locale: string | null }[] = []
+  const pending: {
+    resolve: (end: VoiceReadoutEnd) => void
+    timer: ReturnType<typeof setTimeout>
+  }[] = []
+  let nextBriefing: VoiceReadoutBriefing | null = null
+  return {
+    get beginTurns() {
+      return beginTurns
+    },
+    get briefings() {
+      return briefings
+    },
+    get plays() {
+      return plays
+    },
+    get stops() {
+      return stops
+    },
+    get nextBriefing() {
+      return nextBriefing
+    },
+    set nextBriefing(value: VoiceReadoutBriefing | null) {
+      nextBriefing = value
+    },
+    beginTurn: () => {
+      beginTurns += 1
+      nextBriefing = null
+    },
+    briefingArrived: (broadcast) => {
+      briefings.push(broadcast)
+      nextBriefing = { text: broadcast.text, lang: broadcast.lang }
+    },
+    settleBriefing: () => nextBriefing,
+    play: (utterance) => {
+      plays.push({ text: utterance.text, locale: utterance.locale })
+      return new Promise<VoiceReadoutEnd>((resolve) => {
+        const entry = {
+          resolve,
+          timer: setTimeout(() => {
+            pending.splice(pending.indexOf(entry), 1)
+            resolve('done')
+          }, PLAYBACK_MS)
+        }
+        pending.push(entry)
+      })
+    },
+    stop: () => {
+      stops += 1
+      for (const entry of pending.splice(0)) {
+        clearTimeout(entry.timer)
+        entry.resolve('stopped')
+      }
+    }
+  }
+}
 
 type Harness = {
   shell: VoiceLoopShell
   deps: VoiceLoopShellDeps
+  readout: FakeReadout
   views: VoiceLoopView[]
   notices: VoiceLoopNotice[]
   setRead: (read: VoiceLoopTranscriptRead) => void
@@ -24,6 +105,7 @@ type Harness = {
 function createHarness(overrides: Partial<VoiceLoopShellDeps> = {}): Harness {
   const views: VoiceLoopView[] = []
   const notices: VoiceLoopNotice[] = []
+  const readout = fakeReadout()
   let read: VoiceLoopTranscriptRead = { revision: 0, committed: '', tentative: '', failure: null }
   const deps: VoiceLoopShellDeps = {
     now: () => Date.now(),
@@ -34,6 +116,7 @@ function createHarness(overrides: Partial<VoiceLoopShellDeps> = {}): Harness {
     closeMic: vi.fn(),
     holdScreen: vi.fn(),
     releaseScreen: vi.fn(),
+    readout,
     send: vi.fn(async (): Promise<VoiceLoopSendOutcome> => ({ sent: true, reply: 'Done' })),
     responseDelayMs: () => RESPONSE_DELAY_MS,
     onState: (view) => views.push(view),
@@ -44,6 +127,7 @@ function createHarness(overrides: Partial<VoiceLoopShellDeps> = {}): Harness {
   return {
     shell: new VoiceLoopShell(deps),
     deps,
+    readout,
     views,
     notices,
     setRead: (next) => {
@@ -68,7 +152,7 @@ describe('VoiceLoopShell', () => {
     vi.useRealTimers()
   })
 
-  it('routes a finalized utterance through the delay window into a silent reply and back to listening', async () => {
+  it('routes a finalized utterance through the delay window into a spoken reply and back to listening', async () => {
     const harness = createHarness()
     await harness.shell.start()
     expect(harness.views.at(-1)?.route).toBe('listening')
@@ -87,6 +171,12 @@ describe('VoiceLoopShell', () => {
     await vi.advanceTimersByTimeAsync(RESPONSE_DELAY_MS)
     expect(harness.deps.send).toHaveBeenCalledOnce()
     expect(vi.mocked(harness.deps.send).mock.calls[0][0]).toBe('hello')
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+    // No briefing arrived, so the reply's own condensed prose is the readout.
+    expect(harness.readout.plays).toEqual([{ text: 'Done', locale: null }])
+
+    // Playback ends on its own: the loop returns to listening through the machine's own gate.
+    await vi.advanceTimersByTimeAsync(PLAYBACK_MS)
     const settled = harness.views.at(-1)
     expect(settled?.route).toBe('listening')
     expect(settled?.reply).toBe('Done')
@@ -123,6 +213,9 @@ describe('VoiceLoopShell', () => {
 
     harness.shell.tapPending()
     expect(harness.deps.send).toHaveBeenCalledOnce()
+    // The reply is speaking; the tap found no pending utterance to revoke.
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+    await vi.advanceTimersByTimeAsync(PLAYBACK_MS)
     expect(harness.views.at(-1)?.route).toBe('listening')
   })
 
@@ -275,5 +368,115 @@ describe('VoiceLoopShell', () => {
     expect(harness.deps.holdScreen).not.toHaveBeenCalled()
     expect(harness.deps.openMic).not.toHaveBeenCalled()
     expect(harness.views.at(-1)?.route).toBe('closed')
+  })
+
+  it('speaks a briefing the model authored while the reply streamed, in its own language', async () => {
+    let releaseSend: () => void = () => {}
+    const send = vi.fn(
+      () =>
+        new Promise<VoiceLoopSendOutcome>((resolve) => {
+          releaseSend = () => resolve({ sent: true, reply: 'Long reply. Not spoken.' })
+        })
+    )
+    const harness = createHarness({ send })
+    await harness.shell.start()
+    harness.setRead({ revision: 1, committed: 'status', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS + SILENCE_WINDOW_MS)
+    await vi.advanceTimersByTimeAsync(RESPONSE_DELAY_MS)
+    expect(harness.deps.send).toHaveBeenCalledOnce()
+
+    // The reply is still streaming when the model's speak broadcast lands.
+    harness.readout.briefingArrived({ text: 'Checks pass.', lang: 'zh-CN', session: null })
+    releaseSend()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The briefing is spoken verbatim with its language; the reply's prose never plays.
+    expect(harness.readout.plays).toEqual([{ text: 'Checks pass.', locale: 'zh-CN' }])
+    await vi.advanceTimersByTimeAsync(PLAYBACK_MS)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+  })
+
+  it('mutes the fallback prose when the setting is off, yet the loop keeps listening', async () => {
+    const harness = createHarness({ fallbackReadout: false })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+
+    expect(harness.deps.send).toHaveBeenCalledOnce()
+    expect(harness.readout.plays).toEqual([])
+    // No playback happened, so the loop is already listening again — never stalled.
+    expect(harness.views.at(-1)?.route).toBe('listening')
+    expect(harness.views.at(-1)?.reply).toBe('Done')
+  })
+
+  it('speech during playback barges in: playback stops and the new words own the next turn', async () => {
+    const harness = createHarness()
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    harness.setRead({ revision: 2, committed: 'hello wait', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+
+    expect(harness.readout.stops).toBe(1)
+    // The stop settled the playback; the loop is listening with the interrupting words buffered.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+    expect(harness.views.at(-1)?.transcript).toBe('wait')
+
+    await vi.advanceTimersByTimeAsync(SILENCE_WINDOW_MS + RESPONSE_DELAY_MS)
+    expect(vi.mocked(harness.deps.send).mock.calls[1][0]).toBe('wait')
+  })
+
+  it('speech during playback is refused while barge-in is off, so the readout plays to its end', async () => {
+    const harness = createHarness({ bargeIn: false })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    harness.setRead({ revision: 2, committed: 'hello wait', tentative: '', failure: null })
+    await vi.advanceTimersByTimeAsync(READ_INTERVAL_MS)
+
+    expect(harness.readout.stops).toBe(0)
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+    // The words spoken over the playback were dropped, not buffered.
+    expect(harness.views.at(-1)?.transcript).toBe('')
+
+    await vi.advanceTimersByTimeAsync(PLAYBACK_MS)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+  })
+
+  it('a tap on the readout stops it even with barge-in off, and the loop keeps listening', async () => {
+    const harness = createHarness({ bargeIn: false })
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    harness.shell.stopSpeaking()
+    expect(harness.readout.stops).toBe(1)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(harness.views.at(-1)?.route).toBe('listening')
+  })
+
+  it('a tap while not speaking stops nothing', async () => {
+    const harness = createHarness()
+    await harness.shell.start()
+    harness.shell.stopSpeaking()
+    expect(harness.readout.stops).toBe(0)
+  })
+
+  it('an exit during playback settles the stopped play without walking the machine anywhere', async () => {
+    const harness = createHarness()
+    await harness.shell.start()
+    await speakAndFinalize(harness, 'hello')
+    expect(harness.views.at(-1)?.route).toBe('speaking')
+
+    harness.shell.exit()
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(harness.readout.stops).toBeGreaterThanOrEqual(1)
+
+    // The stopped play's continuation finds the loop gone; nothing reopens or reschedules.
+    await vi.advanceTimersByTimeAsync(SILENCE_WINDOW_MS * 5)
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

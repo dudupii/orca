@@ -150,7 +150,13 @@
       "voiceModeHeading": "VOICE MODE",
       "voiceModeResponseDelay": "Response Delay",
       "voiceModeResponseDelayDescription": "How long a finished voice message waits before it sends. Tap it while it waits to cancel sending.",
-      "voiceModeDelaySeconds": "{{value}}s"
+      "voiceModeDelaySeconds": "{{value}}s",
+      "voiceSpeakingHeading": "SPEAKING",
+      "voiceSpeakingDescription": "Applies the next time voice mode starts.",
+      "voiceBargeIn": "Interrupt with Your Voice",
+      "voiceBargeInDescription": "Speaking during a readout stops it. A tap on the readout always stops it.",
+      "voiceFallbackReadout": "Read Replies Aloud",
+      "voiceFallbackReadoutDescription": "Read the first sentences of replies that ship no spoken briefing."
     },
     "agents": {
       "permissionOwnAll": "Agents' own settings"
@@ -616,6 +622,7 @@
       "title": "Voice mode"
     },
     "exit": "Exit voice mode",
+    "stopReadout": "Stop readout",
     "pendingHint": "Tap to cancel sending",
     "pendingLabel": "{{utterance}}. Tap to cancel sending.",
     "notice": {
