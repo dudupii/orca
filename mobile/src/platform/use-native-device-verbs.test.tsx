@@ -14,7 +14,8 @@ const device = vi.hoisted(() => ({
   },
   files: new Map<string, Uint8Array>(),
   deleted: new Array<string>(),
-  wakeTags: new Array<string>()
+  wakeTags: new Array<string>(),
+  toneKinds: new Array<string>()
 }))
 
 // The shell's announce verb speaks through React Native's AccessibilityInfo.
@@ -39,7 +40,11 @@ vi.mock('@orca/expo-two-way-audio', () => ({
   toggleRecording: () => true,
   // The tts engine the session page reaches through the verb; playback itself is never exercised here.
   ttsSpeak: () => Promise.resolve(true),
-  ttsStop: () => {}
+  ttsStop: () => {},
+  // The chime the page asks for; the device audio itself is never sounded here.
+  tonePlay: (kind: string) => {
+    device.toneKinds.push(kind)
+  }
 }))
 vi.mock('expo-keep-awake', () => ({
   activateKeepAwakeAsync: (tag: string) => {
@@ -203,5 +208,18 @@ describe('the screen a page session leaves behind', () => {
     first.unmount()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(device.wakeTags).toEqual(['+orca-microphone', '-orca-microphone'])
+  })
+})
+
+describe('a chime the page asks for', () => {
+  beforeEach(() => {
+    device.toneKinds.length = 0
+  })
+
+  it('plays through the device module and replies with nothing to carry back', async () => {
+    const shell = mount('session-a')
+    await expect(shell.serve('native.tone.act', { kind: 'restore' })).resolves.toEqual({})
+    expect(device.toneKinds).toEqual(['restore'])
+    shell.unmount()
   })
 })

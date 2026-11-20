@@ -19,6 +19,7 @@ import {
 } from './bridge-media-verbs'
 import { imageParamsSchema, imageResultSchema } from './bridge-image-verbs'
 import { BRIDGE_SPEECH_VERB, speechParamsSchema, speechResultSchema } from './bridge-speech-verbs'
+import { BRIDGE_TONE_VERB, toneParamsSchema, toneResultSchema } from './bridge-tone-verbs'
 import { BRIDGE_TTS_VERB, ttsParamsSchema, ttsResultSchema } from './bridge-tts-verbs'
 import { BRIDGE_STORE_VERB, storeParamsSchema, storeResultSchema } from './bridge-store-verb'
 import { PAGE_STORAGE_MAX_KEY_CHARS } from '../../page-storage/page-storage-keys'
@@ -43,6 +44,7 @@ export const BRIDGE_NATIVE_VERB_NAMES = [
   'native.image.act',
   BRIDGE_SPEECH_VERB,
   BRIDGE_TTS_VERB,
+  BRIDGE_TONE_VERB,
   BRIDGE_STORE_VERB,
   'native.a11y.announce'
 ] as const
@@ -158,6 +160,10 @@ export const BRIDGE_NATIVE_VERBS: Readonly<Record<BridgeNativeVerb, BridgeNative
   [BRIDGE_TTS_VERB]: {
     params: ttsParamsSchema,
     result: ttsResultSchema
+  },
+  [BRIDGE_TONE_VERB]: {
+    params: toneParamsSchema,
+    result: toneResultSchema
   },
   [BRIDGE_STORE_VERB]: {
     params: storeParamsSchema,
