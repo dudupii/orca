@@ -12,15 +12,11 @@ import { speakEndpointFilePath, type SpeakEndpoint } from '../../../voice/speak-
 /** Mirrors the speak server's private token header; the voice module keeps its own copy. */
 export const VOICE_SPEAK_TOKEN_HEADER = 'x-orca-speak-token'
 
-/**
- * The voice briefing style taught to agents whose spawn found a voice-capable phone. One
- * wording, kept beside the injection that carries it, so no launch path rewrites it.
- */
-export const VOICE_SPEAK_PROMPT_APPEND =
-  'A paired phone is listening: the `speak` tool reads a short briefing aloud there. ' +
-  'Close meaningful work with one spoken briefing - briefings over readouts, prose over lists - ' +
-  'and keep the written reply for the details. Speaking is optional: skip it when there is ' +
-  'nothing worth hearing aloud.'
+/** The speak server names itself in MCP initialize answers; a probe match proves identity. */
+const SPEAK_SERVER_INFO_NAME = 'orca-speak'
+
+/** A loopback answer slower than this is a dead endpoint for spawn purposes. */
+const SPEAK_ENDPOINT_PROBE_TIMEOUT_MS = 2_000
 
 /** What a launch part needs to point an agent at the speak MCP server. */
 export type VoiceSpeakLaunchInjection = {
@@ -61,10 +57,65 @@ function parseSpeakEndpoint(text: string): SpeakEndpoint | null {
     : null
 }
 
+/** The initialize answer must come from this speak server, not any loopback 200. */
+function isSpeakServerInitializeAnswer(payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null) {
+    return false
+  }
+  const { jsonrpc, result } = payload as Record<string, unknown>
+  if (jsonrpc !== '2.0' || typeof result !== 'object' || result === null) {
+    return false
+  }
+  const { protocolVersion, serverInfo } = result as Record<string, unknown>
+  return (
+    typeof protocolVersion === 'string' &&
+    typeof serverInfo === 'object' &&
+    serverInfo !== null &&
+    (serverInfo as Record<string, unknown>).name === SPEAK_SERVER_INFO_NAME
+  )
+}
+
 /**
- * The speak injection for one spawn, or null when voice is not negotiated. A missing or
- * unreadable endpoint file reads as no capability: the launch keeps today's shape rather than
- * pointing the model at a tool that cannot answer.
+ * The speak server deliberately leaves its endpoint file behind on stop, so a syntactically
+ * valid file proves nothing: only an authenticated initialize this server answers proves the
+ * endpoint is live before a spawn points a model at it.
+ */
+async function speakEndpointAnswers(endpoint: SpeakEndpoint): Promise<boolean> {
+  try {
+    const response = await fetch(voiceSpeakServerUrl(endpoint), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // The streamable transport refuses clients that accept only one body kind.
+        accept: 'application/json, text/event-stream',
+        [VOICE_SPEAK_TOKEN_HEADER]: endpoint.token
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'orca-voice-speak-injection', version: '1.0.0' }
+        }
+      }),
+      signal: AbortSignal.timeout(SPEAK_ENDPOINT_PROBE_TIMEOUT_MS)
+    })
+    if (!response.ok) {
+      return false
+    }
+    return isSpeakServerInitializeAnswer(await response.json())
+  } catch {
+    // Refused, hung, or non-JSON answer: a stale, dead, or foreign endpoint reads as no capability.
+    return false
+  }
+}
+
+/**
+ * The speak injection for one spawn, or null when voice is not negotiated. A missing,
+ * unreadable, or stale endpoint file reads as no capability: the launch keeps today's shape
+ * rather than pointing the model at a tool that cannot answer.
  */
 export async function readVoiceSpeakLaunchInjection(
   input: VoiceSpeakInjectionInput
@@ -79,7 +130,10 @@ export async function readVoiceSpeakLaunchInjection(
     return null
   }
   const endpoint = parseSpeakEndpoint(text)
-  return endpoint ? { serverUrl: voiceSpeakServerUrl(endpoint), token: endpoint.token } : null
+  if (!endpoint || !(await speakEndpointAnswers(endpoint))) {
+    return null
+  }
+  return { serverUrl: voiceSpeakServerUrl(endpoint), token: endpoint.token }
 }
 
 /** A per-spawn resolver bound to one capability source and endpoint root. */

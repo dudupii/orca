@@ -22,6 +22,7 @@ import { codexProviderHandleLink } from '../acquisition/codex-structured-owner-i
 import { openCodexThread } from '../threads/codex-structured-thread-open'
 import { catchUpCodexThread } from '../threads/codex-structured-thread-catch-up'
 import { withCodexVisualsThreadConfig } from '../launch/codex-structured-visuals'
+import { sealCodexVoiceSpeakInstructions } from '../launch/codex-structured-voice-speak'
 import { NATIVE_CHAT_SCRATCH_DIR_ENV } from '../../../native-chat/conversation-files/native-chat-visuals-delivery'
 import {
   restoredCodexSessionOptions,
@@ -105,10 +106,26 @@ export async function openCodexStructuredSession(
     ...launch.commandEnv,
     ...(launch.visuals ? { [NATIVE_CHAT_SCRATCH_DIR_ENV]: launch.visuals.folder } : {})
   }
+  // The prompt half of a voice-capable spawn seals here, once: the user's effective developer
+  // instructions plus the briefing, fixed for this thread and every turn it starts.
+  const voiceSpeakSeal = launch.voiceSpeak
+    ? await waitForPromiseWithSignal(
+        sealCodexVoiceSpeakInstructions(connection, {
+          cwd: launch.cwd,
+          ...(deps.requestTimeoutMs !== undefined ? { timeoutMs: deps.requestTimeoutMs } : {})
+        }),
+        openInput.signal
+      )
+    : null
+  current()
   const opened = await waitForPromiseWithSignal(
     openCodexThread(
       connection,
-      { ...threadLaunch, commandEnv },
+      {
+        ...threadLaunch,
+        commandEnv,
+        ...(voiceSpeakSeal ? { developerInstructions: voiceSpeakSeal.developerInstructions } : {})
+      },
       // Long rollout/MCP setup relies on the host ceiling and cancellation unless a timeout is supplied.
       deps.requestTimeoutMs ?? null,
       openInput.signal
@@ -192,6 +209,9 @@ export async function openCodexStructuredSession(
       serviceTier: CODEX_DEFAULT_SERVICE_TIER,
       interactionMode: 'default'
     }),
+    ...(voiceSpeakSeal
+      ? { sealedDeveloperInstructions: voiceSpeakSeal.developerInstructions }
+      : {}),
     appliedSettings: attempt.window.appliedSettings,
     ...(catalogAccess ? { catalogAccess } : {}),
     dispatchEchoes: start.dispatchEchoes,

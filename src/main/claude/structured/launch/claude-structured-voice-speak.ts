@@ -1,9 +1,7 @@
 import type { Options as ClaudeAgentSdkOptions } from '@anthropic-ai/claude-agent-sdk'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import {
-  VOICE_SPEAK_PROMPT_APPEND,
-  VOICE_SPEAK_TOKEN_HEADER
-} from '../../../runtime/agent-session/launch/voice-speak-injection'
+import { VOICE_SPEAK_TOKEN_HEADER } from '../../../runtime/agent-session/launch/voice-speak-injection'
+import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
 
 export type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
 
@@ -23,6 +21,10 @@ export function claudeVoiceSpeakOptions(
         headers: { [VOICE_SPEAK_TOKEN_HEADER]: injection.token }
       }
     },
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: VOICE_SPEAK_PROMPT_APPEND }
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: VOICE_SPEAK_BRIEFING_PROMPT_APPEND
+    }
   }
 }

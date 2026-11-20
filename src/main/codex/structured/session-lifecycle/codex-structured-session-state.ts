@@ -181,6 +181,11 @@ export type CodexSession = {
   nativeDefaults?: { personality?: string; serviceTier?: string }
   /** Acquisition facts overlaid by controls actually sent, independently of reports or saved picks. */
   appliedTurnOptions?: Readonly<Record<string, string>>
+  /**
+   * Developer instructions this spawn sealed (voice briefing over the user's effective value);
+   * every turn's collaboration-mode request must carry them or its null would displace them.
+   */
+  sealedDeveloperInstructions?: string
   /** Saved/start input choices before protocol shaping; later catalogs cannot change eligibility. */
   appliedTurnInputOptions?: Readonly<Record<string, string>>
   appliedSettings?: CodexAppliedSettings

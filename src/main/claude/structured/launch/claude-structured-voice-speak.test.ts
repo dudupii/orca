@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { agentSessionRecordFixture } from '../../../native-chat/testing/agent-session-record-test-fixture'
 import { createClaudeStructuredLaunchResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition.test-support'
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
-import { VOICE_SPEAK_PROMPT_APPEND } from '../../../runtime/agent-session/launch/voice-speak-injection'
+import { VOICE_SPEAK_BRIEFING_PROMPT_APPEND } from '../../../runtime/agent-session/prompts/voice-speak-briefing-prompt'
 
 const SESSION_ID = 'session-voice-1'
 const IDENTITY = { sessionId: SESSION_ID } as Parameters<
@@ -51,7 +51,7 @@ describe('claude structured launch: voice.speak.v1 injection', () => {
     expect(launch.options.systemPrompt).toEqual({
       type: 'preset',
       preset: 'claude_code',
-      append: VOICE_SPEAK_PROMPT_APPEND
+      append: VOICE_SPEAK_BRIEFING_PROMPT_APPEND
     })
   })
 

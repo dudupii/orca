@@ -71,6 +71,11 @@ export async function openCodexThread(
     commandEnv?: Record<string, string>
     /** Sealed at spawn; the speak server and briefing style land in this thread's config. */
     voiceSpeak?: VoiceSpeakLaunchInjection
+    /**
+     * Thread-level developer-instruction override, sealed at spawn by the voice speak
+     * injection; an override, so only the sealed existing-plus-briefing value may travel here.
+     */
+    developerInstructions?: string
   },
   /** null: no deadline; the start that opens the thread bounds it (`signal`). */
   timeoutMs: number | null | undefined,
@@ -85,6 +90,9 @@ export async function openCodexThread(
   const threadSettings = {
     cwd: launch.cwd,
     ...launch.permissionPolicy,
+    ...(launch.developerInstructions !== undefined
+      ? { developerInstructions: launch.developerInstructions }
+      : {}),
     ...(Object.keys(config).length > 0 ? { config } : {})
   }
   const startThread = (): Promise<unknown> => {

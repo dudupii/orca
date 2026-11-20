@@ -17,6 +17,11 @@ export type CodexTurnHost = {
   options: Map<string, string>
   appliedTurnOptions?: Readonly<Record<string, string>>
   appliedTurnInputOptions?: Readonly<Record<string, string>>
+  /**
+   * Developer instructions this spawn sealed; carried on every turn so the collaboration-mode
+   * request's null cannot displace them mid-session.
+   */
+  sealedDeveloperInstructions?: string
   appliedSettings?: CodexSession['appliedSettings']
   reportedOptions?: CodexSession['reportedOptions']
   catalogAccess?: CodexSession['catalogAccess']

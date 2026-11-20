@@ -1,19 +1,24 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  readVoiceSpeakLaunchInjection,
-  voiceSpeakClientOnlineFrom,
-  VOICE_SPEAK_PROMPT_APPEND,
-  VOICE_SPEAK_TOKEN_HEADER
-} from './voice-speak-injection'
+import { SpeakMcpServer } from '../../../voice/speak-mcp-server'
+import { readVoiceSpeakLaunchInjection, voiceSpeakClientOnlineFrom } from './voice-speak-injection'
 
 const roots: string[] = []
+const servers: SpeakMcpServer[] = []
+const unrelated: Server[] = []
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
+  }
+  for (const server of servers.splice(0)) {
+    server.stop()
+  }
+  for (const server of unrelated.splice(0)) {
+    server.close()
   }
 })
 
@@ -27,20 +32,90 @@ function endpointRoot(contents: string | null): string {
   return root
 }
 
-const VALID_ENDPOINT = `${JSON.stringify({ port: 45123, token: 'token-1' })}\n`
+/** A live speak server publishing into `root`, the way the host runtime starts one. */
+async function liveSpeakEndpoint(root: string): Promise<{ port: number; token: string }> {
+  const server = new SpeakMcpServer({ userDataPath: root, dispatch: () => {} })
+  servers.push(server)
+  await server.start()
+  return JSON.parse(readFileSync(join(root, 'speak', 'speak-endpoint.json'), 'utf8'))
+}
+
+/** A loopback port that recently stopped listening: valid to write down, dead to probe. */
+async function releasedLoopbackPort(): Promise<number> {
+  const taken = createServer()
+  await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve))
+  const { port } = taken.address() as { port: number }
+  await new Promise<void>((resolve) => taken.close(() => resolve()))
+  return port
+}
+
+async function unrelatedOkServer(): Promise<number> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/plain' })
+    response.end('hello')
+  })
+  unrelated.push(server)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return (server.address() as { port: number }).port
+}
 
 describe('readVoiceSpeakLaunchInjection', () => {
-  it('resolves the loopback speak endpoint for a spawn while a voice-capable phone is connected', async () => {
-    const root = endpointRoot(VALID_ENDPOINT)
+  it('resolves a live speak endpoint for a spawn while a voice-capable phone is connected', async () => {
+    const root = endpointRoot(null)
+    const live = await liveSpeakEndpoint(root)
     await expect(
       readVoiceSpeakLaunchInjection({ clientOnline: () => true, userDataPath: root })
-    ).resolves.toEqual({ serverUrl: 'http://127.0.0.1:45123/mcp', token: 'token-1' })
+    ).resolves.toEqual({
+      serverUrl: `http://127.0.0.1:${live.port}/mcp`,
+      token: live.token
+    })
   })
 
-  it('returns null while no voice-capable phone is connected, even with a published endpoint', async () => {
-    const root = endpointRoot(VALID_ENDPOINT)
+  it('returns null while no voice-capable phone is connected, even with a live endpoint', async () => {
+    const root = endpointRoot(null)
+    await liveSpeakEndpoint(root)
     await expect(
       readVoiceSpeakLaunchInjection({ clientOnline: () => false, userDataPath: root })
+    ).resolves.toBeNull()
+  })
+
+  it('returns null for a stale endpoint file a stopped speak server left behind', async () => {
+    const root = endpointRoot(null)
+    const server = new SpeakMcpServer({ userDataPath: root, dispatch: () => {} })
+    await server.start()
+    server.stop()
+    await expect(
+      readVoiceSpeakLaunchInjection({ clientOnline: () => true, userDataPath: root })
+    ).resolves.toBeNull()
+  })
+
+  it('returns null for a valid file whose port no longer answers', async () => {
+    const root = endpointRoot(
+      `${JSON.stringify({ port: await releasedLoopbackPort(), token: 'token-1' })}\n`
+    )
+    await expect(
+      readVoiceSpeakLaunchInjection({ clientOnline: () => true, userDataPath: root })
+    ).resolves.toBeNull()
+  })
+
+  it('returns null when the live server rejects the file token as stale', async () => {
+    const root = endpointRoot(null)
+    const live = await liveSpeakEndpoint(root)
+    // The server restarted and kept the port but rotated the token: the old file must not inject.
+    const staleTokenRoot = endpointRoot(
+      `${JSON.stringify({ port: live.port, token: 'previous-token' })}\n`
+    )
+    await expect(
+      readVoiceSpeakLaunchInjection({ clientOnline: () => true, userDataPath: staleTokenRoot })
+    ).resolves.toBeNull()
+  })
+
+  it('returns null when an unrelated loopback service answers on the file port', async () => {
+    const root = endpointRoot(
+      `${JSON.stringify({ port: await unrelatedOkServer(), token: 'token-1' })}\n`
+    )
+    await expect(
+      readVoiceSpeakLaunchInjection({ clientOnline: () => true, userDataPath: root })
     ).resolves.toBeNull()
   })
 
@@ -76,18 +151,5 @@ describe('voiceSpeakClientOnlineFrom', () => {
     expect(online()).toBe(false)
     connected = true
     expect(online()).toBe(true)
-  })
-})
-
-describe('VOICE_SPEAK_PROMPT_APPEND', () => {
-  it('teaches the speak tool with briefings over readouts, prose over lists', () => {
-    expect(VOICE_SPEAK_PROMPT_APPEND).toContain('`speak`')
-    expect(VOICE_SPEAK_PROMPT_APPEND).toContain('briefings over readouts, prose over lists')
-  })
-})
-
-describe('VOICE_SPEAK_TOKEN_HEADER', () => {
-  it('names the speak server token header', () => {
-    expect(VOICE_SPEAK_TOKEN_HEADER).toBe('x-orca-speak-token')
   })
 })
