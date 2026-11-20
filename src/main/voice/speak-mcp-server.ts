@@ -59,7 +59,17 @@ export class SpeakMcpServer {
         resolve()
       })
     })
-    writeSpeakEndpointFile(this.userDataPath, { port: this.port, token: this.token })
+    const published = writeSpeakEndpointFile(this.userDataPath, {
+      port: this.port,
+      token: this.token
+    })
+    if (!published) {
+      // The endpoint file is the discovery contract for later spawn injection: an unpublished
+      // address+token means the server can never be found, so tear the just-bound listener
+      // back down and fail startup instead of advertising voice.speak.v1 behind a dead endpoint.
+      this.stop()
+      throw new Error('failed to publish the speak endpoint file')
+    }
   }
 
   stop(): void {
@@ -71,14 +81,25 @@ export class SpeakMcpServer {
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (req.method !== 'POST') {
-      res.writeHead(404)
-      res.end()
-      return
-    }
+    // Token before method: unauthenticated callers must not learn which methods exist.
     if (req.headers[SPEAK_TOKEN_HEADER] !== this.token) {
       res.writeHead(403)
       res.end()
+      return
+    }
+    if (req.method !== 'POST') {
+      // Stateless POST-only endpoint: no sessions exist to terminate and no standalone SSE
+      // stream is offered. Answer GET/DELETE (and anything else) the way the SDK transport
+      // answers unsupported methods — a JSON-RPC 405 with Allow — never a bare 404, which
+      // clients read as the transport's session-not-found signal.
+      res.writeHead(405, { Allow: 'POST', 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Method not allowed.' },
+          id: null
+        })
+      )
       return
     }
     // Stateless per request: no session ids, plain JSON replies, nothing retained between calls.

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -55,6 +55,57 @@ describe('SpeakMcpServer', () => {
     } finally {
       server.stop()
     }
+  })
+
+  it('rejects unauthenticated callers before revealing method behavior', async () => {
+    const server = new SpeakMcpServer({ userDataPath, dispatch: () => {} })
+    await server.start()
+    try {
+      const { port } = readPublishedEndpoint()
+      const get = await fetch(`http://127.0.0.1:${port}/`, { method: 'GET' })
+      expect(get.status).toBe(403)
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('answers authenticated GET and DELETE with a 405 JSON-RPC response, not 404', async () => {
+    const server = new SpeakMcpServer({ userDataPath, dispatch: () => {} })
+    await server.start()
+    try {
+      const { port, token } = readPublishedEndpoint()
+      const headers = { 'x-orca-speak-token': token }
+      // No sessions exist to terminate and no standalone SSE stream is offered: the
+      // stateless transport-compatible answer is 405 with Allow, never a session-less 404.
+      const methodNotAllowed = {
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed.' },
+        id: null
+      }
+      const get = await fetch(`http://127.0.0.1:${port}/`, { method: 'GET', headers })
+      expect(get.status).toBe(405)
+      expect(get.headers.get('allow')).toBe('POST')
+      expect(await get.json()).toEqual(methodNotAllowed)
+      const del = await fetch(`http://127.0.0.1:${port}/`, { method: 'DELETE', headers })
+      expect(del.status).toBe(405)
+      expect(del.headers.get('allow')).toBe('POST')
+      expect(await del.json()).toEqual(methodNotAllowed)
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('fails startup when the endpoint file cannot be published', async () => {
+    // A regular file where the speak/ directory must go: every write path fails (ENOTDIR).
+    const blockedPath = join(userDataPath, 'blocked-as-a-file')
+    writeFileSync(blockedPath, '')
+    const server = new SpeakMcpServer({ userDataPath: blockedPath, dispatch: () => {} })
+    // The endpoint file is the discovery contract: an unpublished address+token is startup
+    // failure, never a silently running server that voice.speak.v1 still advertises.
+    await expect(server.start()).rejects.toThrow()
+    // State must be reset, so a retried start() attempts a fresh bind instead of returning
+    // early as an already-started server.
+    await expect(server.start()).rejects.toThrow()
   })
 
   it('answers speak without waiting on any broadcast downstream', async () => {
