@@ -31,6 +31,7 @@ import type { NativeChatVisualsLaunch } from '../../../native-chat/conversation-
 import type { AgentChatPermissionChoice } from '../../../../shared/agent-launch/permissions/agent-chat-permission-mode'
 import type { CodexSandboxPolicy } from '../launch/codex-structured-sandbox-policy'
 import type { StructuredAgentSessionEventSink } from '../../../native-chat/agent-session-wire/journal-ingress/structured-agent-session-event-sink'
+import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
 
 export type CodexSessionCatalogAccess = AgentModelCatalogSessionAccess & {
   read?: (verifiedOnly?: boolean) => ReturnType<AgentModelCatalogStore['get']>
@@ -55,6 +56,8 @@ export type CodexStructuredLaunch = {
   /** Command values that must survive the user's shell environment policy. */
   commandEnv?: Record<string, string>
   visuals?: NativeChatVisualsLaunch
+  /** Sealed at spawn: the speak endpoint injected for a voice-capable phone, or none. */
+  voiceSpeak?: VoiceSpeakLaunchInjection
 }
 
 /** Boundaries retain host receipt time through buffering and retries. */

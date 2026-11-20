@@ -31,6 +31,7 @@ import {
   composeStructuredLaunchRead,
   structuredAgentLaunchSources
 } from '../launch/structured-agent-launch-composition'
+import { voiceSpeakLaunchResolver } from '../launch/voice-speak-injection'
 import {
   STRUCTURED_AGENT_RUNTIME_CATALOG,
   type StructuredAgentRuntimeCatalogEntry
@@ -41,8 +42,20 @@ import type {
   StructuredAgentRuntimeRegistration
 } from './structured-agent-runtime-registration-types'
 
+/** The per-spawn voice.speak.v1 read this runtime's launches share, or none when unwired. */
+function runtimeVoiceSpeakResolver(context: StructuredAgentAdapterContext) {
+  const { deps } = context
+  return deps.voiceSpeakClientOnline
+    ? voiceSpeakLaunchResolver({
+        clientOnline: deps.voiceSpeakClientOnline,
+        userDataPath: deps.stateDirectory
+      })
+    : null
+}
+
 function createCodexAdapter(context: StructuredAgentAdapterContext): StructuredAgentRuntimeAdapter {
   const { deps, followUps, host } = context
+  const resolveVoiceSpeak = runtimeVoiceSpeakResolver(context)
   const providerInvocation = {
     resolveLaunchArgs: () => deps.resolveLaunchArgs('codex'),
     resolveWorkspacePath: deps.resolveWorkspacePath,
@@ -68,7 +81,8 @@ function createCodexAdapter(context: StructuredAgentAdapterContext): StructuredA
           ...(deps.prepareLaunchAccountHome
             ? { prepareLaunchAccountHome: deps.prepareLaunchAccountHome }
             : {}),
-          ...(deps.resolveCodexCommand ? { resolveCommand: deps.resolveCodexCommand } : {})
+          ...(deps.resolveCodexCommand ? { resolveCommand: deps.resolveCodexCommand } : {}),
+          ...(resolveVoiceSpeak ? { resolveVoiceSpeak } : {})
         })
       ),
       deps.readCodexInstallation
@@ -104,6 +118,7 @@ function createClaudeAdapter(
   context: StructuredAgentAdapterContext
 ): StructuredAgentRuntimeAdapter {
   const { deps, store, followUps, host } = context
+  const resolveVoiceSpeak = runtimeVoiceSpeakResolver(context)
   const overlay = claudeLaunchEnvOverlay(deps).resolveEnv
   const resolveAccountHome = deps.resolveAgentAccountHome
   return createStructuredClaudeRuntimeAdapter({
@@ -123,7 +138,8 @@ function createClaudeAdapter(
         ...(deps.resolveClaudeCommand ? { resolveCommand: deps.resolveClaudeCommand } : {}),
         resolveAuthPolicy: deps.resolveClaudeAuthPolicy,
         attachmentDirectory: agentSessionAttachmentStoreRoot(deps.stateDirectory),
-        ...(deps.claudeCliFlags ? { cliFlags: deps.claudeCliFlags } : {})
+        ...(deps.claudeCliFlags ? { cliFlags: deps.claudeCliFlags } : {}),
+        ...(resolveVoiceSpeak ? { resolveVoiceSpeak } : {})
       })
     ),
     ...(deps.resolveClaudeCommand ? { resolveClaudeCommand: deps.resolveClaudeCommand } : {}),
@@ -147,6 +163,7 @@ function createAcpAdapter(
   return (context) => {
     const { deps, followUps } = context
     const { readers } = context.journalDatabase
+    const resolveVoiceSpeak = runtimeVoiceSpeakResolver(context)
     const savedSession: AcpSavedSessionReads = {
       hasProviderTurn: (sessionId, nativeId) =>
         journalSqlReads(readers, sessionId).hasProviderTurn(nativeId)
@@ -157,6 +174,7 @@ function createAcpAdapter(
       savedSession,
       ...deps.acpLaunchCommand,
       dataDirectory: deps.stateDirectory,
+      ...(resolveVoiceSpeak ? { resolveVoiceSpeak } : {}),
       logger: deps.logger
     })
     return new AcpStructuredSessionAdapter({

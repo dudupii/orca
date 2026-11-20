@@ -16,6 +16,8 @@ import {
   readCodexSandboxPolicy,
   type CodexSandboxPolicy
 } from '../launch/codex-structured-sandbox-policy'
+import { codexVoiceSpeakThreadConfig } from '../launch/codex-structured-voice-speak'
+import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
 
 export type CodexOpenedThread = {
   threadId: string
@@ -67,13 +69,19 @@ export async function openCodexThread(
     model?: string
     threadConfig?: Record<string, unknown>
     commandEnv?: Record<string, string>
+    /** Sealed at spawn; the speak server and briefing style land in this thread's config. */
+    voiceSpeak?: VoiceSpeakLaunchInjection
   },
   /** null: no deadline; the start that opens the thread bounds it (`signal`). */
   timeoutMs: number | null | undefined,
   signal?: AbortSignal
 ): Promise<CodexOpenedThread> {
   const resumeThreadId = launch.resumeThreadId
-  const config = { ...launch.threadConfig, ...shellEnvironmentSetConfig(launch.commandEnv) }
+  const config = {
+    ...launch.threadConfig,
+    ...(launch.voiceSpeak ? codexVoiceSpeakThreadConfig(launch.voiceSpeak) : {}),
+    ...shellEnvironmentSetConfig(launch.commandEnv)
+  }
   const threadSettings = {
     cwd: launch.cwd,
     ...launch.permissionPolicy,

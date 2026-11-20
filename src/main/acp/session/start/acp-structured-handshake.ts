@@ -18,6 +18,7 @@ import {
 } from './acp-session-reopen-failure'
 import { catchUpAcpHistory } from '../../history/acp-history-catch-up'
 import type { AcpLoadHistoryFrame } from '../../history/acp-history-replay'
+import { acpVoiceSpeakMcpServers } from '../../launch/acp-structured-voice-speak'
 import { ACP_HANDLE_TRANSPORT, acpAgentName } from '../acp-structured-agent-definitions'
 import { probeAcpChildStops } from '../../turns/acp-structured-child-stop'
 import type { AcpStructuredConnection } from '../../process/acp-structured-connection'
@@ -90,6 +91,8 @@ export async function initializeAcpStructuredSession(
     resumePreference: spec.resumePreference
   }
   const resume = launch.resume
+  // Sealed at spawn: a voice-capable phone at launch time adds the speak server to this session.
+  const mcpServers = launch.voiceSpeak ? acpVoiceSpeakMcpServers(launch.voiceSpeak) : []
   let started: Awaited<ReturnType<AcpStructuredConnection['start']>> | null = null
   let liveLane: AcpStructuredLane | null = null
   let takeover: Awaited<ReturnType<typeof acpReopenTakeover>> | null = null
@@ -109,7 +112,7 @@ export async function initializeAcpStructuredSession(
       started = await connection.start(
         {
           cwd: launch.cwd,
-          mcpServers: [],
+          mcpServers,
           sessionId: resume.sessionId,
           ...setup
         },
@@ -131,7 +134,7 @@ export async function initializeAcpStructuredSession(
   if (!started || !liveLane) {
     liveLane?.dispose()
     input.lanes.clear()
-    started = await connection.start({ cwd: launch.cwd, mcpServers: [], ...setup }, acceptSession)
+    started = await connection.start({ cwd: launch.cwd, mcpServers, ...setup }, acceptSession)
     assertStarting()
   }
   if (!liveLane) {

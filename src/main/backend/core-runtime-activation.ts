@@ -30,6 +30,7 @@ import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../shared/layout-owner-switch'
 import { restoreOrcadTerminalAuthority } from '../orcad/host-runtime/orcad-restored-terminal-authority'
 import { installOrcadFeatureReadiness } from '../runtime/rpc/startup/orcad-readiness'
 import { isAgentStatusHooksEnabled } from '../../shared/agent-hook-listener/configuration/agent-status-hooks-setting'
+import { voiceSpeakClientOnlineFrom } from '../runtime/agent-session/launch/voice-speak-injection'
 
 export async function activateBackendRuntime(
   host: BackendCoreHost,
@@ -280,6 +281,7 @@ export async function activateBackendRuntime(
   const rpc = createOrcadRuntimeRpcServer(runtime, runtimeUserDataPath, options, bindHost)
   pairedEnvironments.bindRpc(rpc)
   runtime.setAgentSenderPeerKey(() => rpc.getE2EEPublicKey())
+  runtime.setVoiceSpeakClientOnline(voiceSpeakClientOnlineFrom(rpc))
   // Stop RPC before cleanup can tear down writers and runtime state.
   registerCleanup(() => rpc.stop())
   await timed('rpc', () => rpc.start())

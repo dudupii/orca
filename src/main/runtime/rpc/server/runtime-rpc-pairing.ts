@@ -12,6 +12,7 @@ import type { PushUnregisterOutbox } from '../../push/push-unregister-outbox'
 import { encodePairingOffer } from '../../../../shared/remote-runtime/pairing/pairing'
 import { PAIRING_OFFER_VERSION } from '../../../../shared/remote-runtime/pairing/mobile-relay-pairing-offer'
 import type { RuntimePairingReach } from '../../../../shared/remote-runtime/pairing/runtime-pairing-reach'
+import type { RuntimeCapability } from '../../../../shared/protocol-version'
 import { resolveAdvertisedPairingEndpoint } from './pairing/network/pairing-endpoint'
 import { RuntimeRpcNetworkExposure } from './runtime-rpc-network-exposure'
 import { MobileDesktopRelay } from '../../mobile-desktop-relay/mobile-desktop-relay'
@@ -42,6 +43,11 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
 
   getE2EEPublicKey(): string | null {
     return this.e2eeKeypair?.publicKeyB64 ?? null
+  }
+
+  /** Whether any connected phone currently negotiates `capability`. */
+  hasConnectedClientCapability(capability: RuntimeCapability): boolean {
+    return this.getMobileSocketWiring()?.hasAuthenticatedClientCapability(capability) ?? false
   }
 
   getE2EEKeypair(): E2EEKeypair | null {

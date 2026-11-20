@@ -96,4 +96,6 @@ export type StructuredAgentSessionRuntimeDeps = StructuredAgentSessionTransportO
     record: AgentSessionRecord,
     launchDirectory: string
   ) => Promise<AgentSessionAccountHome | null>
+  /** Live voice.speak.v1 negotiation result of any connected phone; read once per spawn. */
+  voiceSpeakClientOnline?: () => boolean
 } & Pick<StructuredAgentSessionHostDeps, 'onRequestFailure' | 'statusSink'>
