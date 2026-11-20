@@ -251,9 +251,10 @@ export class VoiceLoopShell {
       return
     }
     if (!opened) {
+      // The refused reopen ends the loop as a refused start does: spent, never resurrected
+      // by a later leave and return.
       this.deps.onNotice('mic-unavailable')
-      this.releasePlatform()
-      this.settleClosed()
+      this.exit()
       return
     }
     this.micOpened = true

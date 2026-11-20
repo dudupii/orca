@@ -710,6 +710,26 @@ describe('VoiceLoopShell', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('a failed restore spends the shell: a later leave and return resurrect nothing', async () => {
+    const openMic = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const harness = createHarness({ openMic })
+    await harness.shell.start()
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(harness.views.at(-1)?.route).toBe('closed')
+
+    harness.shell.setForeground(false)
+    harness.shell.setForeground(true)
+    await vi.advanceTimersByTimeAsync(SILENCE_WINDOW_MS * 5)
+
+    // The refused reopen was terminal: no third open, no resurrection, nothing scheduled.
+    expect(openMic).toHaveBeenCalledTimes(2)
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    expect(harness.notices).toEqual(['mic-unavailable'])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('treats a repeated leave or return as the same window: one close, one reopen', async () => {
     const harness = createHarness()
     await harness.shell.start()
