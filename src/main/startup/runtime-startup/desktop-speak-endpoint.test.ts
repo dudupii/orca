@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, expect, it } from 'vitest'
+import { afterAll, expect, it, vi } from 'vitest'
 import { setAppEnvironment } from '../../../shared/app-environment'
 import { getProfileUserDataPath } from '../../orca-profiles/profile-storage-paths'
 import { readVoiceSpeakLaunchInjection } from '../../runtime/agent-session/launch/voice-speak-injection'
@@ -53,17 +53,19 @@ function desktopVoiceFixture(): {
 
 /** The endpoint publishes asynchronously; the injection's live probe proves readiness. */
 async function waitForInjection(clientOnline: () => boolean) {
-  const deadline = Date.now() + 10_000
-  for (;;) {
-    const injection = await readVoiceSpeakLaunchInjection({
-      clientOnline,
-      userDataPath: getProfileUserDataPath()
-    })
-    if (injection || Date.now() > deadline) {
+  return vi.waitFor(
+    async () => {
+      const injection = await readVoiceSpeakLaunchInjection({
+        clientOnline,
+        userDataPath: getProfileUserDataPath()
+      })
+      if (!injection) {
+        throw new Error('speak launch injection not published yet')
+      }
       return injection
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
+    },
+    { timeout: 10_000, interval: 100 }
+  )
 }
 
 it('starts a live speak endpoint a desktop voice-capable spawn injects from the same root', async () => {
@@ -77,5 +79,10 @@ it('starts a live speak endpoint a desktop voice-capable spawn injects from the 
   expect(typeof injection?.token).toBe('string')
   // The same published endpoint reads as no capability while no voice phone is connected.
   setPhoneCapability(false)
-  expect(await waitForInjection(() => false)).toBeNull()
+  expect(
+    await readVoiceSpeakLaunchInjection({
+      clientOnline: () => false,
+      userDataPath: getProfileUserDataPath()
+    })
+  ).toBeNull()
 })
