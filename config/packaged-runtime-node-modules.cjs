@@ -147,9 +147,12 @@ function resolvePackageJsonPath(packageName, fromDir = projectDir) {
       }
       dir = dirname(dir)
     }
-    return firstFound ?? (() => {
-      throw new Error(`Could not find package.json for ${packageName}`)
-    })()
+    return (
+      firstFound ??
+      (() => {
+        throw new Error(`Could not find package.json for ${packageName}`)
+      })()
+    )
   }
 }
 
