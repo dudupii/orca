@@ -11,7 +11,8 @@ export const voiceModeCopy = {
         return translate('voiceMode.state.thinking', 'Thinking…')
       case 'speaking':
         return translate('voiceMode.state.speaking', 'Speaking…')
-      default:
+      case 'closed':
+      case 'idle':
         return translate('voiceMode.state.title', 'Voice mode')
     }
   },

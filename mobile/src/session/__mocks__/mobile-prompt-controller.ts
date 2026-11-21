@@ -1,5 +1,5 @@
 import './mobile-prompt-render-mocks'
-import { createElement, useRef } from 'react'
+import { createElement, useMemo } from 'react'
 import { Pressable } from 'react-native'
 import type { NativeChatMessage } from '../../../../src/shared/native-chat/native-chat-types'
 import type { MobileNativeChatSendOutcome } from '../native-chat/composer/delivery/mobile-native-chat-send'
@@ -262,24 +262,14 @@ function Harness(props: HarnessProps) {
   const { voiceOwnerChat = null } = props
   // The stub stays one object while the captured chat stands — the store's snapshot must be
   // stable — and is rebuilt when the loop's chat changes or the loop ends.
-  const voiceHostRef = useRef<{
-    chat: MobileVoiceModeOwnerChat | null
-    host: MobileVoiceModeHost | null
-  }>({ chat: null, host: null })
-  if (voiceOwnerChat !== voiceHostRef.current.chat) {
-    voiceHostRef.current = {
-      chat: voiceOwnerChat,
-      host: voiceOwnerChat === null ? null : voiceHostFor(voiceOwnerChat)
-    }
-  }
+  const voiceHost = useMemo(
+    () => (voiceOwnerChat === null ? null : voiceHostFor(voiceOwnerChat)),
+    [voiceOwnerChat]
+  )
   const screen = createElement(ChatScreen, props)
-  return voiceHostRef.current.host === null
+  return voiceHost === null
     ? screen
-    : createElement(
-        MobileVoiceModeHostContext.Provider,
-        { value: voiceHostRef.current.host },
-        screen
-      )
+    : createElement(MobileVoiceModeHostContext.Provider, { value: voiceHost }, screen)
 }
 export async function render(props: HarnessProps = lastProps ?? {}) {
   lastProps = props

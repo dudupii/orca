@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as VoiceModeSettings from './voice-mode-settings'
 
 const stored = vi.hoisted(() => new Map<string, string>())
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -11,7 +12,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }))
 
 // The module keeps its loaded value in memory, so each read needs a fresh instance.
-async function fresh(): Promise<typeof import('./voice-mode-settings')> {
+async function fresh(): Promise<typeof VoiceModeSettings> {
   vi.resetModules()
   return await import('./voice-mode-settings')
 }

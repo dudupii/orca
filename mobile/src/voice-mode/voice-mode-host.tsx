@@ -278,6 +278,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
     }
     // The send that starts this wait is already bound — its own guard read the seam — so the poll
     // runs from the send's start; only the seam leaving can pause it.
+    // oxlint-disable-next-line react-doctor/effect-needs-cleanup -- the interval is owned by this wait: settle() and setSeam(false) both clear it, and replyWaitsRef settles it when the loop exits.
     poller = setInterval(poll, TURN_SETTLE_POLL_MS)
     replyWaitsRef.current.add(wait)
     return wait

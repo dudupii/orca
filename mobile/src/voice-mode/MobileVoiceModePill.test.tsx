@@ -58,7 +58,7 @@ type Seam = {
   ttsStopCalls: number
   routerPushes: string[]
   navigations: unknown[]
-  tabViewSets: Array<[tabId: string, view: string]>
+  tabViewSets: [tabId: string, view: string][]
   worktreeMissing: boolean
   sessionTabs: LivenessTabsAnswer
 }
@@ -323,7 +323,7 @@ describe('MobileVoiceModePill', () => {
   })
 
   it('labels each running route, and renders nothing on idle or closed', () => {
-    const cases: Array<[VoiceLoopRoute, string]> = [
+    const cases: [VoiceLoopRoute, string][] = [
       ['listening', 'Listening…'],
       ['thinking', 'Thinking…'],
       ['speaking', 'Speaking…']

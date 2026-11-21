@@ -34,7 +34,7 @@
       }
     },
     {
-      "files": ["src/voice-mode/voice-loop-shell.ts"],
+      "files": ["**/src/voice-mode/voice-loop-shell.ts"],
       "rules": {
         "max-lines": [
           "error",
@@ -73,7 +73,7 @@
       }
     },
     {
-      "files": ["src/voice-mode/voice-mode-host.tsx"],
+      "files": ["**/src/voice-mode/voice-mode-host.tsx"],
       "rules": {
         "max-lines": [
           "error",
@@ -86,7 +86,7 @@
       }
     },
     {
-      "files": ["src/voice-mode/voice-mode-host.test.tsx"],
+      "files": ["**/src/voice-mode/voice-mode-host.test.tsx"],
       "rules": {
         "max-lines": [
           "error",
