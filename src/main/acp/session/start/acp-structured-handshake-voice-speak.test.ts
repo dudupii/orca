@@ -16,6 +16,7 @@ it('opens a new ACP session with the speak MCP server a spawn sealed in', async 
   const rig = await openAcpAdapterRig({ launch: { voiceSpeak: INJECTION } })
   await rig.acquire()
   const started = await rig.frame('session/new')
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   expect((started.params as { mcpServers: unknown }).mcpServers).toEqual([
     {
       type: 'http',
@@ -30,5 +31,6 @@ it('opens a new ACP session with no MCP server when the spawn found no voice pho
   const rig = await openAcpAdapterRig()
   await rig.acquire()
   const started = await rig.frame('session/new')
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   expect((started.params as { mcpServers: unknown }).mcpServers).toEqual([])
 })

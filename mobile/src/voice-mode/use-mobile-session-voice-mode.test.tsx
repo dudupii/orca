@@ -249,9 +249,11 @@ function mountVoiceMode(): Harness {
   }
   // The binder reads a slice of the controller; its captured seam answers live the way the real
   // controller's refs do, so no rerender is needed to move the seam's truth.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   const controller = {
     hostId: 'host-1',
     worktreeId: 'wt-1',
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
     client: {} as RpcClient,
     showToast,
     worktreeResolution: 'present',

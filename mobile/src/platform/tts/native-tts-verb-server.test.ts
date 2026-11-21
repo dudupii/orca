@@ -23,6 +23,7 @@ async function speakRevision(
   server: ReturnType<typeof createNativeTtsVerbServer>,
   text: string
 ): Promise<number> {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   const reply = (await server.serve({ action: 'speak', text, locale: null })) as {
     revision: number
   }

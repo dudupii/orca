@@ -37,10 +37,12 @@ function desktopVoiceFixture(): {
 } {
   let phoneConnected = false
   return {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
     runtime: {
       setVoiceSpeakClientOnline: () => {},
       dispatchSpeakNotification: () => {}
     } as unknown as OrcaRuntimeService,
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
     runtimeRpc: {
       hasConnectedClientCapability: (capability: string) =>
         phoneConnected && capability === 'voice.speak.v1'

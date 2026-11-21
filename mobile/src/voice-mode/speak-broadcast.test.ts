@@ -42,6 +42,7 @@ describe('subscribeToSpeakBroadcasts', () => {
       listeners.push(onData)
       return () => undefined
     })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
     const client = { subscribe } as unknown as RpcClient
     const seen: unknown[] = []
     const unsubscribe = subscribeToSpeakBroadcasts(client, (broadcast) => seen.push(broadcast))

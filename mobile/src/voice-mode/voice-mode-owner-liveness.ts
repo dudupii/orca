@@ -24,6 +24,7 @@ function readSessionTabsAnswer(reply: unknown): SessionTabsAnswer | null {
   if (reply === null || typeof reply !== 'object') {
     return null
   }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
   const { tabs, agentSessionsUnverifiable } = reply as {
     tabs?: unknown
     agentSessionsUnverifiable?: unknown
@@ -32,6 +33,7 @@ function readSessionTabsAnswer(reply: unknown): SessionTabsAnswer | null {
     return null
   }
   return {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
     tabs: tabs as readonly PaneMatchTab[],
     agentSessionsUnverifiable: agentSessionsUnverifiable === true ? true : undefined
   }

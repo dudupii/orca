@@ -15,6 +15,7 @@ import { USER_MESSAGE } from '../session-lifecycle/codex-structured-session-adap
 import type { AgentSessionRecord } from '../../../../shared/agent-session/lifecycle/agent-session-record'
 
 const SESSION_ID = 'session-voice-1'
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
 const IDENTITY = { sessionId: SESSION_ID } as Parameters<
   ReturnType<typeof createCodexStructuredLaunchResolver>
 >[0]['identity']

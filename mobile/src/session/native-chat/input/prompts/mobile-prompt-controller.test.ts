@@ -165,6 +165,7 @@ describe('the voice loop rides the chat it captured at its start', () => {
   }
   // The lane mock's send verb is typed without arguments; its calls carry the spoken text first.
   const sentText = (call: number): string =>
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
     (structuredSession.sendWithOutcome.mock.calls[call] as unknown as [string])[0]
 
   it('sends the held words to the structured chat while the active tab moves off it', async () => {

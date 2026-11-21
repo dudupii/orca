@@ -432,6 +432,7 @@ const OWNER_CHAT: MobileVoiceModeOwnerChat = {
 // A connected client whose host server answers the liveness reads from the seam's state; anything
 // else it is asked answers empty, so only the liveness probes notice it.
 function fakeClient(): RpcClient {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   return {
     getState: () => 'connected',
     sendRequest: async (method: string) => {
@@ -491,6 +492,7 @@ function fakeController(
     },
     nativeChatVoiceOwnerChat: () => OWNER_CHAT
   }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   return {
     hostId: HOST_ID,
     worktreeId: WORKTREE_ID,
@@ -723,6 +725,7 @@ describe('MobileVoiceModePillLayer under the host', () => {
     })
     expect(seam.routerPushes).toHaveLength(1)
     expect(seam.navigations).toHaveLength(1)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
     const action = seam.navigations[0] as {
       type: string
       payload: { params?: { paneKey?: string } }

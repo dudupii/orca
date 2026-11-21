@@ -7,6 +7,7 @@ import { acpLaunchSpecFor } from './acp-launch-registry'
 
 const GROK = acpLaunchSpecFor('grok')!
 const SESSION_ID = 'session-voice-1'
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
 const IDENTITY = { sessionId: SESSION_ID } as AgentSessionJournalIdentity
 
 const INJECTION: VoiceSpeakLaunchInjection = {

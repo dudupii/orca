@@ -22,10 +22,12 @@ function readReportedDeveloperInstructions(answer: unknown): string | null | und
   if (typeof answer !== 'object' || answer === null) {
     return undefined
   }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
   const { config } = answer as Record<string, unknown>
   if (typeof config !== 'object' || config === null) {
     return undefined
   }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
   const { developer_instructions: reported } = config as Record<string, unknown>
   return typeof reported === 'string' ? reported : reported === null ? null : undefined
 }

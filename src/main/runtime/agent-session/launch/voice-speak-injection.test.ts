@@ -44,6 +44,7 @@ async function liveSpeakEndpoint(root: string): Promise<{ port: number; token: s
 async function releasedLoopbackPort(): Promise<number> {
   const taken = createServer()
   await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve))
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   const { port } = taken.address() as { port: number }
   await new Promise<void>((resolve) => taken.close(() => resolve()))
   return port
@@ -56,6 +57,7 @@ async function unrelatedOkServer(): Promise<number> {
   })
   unrelated.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
   return (server.address() as { port: number }).port
 }
 

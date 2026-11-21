@@ -4,9 +4,11 @@ import { createClaudeStructuredLaunchResolver } from '../../../runtime/agent-ses
 import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
 
 const SESSION_ID = 'session-voice-1'
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
 const IDENTITY = { sessionId: SESSION_ID } as Parameters<
   ReturnType<typeof createClaudeStructuredLaunchResolver>
 >[0]['identity']
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: test fixture shaping; the stub exercises only the fields under test
 const identityFor = (sessionId: string): typeof IDENTITY => ({ sessionId }) as typeof IDENTITY
 
 const INJECTION: VoiceSpeakLaunchInjection = {

@@ -49,11 +49,14 @@ function parseSpeakEndpoint(text: string): SpeakEndpoint | null {
   }
   const { port, token } = parsed as Record<string, unknown>
   return Number.isInteger(port) &&
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
     0 < (port as number) &&
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
     (port as number) < 65_536 &&
     typeof token === 'string' &&
     token.length > 0
-    ? { port: port as number, token }
+    ? // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
+      { port: port as number, token }
     : null
 }
 
@@ -71,6 +74,7 @@ function isSpeakServerInitializeAnswer(payload: unknown): boolean {
     typeof protocolVersion === 'string' &&
     typeof serverInfo === 'object' &&
     serverInfo !== null &&
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
     (serverInfo as Record<string, unknown>).name === SPEAK_SERVER_INFO_NAME
   )
 }

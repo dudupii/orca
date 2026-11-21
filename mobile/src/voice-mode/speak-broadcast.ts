@@ -18,6 +18,7 @@ export function readSpeakBroadcast(event: unknown): VoiceSpeakBroadcast | null {
   if (typeof event !== 'object' || event === null) {
     return null
   }
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: narrowing an already runtime-checked unknown for property access
   const wire = event as WireNotification
   if (wire.type !== 'notification' || wire.source !== 'speak') {
     return null
