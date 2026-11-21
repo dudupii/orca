@@ -1,5 +1,5 @@
 import './mobile-prompt-render-mocks'
-import { createElement } from 'react'
+import { createElement, useRef } from 'react'
 import { Pressable } from 'react-native'
 import type { NativeChatMessage } from '../../../../src/shared/native-chat/native-chat-types'
 import type { MobileNativeChatSendOutcome } from '../native-chat/composer/delivery/mobile-native-chat-send'
@@ -7,6 +7,7 @@ import type { RpcClient } from '../../transport/rpc/rpc-client-contract'
 import type { RpcResponse } from '../../transport/rpc/rpc-wire-types'
 import type { ConnectionState } from '../../transport/connection/connection-state'
 import type { MobileNativeChatTab } from '../native-chat/conversation/mobile-native-chat-eligibility'
+import type { PaneKeyTab } from '../tabs/notification-pane-tab'
 import type { MobileNativeChatController } from '../native-chat/mobile-native-chat-controller-contract'
 import { act, type ReactTestRenderer } from 'react-test-renderer'
 import { createWithQueryClient } from '../../test-support/query-client-test-renderer'
@@ -17,6 +18,14 @@ import { MobileNativeChatAsk } from '../native-chat/input/prompts/MobileNativeCh
 import type { AskAnswerSelection } from '../../../../src/shared/native-chat/input/questions/native-chat-ask-answer'
 import { mobileNativeChatPromptDismissals } from '../native-chat/input/prompts/mobile-native-chat-prompt-dismissals'
 import { setMobileNativeChatDraftText } from '../native-chat/composer/drafts/mobile-native-chat-draft-store'
+import { MobileNativeChatDraftDestination } from '../native-chat/composer/drafts/mobile-native-chat-draft-inputs'
+import type { MobileSessionVoiceMode } from '../../voice-mode/use-mobile-session-voice-mode'
+import {
+  mobileVoiceSessionKey,
+  MobileVoiceModeHostContext,
+  type MobileVoiceModeHost,
+  type MobileVoiceModeOwnerChat
+} from '../../voice-mode/voice-mode-host-context'
 export const visible = { value: true }
 const messages: NativeChatMessage[] = []
 export const session = {
@@ -70,7 +79,15 @@ vi.mock('../native-chat/composer/drafts/use-mobile-native-chat-drafts', () => ({
     appendComposerText: () => true,
     pending: [],
     imagePreviewsByMessageId: {},
-    captureSendOrigin: (text: string) => ({ draftKey: 'draft', normalizedText: text }),
+    captureSendOrigin: (text: string) => ({
+      draftKey: 'draft',
+      normalizedText: text,
+      draftDestination: new MobileNativeChatDraftDestination('draft'),
+      draftEditGeneration: 0,
+      pendingKey: null,
+      boundary: {},
+      sentAt: 0
+    }),
     readSeededLaunchDraft: () => null,
     readSeededLaunchDraftSeed: () => null,
     clearDraftForSend: vi.fn(),
@@ -138,13 +155,59 @@ export const permissionTab = {
     interactivePrompt: JSON.stringify({ approval: { tool: 'Bash', summary: 'echo yes' } })
   }
 } satisfies MobileNativeChatTab
+// Voice mode stays idle in these harnesses; its overlay renders nothing and the mic never enters it.
+const idleVoiceMode: MobileSessionVoiceMode = {
+  view: { route: 'idle', transcript: '', pending: null, reply: null },
+  entryAvailable: false,
+  start: () => {},
+  tapPending: () => {},
+  stopSpeaking: () => {},
+  exit: () => {}
+}
 type HarnessProps = {
-  tab?: MobileNativeChatTab
+  // Real active tabs carry their pane identity; the pane-holding tests name it for their keys.
+  tab?: MobileNativeChatTab & Partial<PaneKeyTab>
   tabId?: string
+  /** Every tab of the session; the voice seam reads its owner tab's live status row by id. */
+  tabs?: readonly { id: string; type: string; agentStatus?: MobileNativeChatTab['agentStatus'] }[]
   connState?: ConnectionState
   hostId?: string
+  /** The chat the page's voice loop captured, when one runs; null keeps the harness hostless. */
+  voiceOwnerChat?: MobileVoiceModeOwnerChat | null
 }
-function Harness(props: HarnessProps) {
+// A host whose loop captured the given chat of this harness's session: enough of an owner for the
+// controller to mount the captured seam while the session's active tab moves off it.
+function voiceHostFor(chat: MobileVoiceModeOwnerChat): MobileVoiceModeHost {
+  const live = {
+    view: idleVoiceMode.view,
+    owner: {
+      instance: {},
+      sessionKey: mobileVoiceSessionKey('host', undefined, 'folder:work'),
+      client: null,
+      worktreeId: 'folder:work',
+      href: '',
+      paneKey: undefined,
+      tabId: undefined,
+      title: '',
+      chat
+    },
+    entryAvailable: false
+  }
+  return {
+    start: () => {},
+    exit: () => {},
+    tapPending: () => {},
+    stopSpeaking: () => {},
+    attachScreen: () => () => {},
+    bindChat: () => () => {},
+    refresh: () => {},
+    subscribe: () => () => {},
+    getLive: () => live,
+    open: () => {}
+  }
+}
+// The controller runs below any voice host provider, so its captured seam sees the loop's chat.
+function ChatScreen(props: HarnessProps) {
   const { tab = baseTab, tabId = 'tab-1', connState = 'connected', hostId = 'host' } = props
   const current = useMobileNativeChatController({
     client,
@@ -153,6 +216,7 @@ function Harness(props: HarnessProps) {
     worktreeId: 'folder:work',
     activeSessionTab: tab,
     activeSessionTabId: tabId,
+    sessionTabs: props.tabs ?? [{ id: tabId, type: tab.type, agentStatus: tab.agentStatus }],
     activeHandleRef: handleRef,
     deviceTokenRef: { current: null },
     nativeChatTranscriptIsLocalReadable: true,
@@ -176,6 +240,7 @@ function Harness(props: HarnessProps) {
       removeAttachment: () => {}
     },
     onMicPress: vi.fn(),
+    voiceMode: idleVoiceMode,
     onMicPressOut: vi.fn(),
     onMicPressIn: vi.fn(),
     micActive: false,
@@ -191,6 +256,30 @@ function Harness(props: HarnessProps) {
     keyboardInset: 0,
     hostName: null
   })
+}
+
+function Harness(props: HarnessProps) {
+  const { voiceOwnerChat = null } = props
+  // The stub stays one object while the captured chat stands — the store's snapshot must be
+  // stable — and is rebuilt when the loop's chat changes or the loop ends.
+  const voiceHostRef = useRef<{
+    chat: MobileVoiceModeOwnerChat | null
+    host: MobileVoiceModeHost | null
+  }>({ chat: null, host: null })
+  if (voiceOwnerChat !== voiceHostRef.current.chat) {
+    voiceHostRef.current = {
+      chat: voiceOwnerChat,
+      host: voiceOwnerChat === null ? null : voiceHostFor(voiceOwnerChat)
+    }
+  }
+  const screen = createElement(ChatScreen, props)
+  return voiceHostRef.current.host === null
+    ? screen
+    : createElement(
+        MobileVoiceModeHostContext.Provider,
+        { value: voiceHostRef.current.host },
+        screen
+      )
 }
 export async function render(props: HarnessProps = lastProps ?? {}) {
   lastProps = props

@@ -2,10 +2,10 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["../.oxlintrc.json"],
   "ignorePatterns": [
-    "src/components/mobile-markdown-mdast-nodes.d.ts",
+    "src/components/markdown/mobile-markdown-mdast-nodes.d.ts",
     "src/terminal/document/terminal-webview-engine.generated.ts",
     "src/components/mermaid/mermaid-page-engine.generated.ts",
-    "src/components/katex-page-style.generated.ts"
+    "src/components/markdown/math/katex-page-style.generated.ts"
   ],
   "rules": {
     "react-hooks/exhaustive-deps": "off",
@@ -27,6 +27,84 @@
           "error",
           {
             "max": 379,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/voice-mode/voice-loop-shell.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 400,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/MobileSessionActiveContent.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 412,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/native-chat/use-mobile-native-chat-controller.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 320,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/voice-mode/voice-mode-host.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 461,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/voice-mode/voice-mode-host.test.tsx"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 1100,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/session/__mocks__/mobile-prompt-controller.ts"],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 329,
             "skipBlankLines": true,
             "skipComments": true
           }

@@ -17,6 +17,8 @@ import { MobileNativeChatControlSwap } from '../../input/mobile-native-chat-cont
 
 export type MobileNativeChatMicProps = {
   onMicPress?: () => void
+  /** Long-press enters voice mode; hold mode keeps its press-through behavior instead. */
+  onMicLongPress?: () => void
   /** Starting or recording: the mic is live and its release must reach the hook. */
   micActive?: boolean
   /** Waiting on the host; speech is already held, and a tap stops once recording begins. */
@@ -30,6 +32,7 @@ export type MobileNativeChatMicProps = {
 
 export function MobileNativeChatComposerMic({
   onMicPress,
+  onMicLongPress,
   micActive = false,
   micStarting = false,
   micProcessing = false,
@@ -63,7 +66,7 @@ export function MobileNativeChatComposerMic({
       onPress={dictationMode === 'hold' ? undefined : onMicPress}
       onPressIn={dictationMode === 'hold' ? onMicPressIn : undefined}
       onPressOut={dictationMode === 'hold' ? release : undefined}
-      onLongPress={dictationMode === 'hold' ? keepHeldPressThroughLongPress : undefined}
+      onLongPress={dictationMode === 'hold' ? keepHeldPressThroughLongPress : onMicLongPress}
       disabled={disabled && !micActive}
       hitSlop={COMPOSER_CONTROL_HIT_SLOP}
     >

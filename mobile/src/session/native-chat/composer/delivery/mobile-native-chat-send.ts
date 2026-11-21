@@ -42,10 +42,12 @@ type MobileNativeChatSendArgs = {
 // Unknown delivery must not be called definite failure; structured queued drafts render as cards, not transcript echoes.
 export type MobileNativeChatSendOutcome = 'accepted' | 'rejected' | 'unknown' | 'queued'
 
-/** How one send goes: `alternate` does the other thing than the host's follow-up setting; `goal` sends the draft as the chat's goal objective. */
+/** How one send goes: `alternate` does the other thing than the host's follow-up setting; `goal` sends the draft as the chat's goal objective; `steer` reroutes the running turn instead of waiting in any queue. */
 export type MobileNativeChatSendIntent = {
   alternate?: true
   goal?: true
+  /** A mid-turn steering injection: the running turn takes it now, ahead of every queued card. */
+  steer?: true
   /** Continues this usage-limit cut; the host refuses it once the chat has moved on. */
   usageLimitContinuationOfTurnItemId?: string
   /** A structured send's journal id, minted by the caller so it can be saved before the send leaves. */

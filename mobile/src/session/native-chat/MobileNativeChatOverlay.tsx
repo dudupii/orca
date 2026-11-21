@@ -2,6 +2,8 @@ import { MobileQueuedMessageComposerContext } from './input/queued-messages/mobi
 import { Activity, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { MobileNativeChatView, type MobileNativeChatInputLockReason } from './MobileNativeChatView'
+import { MobileVoiceModeOverlay } from '../../voice-mode/MobileVoiceModeOverlay'
+import type { MobileSessionVoiceMode } from '../../voice-mode/use-mobile-session-voice-mode'
 import { useMobileNativeChatProjection } from './transcript/projection/use-mobile-native-chat-projection'
 import { nativeChatDockedTaskList } from '../../../../src/shared/native-chat/input/task-lists/native-chat-task-list-state'
 import type { MobileNativeChatImageAttachments } from './composer/attachments/use-mobile-native-chat-image-attachments'
@@ -23,7 +25,7 @@ import { MobileNativeChatNoticeContext } from './transcript/notices/mobile-nativ
 import type { MobileNativeChatImageSource } from './visual/mobile-native-chat-image-preview'
 import type { MobileNativeChatHostOutage } from './status/mobile-native-chat-host-outage'
 import { useMobileNativeChatMarkdownLinks } from './links/use-mobile-native-chat-markdown-links'
-import { MobileMarkdownLinksContext } from '../../components/mobile-markdown-links-context'
+import { MobileMarkdownLinksContext } from '../../components/markdown/links/mobile-markdown-links-context'
 import type { ConnectionState } from '../../transport/connection/connection-state'
 import { useMobileTranslation } from '../../i18n/use-mobile-translation'
 
@@ -38,6 +40,8 @@ type Props = {
   images: MobileNativeChatImageAttachments
   structuredComposer?: MobileNativeChatStructuredComposer | null
   onMicPress: (() => void) | undefined
+  /** The voice loop over this chat: its overlay renders here, its entry rides the mic's long press. */
+  voiceMode: MobileSessionVoiceMode
   micActive: boolean
   micStarting: boolean
   micProcessing: boolean
@@ -93,6 +97,7 @@ function MobileNativeChatOverlayContent({
   images,
   structuredComposer = null,
   onMicPress,
+  voiceMode,
   micActive,
   micStarting,
   micProcessing,
@@ -353,6 +358,7 @@ function MobileNativeChatOverlayContent({
                       onRemoveAttachment={images.removeAttachment}
                       isAttaching={images.isAttaching}
                       onMicPress={onMicPress}
+                      onMicLongPress={voiceMode.entryAvailable ? voiceMode.start : undefined}
                       micActive={micActive}
                       micStarting={micStarting}
                       micProcessing={micProcessing}
@@ -384,6 +390,7 @@ function MobileNativeChatOverlayContent({
                 </MobileNativeChatReplyRevealsContext.Provider>
               </MobileNativeChatRootItemSourceContext.Provider>
             </MobileNativeChatVisualContext.Provider>
+            <MobileVoiceModeOverlay voiceMode={voiceMode} />
           </View>
         </MobileQueuedMessageComposerContext.Provider>
       </MobileMarkdownLinksContext.Provider>

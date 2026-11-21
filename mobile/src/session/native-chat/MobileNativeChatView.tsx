@@ -1,5 +1,5 @@
 import type { NativeChatSkillDiscoverySnapshot } from '../../../../src/shared/native-chat/input/composer/native-chat-picker-items'
-import { MobileStateView } from '../../components/MobileStateView'
+import { MobileStateView } from '../../components/feedback/MobileStateView'
 import { useCallback, useMemo, type ComponentProps } from 'react'
 import { nativeChatTaskListPredecessors } from '../../../../src/shared/native-chat/input/task-lists/native-chat-task-list-history'
 import {
@@ -176,6 +176,7 @@ export function MobileNativeChatView({
   onRemoveAttachment,
   isAttaching,
   onMicPress,
+  onMicLongPress,
   micActive,
   micStarting,
   micProcessing,
@@ -371,7 +372,7 @@ export function MobileNativeChatView({
           }}
           {...{ agent, sessionOptions, contextUsage }}
           {...{ onAttachImage, onPasteImages, attachments, onRemoveAttachment }}
-          {...{ isAttaching, onMicPress, micActive, micStarting, micProcessing }}
+          {...{ isAttaching, onMicPress, onMicLongPress, micActive, micStarting, micProcessing }}
           {...{ dictationMode, onMicPressIn, onMicPressOut }}
           {...offlineQueue.composerLock}
           sendDisabled={expandedPromptOwnsSend}

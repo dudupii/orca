@@ -43,6 +43,7 @@ export type RuntimeServiceCommandSurface = {
   acknowledgeNotificationAttention(acknowledgement: NotificationAttentionAcknowledgement): void
   reconcileStructuredPromptAttention: RuntimeMobileNotificationController['reconcileStructuredPromptAttention']
   dispatchPluginNotification: RuntimeMobileNotificationController['dispatchPlugin']
+  dispatchSpeakNotification: RuntimeMobileNotificationController['dispatchSpeak']
   setMobilePushRegistrar: RuntimeMobileNotificationController['setPushRegistrar']
   testMobilePushDevice: RuntimeMobileNotificationController['testPushDevice']
   registerMobilePushDevice: RuntimeMobileNotificationController['registerPushDevice']
@@ -159,6 +160,7 @@ export function installRuntimeServiceCommandSurface(
     reconcileStructuredPromptAttention:
       notifications.reconcileStructuredPromptAttention.bind(notifications),
     dispatchPluginNotification: notifications.dispatchPlugin.bind(notifications),
+    dispatchSpeakNotification: notifications.dispatchSpeak.bind(notifications),
     setMobilePushRegistrar: notifications.setPushRegistrar.bind(notifications),
     testMobilePushDevice: notifications.testPushDevice.bind(notifications),
     registerMobilePushDevice: notifications.registerPushDevice.bind(notifications),

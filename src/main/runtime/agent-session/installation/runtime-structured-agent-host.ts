@@ -8,7 +8,7 @@ import { structuredAgentConfiguredArgs } from '../../../native-chat/agent-launch
 import { getProfileUserDataPath } from '../../../orca-profiles/profile-storage-paths'
 import { isTuiAgent } from '../../../../shared/agent-launch/catalog/tui-agent-config'
 import { resolveTuiAgentLaunchEnv } from '../../../../shared/agent-launch/choices/tui-agent-launch-defaults'
-import { overlayEnvironmentVariables } from '../../../../shared/environment-overlay'
+import { overlayEnvironmentVariables } from '../../../../shared/shell/launch/environment-overlay'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { StructuredAgentId } from '../../../../shared/agent-session/lifecycle/provider-handles/agent-session-provider-handle'
 import type { RuntimeWorkspaceCatalog } from '../../workspaces/catalog/workspace-catalog'
@@ -26,6 +26,13 @@ import {
 import { usageLimitAccountSources } from './usage-limit-account-usage'
 
 export abstract class RuntimeStructuredAgentHost extends OrcaRuntimeWithStartTuiIdleVisibleReadProbe {
+  /** The RPC server owns phone capability negotiation; spawn-time speak injection reads it live. */
+  private voiceSpeakClientOnline: (() => boolean) | null = null
+
+  setVoiceSpeakClientOnline(read: () => boolean): void {
+    this.voiceSpeakClientOnline = read
+  }
+
   /** Apply the host-owning desktop's account overlay to configured agent environment. */
   protected structuredAgentLaunchEnv(
     agent: StructuredAgentId,
@@ -62,6 +69,9 @@ export abstract class RuntimeStructuredAgentHost extends OrcaRuntimeWithStartTui
       resolveCodexAccountKind: (home) =>
         resolveStructuredCodexAccountKind(home, this.requireStore().getSettings()),
       resolveAgentAccountHome: (agent) => this.resolveStructuredAgentAccountHome(agent),
+      ...(this.voiceSpeakClientOnline
+        ? { voiceSpeakClientOnline: this.voiceSpeakClientOnline }
+        : {}),
       ...(this.prepareCodexCatalogProbeHomeFn
         ? { prepareCodexCatalogProbeHome: this.prepareCodexCatalogProbeHomeFn }
         : {})

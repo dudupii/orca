@@ -23,6 +23,16 @@ class ExpoTwoWayAudioModule : Module() {
     }
     private val speech by speechHandle
 
+    private val ttsHandle = lazy {
+        TtsEngine(requireNotNull(appContext.reactContext).applicationContext) { name, body ->
+            sendEvent(name, body)
+        }
+    }
+    private val tts by ttsHandle
+
+    private val toneHandle = lazy { ToneEngine() }
+    private val tone by toneHandle
+
     override fun definition() = ModuleDefinition {
         Name("ExpoTwoWayAudio")
         AsyncFunction("initialize") { promise: Promise ->
@@ -126,8 +136,22 @@ class ExpoTwoWayAudioModule : Module() {
             speech.cancel()
         }
 
+        AsyncFunction("ttsSpeak") Coroutine { utteranceId: String, text: String, locale: String? ->
+            tts.speak(utteranceId, text, locale)
+        }
+
+        Function("ttsStop") {
+            tts.stop()
+        }
+
+        Function("tonePlay") { kind: String ->
+            tone.play(kind)
+        }
+
         OnDestroy {
             if (speechHandle.isInitialized()) speech.destroy()
+            if (ttsHandle.isInitialized()) tts.destroy()
+            if (toneHandle.isInitialized()) tone.destroy()
         }
 
         Events(
@@ -137,7 +161,9 @@ class ExpoTwoWayAudioModule : Module() {
             ON_AUDIO_INTERRUPTION_EVENT,
             SPEECH_TEXT_EVENT,
             SPEECH_ERROR_EVENT,
-            SPEECH_DOWNLOAD_PROGRESS_EVENT
+            SPEECH_DOWNLOAD_PROGRESS_EVENT,
+            TTS_DONE_EVENT,
+            TTS_ERROR_EVENT
         )
     }
 

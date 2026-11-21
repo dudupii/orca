@@ -26,6 +26,7 @@ import { agentSessionProviderHandleChainHead } from '../../../../shared/agent-se
 import { resolveCodexCommand } from '../../../codex-cli/command'
 import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
 import type { StructuredAgentLaunchPartResolver } from '../../../runtime/agent-session/launch/structured-agent-launch-composition'
+import type { VoiceSpeakLaunchInjection } from '../../../runtime/agent-session/launch/voice-speak-injection'
 import type { CodexStructuredLaunch } from '../session-lifecycle/codex-structured-session-state'
 import { codexStructuredPermissionPolicy } from '../../../../shared/codex-permission-policy'
 import { codexStructuredLaunchArgs } from './codex-structured-launch-args'
@@ -48,6 +49,8 @@ export type CodexStructuredLaunchPartDeps = {
     pathEnv?: string | null
     homePath?: string
   }) => StructuredAgentCommand
+  /** Spawn-time voice.speak.v1 injection; absent never changes the launch. */
+  resolveVoiceSpeak?: () => Promise<VoiceSpeakLaunchInjection | null>
 }
 
 export type CodexStructuredInvocationDeps = Pick<
@@ -142,6 +145,7 @@ export function codexStructuredLaunchPart(
     // Match the first turn's model to avoid duplicate prompt injection on a model switch.
     const model = record.options?.model
     const visuals = await basis.visuals()
+    const voiceSpeak = (await deps.resolveVoiceSpeak?.()) ?? null
     const launchDirectory = await basis.launchDirectory()
     const selectedHome = await deps.prepareLaunchAccountHome?.(record, launchDirectory)
     const accountHome = selectedHome
@@ -180,7 +184,8 @@ export function codexStructuredLaunchPart(
           ? {}
           : { permissionPolicy: codexStructuredPermissionPolicy(basis.permissionMode ?? 'ask') }),
         ...(model ? { model } : {}),
-        ...(visuals ? { visuals } : {})
+        ...(visuals ? { visuals } : {}),
+        ...(voiceSpeak ? { voiceSpeak } : {})
       },
       env: withNativeChatVisualsEnv(
         { ...environment, ...(accountHome.path ? { CODEX_HOME: accountHome.path } : {}) },
