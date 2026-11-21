@@ -36,7 +36,7 @@ The file is owner-only (0600 inside a 0700 directory) because it carries the
 auth token, and it holds exactly:
 
 ```json
-{"port":41234,"token":"0f2b6c56-9a1e-4c8d-b7f3-2e5a8c1d4b6e"}
+{ "port": 41234, "token": "0f2b6c56-9a1e-4c8d-b7f3-2e5a8c1d4b6e" }
 ```
 
 The server URL is `http://127.0.0.1:<port>/mcp`; the token travels in the

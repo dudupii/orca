@@ -130,14 +130,26 @@ function resolvePackageJsonPath(packageName, fromDir = projectDir) {
       throw new Error(`Could not resolve package ${packageName} from ${fromDir}`)
     }
     let dir = dirname(entryPath)
+    let firstFound = null
     while (dir !== dirname(dir)) {
       const packageJsonPath = join(dir, 'package.json')
       if (existsSync(packageJsonPath)) {
-        return packageJsonPath
+        // Nested package.json files (e.g. hono's dist/cjs commonjs marker) must not
+        // shadow the package root; only a matching name proves the real root.
+        try {
+          if (JSON.parse(readFileSync(packageJsonPath, 'utf8')).name === packageName) {
+            return packageJsonPath
+          }
+        } catch {
+          // Unreadable package.json cannot prove the root; keep climbing.
+        }
+        firstFound ??= packageJsonPath
       }
       dir = dirname(dir)
     }
-    throw new Error(`Could not find package.json for ${packageName}`)
+    return firstFound ?? (() => {
+      throw new Error(`Could not find package.json for ${packageName}`)
+    })()
   }
 }
 
