@@ -34,19 +34,6 @@
       }
     },
     {
-      "files": ["**/src/voice-mode/voice-loop-shell.ts"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 400,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
       "files": ["src/session/MobileSessionActiveContent.tsx"],
       "rules": {
         "max-lines": [
@@ -66,32 +53,6 @@
           "error",
           {
             "max": 320,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
-      "files": ["**/src/voice-mode/voice-mode-host.tsx"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 461,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
-    },
-    {
-      "files": ["**/src/voice-mode/voice-mode-host.test.tsx"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 1100,
             "skipBlankLines": true,
             "skipComments": true
           }

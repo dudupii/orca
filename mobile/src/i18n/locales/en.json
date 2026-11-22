@@ -630,6 +630,10 @@
       "micUnavailable": "Voice mode needs the microphone.",
       "speechFailed": "Voice mode stopped: speech recognition failed.",
       "sendFailed": "Voice mode stopped: the message could not be sent."
+    },
+    "pill": {
+      "label": "{{state}} in {{title}}",
+      "hint": "Double-tap to go back to the conversation"
     }
   },
   "home": {
