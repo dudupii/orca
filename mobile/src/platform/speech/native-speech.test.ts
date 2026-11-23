@@ -151,10 +151,17 @@ describe('a recognition language chosen in the shell', () => {
   })
 
   it('answers status honestly when the choice still needs its language downloaded', async () => {
+    let asked = ''
     const engine: NativeSpeechEngine = {
       ...engineWith('automatic'),
       recognitionLocale: async () => 'ja',
-      availability: async () => ({ status: 'needs-download', locale: 'ja-JP' })
+      availability: async (locale) => {
+        asked = locale
+        // Only the chosen language is missing its download; the page's own locale is ready.
+        return locale === 'ja'
+          ? { status: 'needs-download', locale: 'ja-JP' }
+          : { status: 'ready', locale: 'zh-CN' }
+      }
     }
     const server = createNativeSpeechServer(engine)
     expect(await server.serve({ action: 'status', locale: 'zh-CN' })).toEqual({
@@ -162,6 +169,7 @@ describe('a recognition language chosen in the shell', () => {
       locale: 'ja-JP',
       preference: 'automatic'
     })
+    expect(asked).toBe('ja')
   })
 })
 
