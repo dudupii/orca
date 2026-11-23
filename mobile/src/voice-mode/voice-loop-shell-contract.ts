@@ -9,8 +9,15 @@ export type { VoiceLoopRoute } from '../../../src/shared/voice/voice-loop-machin
 
 export type VoiceLoopShellDeps = {
   readonly now: () => number
-  /** Arms the recognizer; busy reports another session's exclusive hold of the microphone. */
-  readonly startSpeech: () => Promise<{ started: boolean; busy: boolean }>
+  /**
+   * Arms the recognizer; busy reports another session's exclusive hold of the microphone,
+   * needsDownload a language model the recognizer must download before it can arm.
+   */
+  readonly startSpeech: () => Promise<{
+    started: boolean
+    busy: boolean
+    readonly needsDownload?: boolean
+  }>
   readonly cancelSpeech: () => void
   readonly readSpeech: () => Promise<VoiceLoopTranscriptRead>
   /** Opens the microphone; false when permission or the device refused. */
@@ -50,7 +57,12 @@ export type VoiceLoopTranscriptRead = {
 /** The chat's answer to one delivered utterance; the reply text renders silently in T5. */
 export type VoiceLoopSendOutcome = { sent: false } | { sent: true; reply: string }
 
-export type VoiceLoopNotice = 'mic-exclusive' | 'mic-unavailable' | 'speech-failed' | 'send-failed'
+export type VoiceLoopNotice =
+  | 'mic-exclusive'
+  | 'mic-unavailable'
+  | 'speech-needs-download'
+  | 'speech-failed'
+  | 'send-failed'
 
 /** What the overlay draws: the loop's route, the live words, the revocable wait, the last reply. */
 export type VoiceLoopView = {

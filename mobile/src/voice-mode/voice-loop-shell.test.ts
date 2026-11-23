@@ -252,6 +252,18 @@ describe('VoiceLoopShell', () => {
     expect(harness.notices).toEqual(['mic-exclusive'])
   })
 
+  it('a start refused because the recognition language needs a download reports that, not the microphone', async () => {
+    const startSpeech = vi.fn(async () => ({ started: false, busy: false, needsDownload: true }))
+    const harness = createHarness({ startSpeech })
+    await harness.shell.start()
+
+    expect(harness.notices).toEqual(['speech-needs-download'])
+    expect(harness.views.at(-1)?.route).toBe('closed')
+    // Nothing of ours was held: the refusal is the language model, so no mic ever opened.
+    expect(harness.deps.holdScreen).not.toHaveBeenCalled()
+    expect(harness.deps.openMic).not.toHaveBeenCalled()
+  })
+
   it('shows live tentative words without sending them', async () => {
     const harness = createHarness()
     await harness.shell.start()

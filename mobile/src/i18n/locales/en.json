@@ -628,6 +628,7 @@
     "notice": {
       "micExclusive": "Another voice session is using the microphone.",
       "micUnavailable": "Voice mode needs the microphone.",
+      "speechNeedsDownload": "The recognition language needs a download. Get it in Voice settings.",
       "speechFailed": "Voice mode stopped: speech recognition failed.",
       "sendFailed": "Voice mode stopped: the message could not be sent."
     },

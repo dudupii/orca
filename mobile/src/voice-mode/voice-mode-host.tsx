@@ -321,7 +321,11 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
               const started = await speechRef.current!.start()
               return started.started
                 ? { started: true, busy: false }
-                : { started: false, busy: started.reason === 'busy' }
+                : {
+                    started: false,
+                    busy: started.reason === 'busy',
+                    needsDownload: started.reason === 'needs-download'
+                  }
             } catch {
               // A bridge refusal rejects; a start that cannot even ask reports unavailable, not busy.
               return { started: false, busy: false }

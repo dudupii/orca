@@ -110,6 +110,9 @@ export class VoiceLoopShell {
         // The refusal is the machine's to make; the shell only makes it visible.
         this.machine.dispatch({ type: 'start', micExclusiveInUse: true })
         this.deps.onNotice('mic-exclusive')
+      } else if (armed.needsDownload) {
+        // A missing language model is not a microphone problem; Voice settings downloads it.
+        this.deps.onNotice('speech-needs-download')
       } else {
         this.deps.onNotice('mic-unavailable')
       }

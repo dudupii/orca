@@ -33,6 +33,11 @@ export const voiceModeCopy = {
         )
       case 'mic-unavailable':
         return translate('voiceMode.notice.micUnavailable', 'Voice mode needs the microphone.')
+      case 'speech-needs-download':
+        return translate(
+          'voiceMode.notice.speechNeedsDownload',
+          'The recognition language needs a download. Get it in Voice settings.'
+        )
       case 'speech-failed':
         return translate(
           'voiceMode.notice.speechFailed',
