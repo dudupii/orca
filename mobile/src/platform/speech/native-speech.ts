@@ -18,6 +18,7 @@ export type NativeSpeechEngine = {
   readonly finish: () => Promise<string>
   readonly cancel: () => void
   readonly readPreference: () => Promise<DictationEnginePreference>
+  readonly recognitionLocale: () => Promise<string | null>
   readonly onText: (handler: (text: Omit<BridgeSpeechRead, 'failure'>) => void) => void
   readonly onError: (handler: (code: string) => void) => void
 }
@@ -93,10 +94,11 @@ export function createNativeSpeechServer(engine: NativeSpeechEngine): NativeSpee
   async function status(locale: string): Promise<unknown> {
     // Answer the preference even when the recognizer can't say, so This phone never falls to the computer.
     // A slow service is reported as busy, never unsupported, so the page asks again on its next dictation.
+    const resolved = (await engine.recognitionLocale()) ?? locale
     const [preference, available] = await Promise.all([
       engine.readPreference(),
       engine
-        .availability(locale)
+        .availability(resolved)
         .catch((error: unknown) => (isSpeechBusyError(error) ? ('busy' as const) : null))
     ])
     if (available === 'busy' || available === null) {
@@ -115,8 +117,10 @@ export function createNativeSpeechServer(engine: NativeSpeechEngine): NativeSpee
     }
     session = claimed
     shared.live = claimed
+    // The shell substitutes the user's chosen recognition language here, so the page stays unaware of the setting.
+    const resolved = (await engine.recognitionLocale()) ?? locale
     const started = await engine
-      .start(locale)
+      .start(resolved)
       .catch(() => ({ started: false as const, reason: 'failed' }))
     const kept = session === claimed && shared.live === claimed
     // Cancelled while arming: stop what native armed, unless another page's start already replaced it.
