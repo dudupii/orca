@@ -33,6 +33,18 @@ vi.mock('../components/controls/MobileSegmentedControl', () => ({
   MobileSegmentedControl: (props: Record<string, unknown>) =>
     createElement('MobileSegmentedControl', props)
 }))
+vi.mock('../components/bottom-drawer/BottomDrawer', () => ({
+  BottomDrawer: (props: Record<string, unknown>) => createElement('BottomDrawer', props)
+}))
+vi.mock('../storage/voice-recognition-language', () => ({
+  loadVoiceRecognitionLanguage: vi.fn(async () => null),
+  saveVoiceRecognitionLanguage: vi.fn(async () => {})
+}))
+vi.mock('./voice-recognition-language-picker', () => ({
+  languageDisplayName: (tag: string) => tag,
+  VoiceRecognitionLanguagePicker: (props: Record<string, unknown>) =>
+    createElement('VoiceRecognitionLanguagePicker', props)
+}))
 
 let renderer: ReactTestRenderer
 
@@ -47,7 +59,7 @@ describe('voice mode settings section', () => {
     await act(async () => {
       renderer = create(createElement(VoiceModeSettingsSection))
     })
-    expect(findAllByHostType(renderer.root, 'ListRow')).toHaveLength(1)
+    expect(findAllByHostType(renderer.root, 'ListRow')).toHaveLength(2)
     const control = findByHostType(renderer.root, 'MobileSegmentedControl')
     expect(control.props.selected).toBe('2')
 

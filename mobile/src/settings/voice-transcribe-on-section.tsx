@@ -26,7 +26,8 @@ type PhoneSpeech =
   | { status: SpeechAvailabilityStatus | 'checking' }
   | { status: 'downloading'; progress: number }
 
-function phoneStatusText(phone: PhoneSpeech | null, t: Translate): string | undefined {
+// Shared with the recognition-language picker, which shows the same states per language.
+export function phoneStatusText(phone: PhoneSpeech | null, t: Translate): string | undefined {
   switch (phone?.status) {
     case undefined:
       return undefined

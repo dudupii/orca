@@ -151,6 +151,8 @@
       "voiceModeResponseDelay": "Response Delay",
       "voiceModeResponseDelayDescription": "How long a finished voice message waits before it sends. Tap it while it waits to cancel sending.",
       "voiceModeDelaySeconds": "{{value}}s",
+      "recognitionLanguage": "Recognition Language",
+      "recognitionLanguageFollowSystem": "Follow system",
       "voiceSpeakingHeading": "SPEAKING",
       "voiceSpeakingDescription": "Applies the next time voice mode starts.",
       "voiceBargeIn": "Interrupt with Your Voice",
