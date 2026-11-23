@@ -55,4 +55,20 @@ describe('voice recognition language storage', () => {
     const reread = await fresh()
     expect(await reread.loadVoiceRecognitionLanguage()).toBe(null)
   })
+
+  it('lets a save that arrives while the first read is failing win over Follow system', async () => {
+    const { loadVoiceRecognitionLanguage, saveVoiceRecognitionLanguage } = await fresh()
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default
+    let rejectRead: (error: Error) => void = () => {}
+    AsyncStorage.getItem.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((_resolve, reject) => {
+          rejectRead = reject
+        })
+    )
+    const loading = loadVoiceRecognitionLanguage()
+    await saveVoiceRecognitionLanguage('ja-JP')
+    rejectRead(new Error('storage unavailable'))
+    expect(await loading).toBe('ja-JP')
+  })
 })

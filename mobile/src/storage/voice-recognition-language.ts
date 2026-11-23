@@ -19,7 +19,8 @@ export async function loadVoiceRecognitionLanguage(): Promise<string | null> {
     }
     return cached
   } catch {
-    return null
+    // A save that landed while the read was failing already chose; it wins over Follow system.
+    return cached ?? null
   }
 }
 
