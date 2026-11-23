@@ -60,7 +60,7 @@ describe('voice recognition language storage', () => {
     const { loadVoiceRecognitionLanguage, saveVoiceRecognitionLanguage } = await fresh()
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default
     let rejectRead: (error: Error) => void = () => {}
-    AsyncStorage.getItem.mockImplementationOnce(
+    vi.mocked(AsyncStorage.getItem).mockImplementationOnce(
       () =>
         new Promise<string | null>((_resolve, reject) => {
           rejectRead = reject
