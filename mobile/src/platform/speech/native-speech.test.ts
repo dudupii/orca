@@ -9,6 +9,7 @@ function engineWith(preference: DictationEnginePreference): NativeSpeechEngine {
     finish: async () => '',
     cancel: () => {},
     readPreference: async () => preference,
+    recognitionLocale: async () => null,
     onText: () => {},
     onError: () => {}
   }
@@ -51,18 +52,26 @@ describe('text a cancelled session sends while the next one is arming', () => {
       emit: () => {}
     }
     let resolveStart: (value: { started: true; locale: string }) => void = () => {}
+    let startedArming: () => void = () => {}
+    const arming = new Promise<void>((resolve) => {
+      startedArming = resolve
+    })
     const engine: NativeSpeechEngine = {
       ...engineWith('automatic'),
-      start: () =>
-        new Promise((resolve) => {
+      start: () => {
+        startedArming()
+        return new Promise((resolve) => {
           resolveStart = resolve
-        }),
+        })
+      },
       onText: (handler) => {
         text.emit = handler
       }
     }
     const server = createNativeSpeechServer(engine)
     const starting = server.serve({ action: 'start', locale: 'en-US' })
+    // The locale resolves before the engine is asked, so wait for the arm itself before feeding it events.
+    await arming
     text.emit({ revision: 3, committed: 'old words', tentative: '' })
     resolveStart({ started: true, locale: 'en-US' })
     await starting
@@ -76,21 +85,114 @@ describe('a recognizer that fails while its start is still resolving', () => {
   it('reports the failure once armed, so the page stops recording into nothing', async () => {
     const error: { emit: (code: string) => void } = { emit: () => {} }
     let resolveStart: (value: { started: true; locale: string }) => void = () => {}
+    let startedArming: () => void = () => {}
+    const arming = new Promise<void>((resolve) => {
+      startedArming = resolve
+    })
     const engine: NativeSpeechEngine = {
       ...engineWith('automatic'),
-      start: () =>
-        new Promise((resolve) => {
+      start: () => {
+        startedArming()
+        return new Promise((resolve) => {
           resolveStart = resolve
-        }),
+        })
+      },
       onError: (handler) => {
         error.emit = handler
       }
     }
     const server = createNativeSpeechServer(engine)
     const starting = server.serve({ action: 'start', locale: 'en-US' })
+    await arming
     error.emit('failed')
     resolveStart({ started: true, locale: 'en-US' })
     await starting
     expect(await server.serve({ action: 'read' })).toMatchObject({ failure: 'failed' })
+  })
+})
+
+describe('a recognition language chosen in the shell', () => {
+  it('arms the recognizer in it instead of the page’s locale', async () => {
+    let startedWith = ''
+    const engine: NativeSpeechEngine = {
+      ...engineWith('automatic'),
+      recognitionLocale: async () => 'ja',
+      start: async (locale) => {
+        startedWith = locale
+        return { started: true, locale: 'ja-JP' }
+      }
+    }
+    const server = createNativeSpeechServer(engine)
+    expect(await server.serve({ action: 'start', locale: 'zh-CN' })).toEqual({
+      started: true,
+      locale: 'ja-JP',
+      reason: null
+    })
+    expect(startedWith).toBe('ja')
+  })
+
+  it('probes availability in it instead of the page’s locale', async () => {
+    let asked = ''
+    const engine: NativeSpeechEngine = {
+      ...engineWith('automatic'),
+      recognitionLocale: async () => 'ja',
+      availability: async (locale) => {
+        asked = locale
+        return { status: 'ready', locale: 'ja-JP' }
+      }
+    }
+    const server = createNativeSpeechServer(engine)
+    expect(await server.serve({ action: 'status', locale: 'zh-CN' })).toEqual({
+      status: 'ready',
+      locale: 'ja-JP',
+      preference: 'automatic'
+    })
+    expect(asked).toBe('ja')
+  })
+
+  it('answers status honestly when the choice still needs its language downloaded', async () => {
+    const engine: NativeSpeechEngine = {
+      ...engineWith('automatic'),
+      recognitionLocale: async () => 'ja',
+      availability: async () => ({ status: 'needs-download', locale: 'ja-JP' })
+    }
+    const server = createNativeSpeechServer(engine)
+    expect(await server.serve({ action: 'status', locale: 'zh-CN' })).toEqual({
+      status: 'needs-download',
+      locale: 'ja-JP',
+      preference: 'automatic'
+    })
+  })
+})
+
+describe('the recognition language left to the system', () => {
+  it('passes the page’s locale through to the engine unchanged', async () => {
+    let asked = ''
+    let startedWith = ''
+    const engine: NativeSpeechEngine = {
+      ...engineWith('automatic'),
+      recognitionLocale: async () => null,
+      availability: async (locale) => {
+        asked = locale
+        return { status: 'ready', locale: 'en-US' }
+      },
+      start: async (locale) => {
+        startedWith = locale
+        return { started: true, locale }
+      }
+    }
+    const server = createNativeSpeechServer(engine)
+    expect(await server.serve({ action: 'status', locale: 'zh-CN' })).toEqual({
+      status: 'ready',
+      locale: 'en-US',
+      preference: 'automatic'
+    })
+    expect(await server.serve({ action: 'start', locale: 'zh-CN' })).toEqual({
+      started: true,
+      locale: 'zh-CN',
+      reason: null
+    })
+    expect(asked).toBe('zh-CN')
+    expect(startedWith).toBe('zh-CN')
   })
 })
