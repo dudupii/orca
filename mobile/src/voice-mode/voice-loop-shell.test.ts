@@ -188,7 +188,7 @@ describe('VoiceLoopShell', () => {
     expect(harness.deps.send).toHaveBeenCalledOnce()
     expect(vi.mocked(harness.deps.send).mock.calls[0][0]).toBe('hello')
     expect(harness.views.at(-1)?.route).toBe('speaking')
-    // No briefing arrived, so the reply's own condensed prose is the readout.
+    // No briefing arrived, so the wash over the reply's condensed prose is the readout.
     expect(harness.readout.plays).toEqual([{ text: 'Done', locale: null }])
 
     // Playback ends on its own: the loop returns to listening through the machine's own gate.
@@ -511,7 +511,7 @@ describe('VoiceLoopShell', () => {
     releaseSend()
     await vi.advanceTimersByTimeAsync(0)
 
-    // The briefing is spoken verbatim with its language; the reply's prose never plays.
+    // The washed briefing is spoken with its language; the reply's prose never plays.
     expect(harness.readout.plays).toEqual([{ text: 'Checks pass.', locale: 'zh-CN' }])
     // The briefing chose what is spoken; the on-screen reply keeps the full text unchanged.
     expect(harness.views.at(-1)?.reply).toBe('Long reply. Not spoken.')
