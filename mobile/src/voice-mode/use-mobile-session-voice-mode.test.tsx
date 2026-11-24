@@ -94,6 +94,11 @@ vi.mock('../platform/speech/on-device-speech', () => {
   }
   return { useOnDeviceSpeech: () => speech }
 })
+// The device-locale seam pulls expo-localization, which no vitest run defines; the loop only
+// needs a stable locale to resolve a lang-less readout against.
+vi.mock('../platform/speech/on-device-speech-locale', () => ({
+  onDeviceSpeechLocale: vi.fn(() => 'en-US')
+}))
 
 vi.mock('../platform/audio-capture/dictation-capture', () => {
   const capture: DictationCapture = {
@@ -155,6 +160,7 @@ vi.mock('../storage/voice-mode-settings', () => ({
   loadVoiceModeBargeIn: vi.fn(async () => true),
   saveVoiceModeBargeIn: vi.fn(async () => {}),
   loadVoiceModeFallbackReadout: vi.fn(async () => true),
+  loadVoiceModeReadoutLanguage: vi.fn(async () => ({ mode: 'automatic' })),
   saveVoiceModeFallbackReadout: vi.fn(async () => {})
 }))
 
@@ -184,7 +190,11 @@ vi.mock('./speak-broadcast', () => ({
 import { MobileVoiceModeHostProvider } from './voice-mode-host'
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
-import { loadVoiceModeBargeIn, loadVoiceModeFallbackReadout } from '../storage/voice-mode-settings'
+import {
+  loadVoiceModeBargeIn,
+  loadVoiceModeFallbackReadout,
+  loadVoiceModeReadoutLanguage
+} from '../storage/voice-mode-settings'
 import type {
   MobileNativeChatSendIntent,
   MobileNativeChatSendOutcome
@@ -475,7 +485,7 @@ describe('useMobileSessionVoiceMode', () => {
     // No briefing arrived, so the wash over the reply's condensed prose is spoken, in the
     // phone's language.
     expect(seam.ttsSpeakCalls).toEqual([
-      { text: 'The build passed. Tests are green.', locale: null }
+      { text: 'The build passed. Tests are green.', locale: 'en-US' }
     ])
     expect(harness.voiceMode().view.route).toBe('listening')
   })
@@ -576,7 +586,7 @@ describe('useMobileSessionVoiceMode', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250 + 150 + 150)
     })
-    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Words that keep playing.', locale: null }])
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Words that keep playing.', locale: 'en-US' }])
     expect(harness.voiceMode().view.route).toBe('speaking')
 
     // Speech over the playback is dropped, not a barge-in: the speaker was never told to stop.
@@ -678,5 +688,68 @@ describe('useMobileSessionVoiceMode', () => {
 
     expect(harness.showToast).toHaveBeenCalledOnce()
     expect(harness.voiceMode().view.route).toBe('closed')
+  })
+
+  // The readout-language stage's speak chain, end to end through the wash, the shell and the
+  // real readout: a reply without a briefing names no locale, so what the tts channel receives
+  // is what the stage resolved. The briefing case above carries its own lang past this chain.
+  it('reads a Chinese reply in Chinese when no briefing named a language', async () => {
+    seam.turnActive = true
+    seam.replyText = '检查通过了,可以合并。'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([{ text: '检查通过了,可以合并。', locale: 'zh-CN' }])
+  })
+
+  it('reads a Japanese reply in Japanese when no briefing named a language', async () => {
+    seam.turnActive = true
+    seam.replyText = 'チェックは通った。明日も直します。'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'チェックは通った。明日も直します。', locale: 'ja-JP' }
+    ])
+  })
+
+  it('reads every lang-less reply in the chosen language, whatever the reply itself speaks', async () => {
+    vi.mocked(loadVoiceModeReadoutLanguage).mockResolvedValue({ mode: 'language', tag: 'fr-FR' })
+    seam.turnActive = true
+    seam.replyText = 'The build passed. Tests are green.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The build passed. Tests are green.', locale: 'fr-FR' }
+    ])
+  })
+
+  it('hands a lang-less reply to the engine itself when the stage follows the system', async () => {
+    vi.mocked(loadVoiceModeReadoutLanguage).mockResolvedValue({ mode: 'system' })
+    seam.turnActive = true
+    seam.replyText = 'The build passed. Tests are green.'
+    const harness = mountVoiceMode()
+    await speakAndCommit(harness)
+
+    harness.setTurnActive(false)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250 + 150 + 100)
+    })
+    expect(seam.ttsSpeakCalls).toEqual([
+      { text: 'The build passed. Tests are green.', locale: null }
+    ])
   })
 })

@@ -34,7 +34,9 @@ export const TERMINAL_SETTINGS_STORAGE_KEYS = [
 export const VOICE_MODE_SETTINGS_STORAGE_KEYS = [
   'orca:voiceModeResponseDelaySeconds',
   'orca:voiceModeBargeIn',
-  'orca:voiceModeFallbackReadout'
+  'orca:voiceModeFallbackReadout',
+  /** The language a reply without a spoken briefing is read in (#27's readout-language stage). */
+  'orca:voiceModeReadoutLanguage'
 ] as const
 
 // Keys a native settings screen owns and re-publishes to a page that already loaded, so a change

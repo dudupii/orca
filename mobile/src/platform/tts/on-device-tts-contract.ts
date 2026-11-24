@@ -3,7 +3,8 @@
 
 export type OnDeviceTtsUtterance = {
   readonly text: string
-  // The language to speak in; null lets the phone's own language choose.
+  // The language to speak in; null lets the phone's own language choose — where the readout-language
+  // stage's follow-system lands, while its automatic and chosen-language stages name a locale outright.
   readonly locale: string | null
 }
 

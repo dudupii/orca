@@ -177,7 +177,6 @@ vi.mock('../platform/speech/on-device-speech', () => {
   }
   return { useOnDeviceSpeech: () => speech }
 })
-
 vi.mock('../platform/audio-capture/dictation-capture', () => {
   const capture: DictationCapture = {
     open: async () => {
@@ -231,6 +230,10 @@ vi.mock('../platform/tts/on-device-tts', () => {
   return { useOnDeviceTts: () => (seam.ttsAvailable ? channel : null) }
 })
 
+// The resolver module imports the device-locale seam, which pulls expo-localization; no
+// vitest run defines it. The tests below pin the resolved locale themselves.
+vi.mock('./readout-speak-locale', () => ({ readoutLocaleResolver: () => () => 'en-US' }))
+
 vi.mock('../storage/voice-mode-settings', () => ({
   VOICE_MODE_RESPONSE_DELAY_DEFAULT_SECONDS: 1.5,
   loadVoiceModeResponseDelaySeconds: vi.fn(async () => 1.5),
@@ -238,6 +241,7 @@ vi.mock('../storage/voice-mode-settings', () => ({
   loadVoiceModeBargeIn: vi.fn(async () => true),
   saveVoiceModeBargeIn: vi.fn(async () => {}),
   loadVoiceModeFallbackReadout: vi.fn(async () => true),
+  loadVoiceModeReadoutLanguage: vi.fn(async () => ({ mode: 'automatic' })),
   saveVoiceModeFallbackReadout: vi.fn(async () => {})
 }))
 
@@ -723,7 +727,7 @@ describe('MobileVoiceModeHostProvider', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250 + 150 + 100)
     })
-    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Done speaking.', locale: null }])
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Done speaking.', locale: 'en-US' }])
     expect(harness.view().route).toBe('listening')
   })
 
@@ -767,7 +771,7 @@ describe('MobileVoiceModeHostProvider', () => {
       await vi.advanceTimersByTimeAsync(250 + 150 + 100)
     })
     expect(seam.ttsSpeakCalls).toEqual([
-      { text: 'The reply that survived the unbind.', locale: null }
+      { text: 'The reply that survived the unbind.', locale: 'en-US' }
     ])
     expect(harness.view().route).toBe('listening')
   })
@@ -1143,7 +1147,7 @@ describe('MobileVoiceModeHostProvider', () => {
     })
     // The chime precedes the playback it announces; the microphone reopened after both.
     expect(seam.toneCalls).toEqual(['restore@0'])
-    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Answered while away.', locale: null }])
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Answered while away.', locale: 'en-US' }])
     expect(seam.calls.filter((call) => call === 'capture.open')).toHaveLength(2)
 
     await act(async () => {
@@ -1197,7 +1201,7 @@ describe('MobileVoiceModeHostProvider', () => {
     })
     expect(seam.toneCalls).toEqual(['restore@0'])
     expect(seam.ttsSpeakCalls).toEqual([
-      { text: 'The answer that outlasted the away.', locale: null }
+      { text: 'The answer that outlasted the away.', locale: 'en-US' }
     ])
   })
 
@@ -1216,7 +1220,7 @@ describe('MobileVoiceModeHostProvider', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250 + 150 + 300)
     })
-    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Briefed words.', locale: null }])
+    expect(seam.ttsSpeakCalls).toEqual([{ text: 'Briefed words.', locale: 'en-US' }])
     expect(harness.view().route).toBe('listening')
   })
 
@@ -1233,7 +1237,7 @@ describe('MobileVoiceModeHostProvider', () => {
       await vi.advanceTimersByTimeAsync(250 + 150 + 300)
     })
     expect(seam.ttsSpeakCalls).toEqual([
-      { text: 'The build passed. Tests are green.', locale: null }
+      { text: 'The build passed. Tests are green.', locale: 'en-US' }
     ])
     expect(harness.view().route).toBe('listening')
   })

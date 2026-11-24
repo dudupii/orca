@@ -7,6 +7,9 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     getItem: vi.fn(async (key: string) => stored.get(key) ?? null),
     setItem: vi.fn(async (key: string, value: string) => {
       stored.set(key, value)
+    }),
+    removeItem: vi.fn(async (key: string) => {
+      stored.delete(key)
     })
   }
 }))
@@ -100,5 +103,34 @@ describe('voice mode speaking toggles storage', () => {
     expect(await loadVoiceModeBargeIn()).toBe(true)
     await saveVoiceModeBargeIn(false)
     expect(await loadVoiceModeBargeIn()).toBe(false)
+  })
+})
+
+describe('voice mode readout language storage', () => {
+  beforeEach(() => {
+    stored.clear()
+    vi.resetModules()
+  })
+
+  it('reads automatic when nothing is saved, and round-trips each stage', async () => {
+    const { loadVoiceModeReadoutLanguage, saveVoiceModeReadoutLanguage } = await fresh()
+    expect(await loadVoiceModeReadoutLanguage()).toEqual({ mode: 'automatic' })
+    await saveVoiceModeReadoutLanguage({ mode: 'system' })
+    expect(await loadVoiceModeReadoutLanguage()).toEqual({ mode: 'system' })
+    await saveVoiceModeReadoutLanguage({ mode: 'language', tag: 'ja-JP' })
+    expect(await loadVoiceModeReadoutLanguage()).toEqual({ mode: 'language', tag: 'ja-JP' })
+    // Automatic is the absent key: saving it clears whatever stage was stored.
+    await saveVoiceModeReadoutLanguage({ mode: 'automatic' })
+    expect(stored.has('orca:voiceModeReadoutLanguage')).toBe(false)
+    expect(await loadVoiceModeReadoutLanguage()).toEqual({ mode: 'automatic' })
+  })
+
+  it('reads the default when the stored value is not a stage it can decode', async () => {
+    stored.set('orca:voiceModeReadoutLanguage', '')
+    const empty = await fresh()
+    expect(await empty.loadVoiceModeReadoutLanguage()).toEqual({ mode: 'automatic' })
+    stored.set('orca:voiceModeReadoutLanguage', 'x'.repeat(36))
+    const oversized = await fresh()
+    expect(await oversized.loadVoiceModeReadoutLanguage()).toEqual({ mode: 'automatic' })
   })
 })

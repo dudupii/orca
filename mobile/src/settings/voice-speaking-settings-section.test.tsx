@@ -5,8 +5,10 @@ import { VoiceSpeakingSettingsSection } from './voice-speaking-settings-section'
 import {
   loadVoiceModeBargeIn,
   loadVoiceModeFallbackReadout,
+  loadVoiceModeReadoutLanguage,
   saveVoiceModeBargeIn,
-  saveVoiceModeFallbackReadout
+  saveVoiceModeFallbackReadout,
+  saveVoiceModeReadoutLanguage
 } from '../storage/voice-mode-settings'
 import { findAllByHostType, findByHostType } from '../test-support/react-test-renderer-host-nodes'
 
@@ -29,13 +31,28 @@ vi.mock('@orca/expo-two-way-audio', () => ({ hasNativeTts: vi.fn(() => true) }))
 vi.mock('../storage/voice-mode-settings', () => ({
   VOICE_MODE_BARGE_IN_DEFAULT: true,
   VOICE_MODE_FALLBACK_READOUT_DEFAULT: true,
+  VOICE_MODE_READOUT_LANGUAGE_DEFAULT: { mode: 'automatic' },
   loadVoiceModeBargeIn: vi.fn(async () => true),
   saveVoiceModeBargeIn: vi.fn(async () => {}),
   loadVoiceModeFallbackReadout: vi.fn(async () => true),
-  saveVoiceModeFallbackReadout: vi.fn(async () => {})
+  saveVoiceModeFallbackReadout: vi.fn(async () => {}),
+  loadVoiceModeReadoutLanguage: vi.fn(async () => ({ mode: 'automatic' })),
+  saveVoiceModeReadoutLanguage: vi.fn(async () => {})
 }))
 vi.mock('../components/controls/MobileSwitch', () => ({
   MobileSwitch: (props: Record<string, unknown>) => createElement('MobileSwitch', props)
+}))
+vi.mock('../components/bottom-drawer/BottomDrawer', () => ({
+  BottomDrawer: (props: Record<string, unknown>) => createElement('BottomDrawer', props)
+}))
+// The recognition picker module pulls expo-localization, which no vitest run defines.
+vi.mock('./voice-recognition-language-picker', () => ({
+  languageDisplayName: (tag: string) => tag,
+  candidateTags: (selected: string | null) => (selected === null ? [] : [selected])
+}))
+vi.mock('./voice-readout-language-picker', () => ({
+  VoiceReadoutLanguagePicker: (props: Record<string, unknown>) =>
+    createElement('VoiceReadoutLanguagePicker', props)
 }))
 
 let renderer: ReactTestRenderer
@@ -85,5 +102,45 @@ describe('voice speaking settings section', () => {
     })
     expect(findAllByHostType(renderer.root, 'SettingsSection')).toHaveLength(1)
     expect(findByHostType(renderer.root, 'SettingsSection').props.title).toBe('SPEAKING')
+  })
+
+  it('loads the saved readout language and names the stage on its row', async () => {
+    vi.mocked(loadVoiceModeReadoutLanguage).mockResolvedValue({ mode: 'system' })
+    await act(async () => {
+      renderer = create(createElement(VoiceSpeakingSettingsSection))
+    })
+    const row = findAllByHostType(renderer.root, 'ListRow').at(2)
+    expect(row?.props.title).toBe('Readout Language')
+    expect(row?.props.subtitle).toBe('Follow system')
+
+    vi.mocked(loadVoiceModeReadoutLanguage).mockResolvedValue({ mode: 'language', tag: 'ja-JP' })
+    await act(async () => {
+      renderer = create(createElement(VoiceSpeakingSettingsSection))
+    })
+    expect(findAllByHostType(renderer.root, 'ListRow')[2]?.props.subtitle).toBe('ja-JP')
+  })
+
+  it('opens the picker on the row and saves the stage it hands back', async () => {
+    await act(async () => {
+      renderer = create(createElement(VoiceSpeakingSettingsSection))
+    })
+    const row = findAllByHostType(renderer.root, 'ListRow')[2]
+    await act(async () => {
+      row?.props.onPress()
+    })
+    const drawer = findByHostType(renderer.root, 'BottomDrawer')
+    expect(drawer.props.visible).toBe(true)
+    expect(findByHostType(renderer.root, 'VoiceReadoutLanguagePicker').props.selected).toEqual({
+      mode: 'automatic'
+    })
+
+    await act(async () => {
+      findByHostType(renderer.root, 'VoiceReadoutLanguagePicker').props.onSelect({
+        mode: 'language',
+        tag: 'zh-CN'
+      })
+    })
+    expect(saveVoiceModeReadoutLanguage).toHaveBeenCalledWith({ mode: 'language', tag: 'zh-CN' })
+    expect(findAllByHostType(renderer.root, 'ListRow')[2]?.props.subtitle).toBe('zh-CN')
   })
 })
