@@ -51,6 +51,18 @@ it.each([
     expected: 'Docs live at example.com now.'
   },
   {
+    label: 'an uppercase bare URL is a URL all the same',
+    text: 'Docs live at HTTPS://EXAMPLE.COM.',
+    lang: null,
+    expected: 'Docs live at example.com.'
+  },
+  {
+    label: 'an uppercase autolink is an autolink all the same',
+    text: 'Docs live at <HTTPS://EXAMPLE.COM/>.',
+    lang: null,
+    expected: 'Docs live at example.com.'
+  },
+  {
     label: 'a deep URL with a comment anchor is skipped whole',
     text: 'Details at https://github.com/dudupii/orca/pull/27#issuecomment-7086648152.',
     lang: null,
@@ -111,6 +123,30 @@ it.each([
     expected: 'The palette is #505050.'
   },
   {
+    label: 'a three-digit issue reference expands like any other',
+    text: 'See #100 for the checklist.',
+    lang: 'en-US',
+    expected: 'See issue 100 for the checklist.'
+  },
+  {
+    label: 'a six-digit issue reference expands like any other',
+    text: 'Merged as #123456 today.',
+    lang: 'en-US',
+    expected: 'Merged as issue 123456 today.'
+  },
+  {
+    label: 'an eight-digit issue reference expands like any other',
+    text: 'Reproduced on #12345678.',
+    lang: 'en-US',
+    expected: 'Reproduced on issue 12345678.'
+  },
+  {
+    label: 'a color word before another token does not color the next reference',
+    text: 'Fixed the palette bug in #505050.',
+    lang: 'en-US',
+    expected: 'Fixed the palette bug in issue 505050.'
+  },
+  {
     label: 'underscore bold and italic peel off',
     text: 'The __bold__ and _italic_ remain.',
     lang: null,
@@ -169,6 +205,12 @@ it.each([
     text: 'The dev server is at https://localhost:8080.',
     lang: null,
     expected: 'The dev server is at localhost.'
+  },
+  {
+    label: 'a Unicode host is spoken as written, never as punycode',
+    text: '官网见 https://例え.jp。',
+    lang: null,
+    expected: '官网见 例え.jp。'
   },
   {
     label: 'a labeled link with a title keeps the label and drops both',

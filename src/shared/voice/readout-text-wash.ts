@@ -18,10 +18,10 @@ const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*<?([^)\s]*?)>?(?:\s+(?:'[^']*'|"[^"]*"
 const MARKDOWN_LINK = /\[([^\]]+)\]\(\s*<?([^)\s]*?)>?(?:\s+(?:'[^']*'|"[^"]*"|\([^)]*\)))?\s*\)/g
 
 /** An autolink is the same URL wearing `<` `>` — markup to strip before the bare-URL pass. */
-const AUTOLINK = new RegExp(`<(${PROSE_HTTP_URL_SOURCE})>`, 'gu')
+const AUTOLINK = new RegExp(`<(${PROSE_HTTP_URL_SOURCE})>`, 'giu')
 
 /** A bare URL in prose, split into the space that introduced it and the URL itself. */
-const BARE_URL = new RegExp(`( ?)(${PROSE_HTTP_URL_SOURCE})`, 'gu')
+const BARE_URL = new RegExp(`( ?)(${PROSE_HTTP_URL_SOURCE})`, 'giu')
 
 /** Paired emphasis markers, strongest first so `***both***` peels in one step. */
 const ASTERISK_PAIRS: RegExp[] = [
@@ -54,11 +54,15 @@ const ESCAPED_DELIMITER = /\\([\\`*_[\]()#])/g
 const ESCAPE_HOLDER = /\uE000(\d+)\uE001/g
 
 /**
- * An issue reference is digits after `#` — but so is a hex swatch. A digits-only run of hex
- * length (3/4/6/8) is a color like `#505050`, not a ticket; anything else expands.
+ * An issue reference is digits after `#` — but so is a hex swatch, and length cannot tell
+ * them apart: `#123456` is as good a ticket number as it is a gray. Context decides. A token
+ * a color word leads straight into stays verbatim; everything else expands, whatever its
+ * length. The word must be the last thing before the `#` (copulas and colons may bridge), so
+ * "the palette bug in #50" still reads as a ticket.
  */
 const ISSUE_REFERENCE = /#(\d+)\b/g
-const HEX_COLOR_LENGTHS = new Set([3, 4, 6, 8])
+const COLOR_CONTEXT =
+  /(?:^|[^\p{L}\p{N}])(?:palette|colou?r|background|foreground|fill|stroke|hex|颜色|色彩|配色|色值|背景色)\s*(?:is|was|are|=|:)?\s*$/iu
 
 // Kana settles the language before han does: Japanese prose borrows ideographs, Chinese does not borrow kana.
 const KANA = /[぀-ヿ]/
@@ -120,7 +124,33 @@ function washBareUrl(url: string): string {
   if (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
     return ''
   }
-  return parsed.hostname.replace(/^www\./i, '')
+  return spokenHost(url)
+}
+
+/**
+ * The host a listener hears, taken from the text the URL was matched with rather than from
+ * the parsed URL. The parser serializes a Unicode host into punycode — `https://例え.jp` would
+ * come back as `xn--r8jz45g.jp`, machine soup no reader asked for — so the parser only decides
+ * whether the URL is worth hearing at all; the spoken form keeps the characters its author
+ * wrote, minus credentials, port and `www.`.
+ */
+function spokenHost(url: string): string {
+  const afterScheme = url.replace(/^https?:\/\//i, '')
+  // The authority ends where a path, query or fragment would begin; the bounded match carries
+  // no whitespace past it.
+  const authority = afterScheme.split(/[/?#]/)[0] ?? ''
+  // Userinfo cannot hold a raw `@`, so the last one separates it from the host.
+  const at = authority.lastIndexOf('@')
+  const hostPort = at === -1 ? authority : authority.slice(at + 1)
+  // A bracketed IPv6 host ends at its `]`; whatever follows is the port.
+  const bareHost = hostPort.startsWith('[')
+    ? hostPort.slice(0, hostPort.indexOf(']') + 1)
+    : hostPort.replace(/:\d*$/, '')
+  const named = bareHost.replace(/^www\./i, '')
+  // A listener hears the same domain however it is cased, and lowercasing keeps mixed-case
+  // prose calm; a Unicode host, though, must not pass through case mapping, which can quietly
+  // rewrite it — so only an all-ASCII domain normalizes.
+  return /^[\x21-\x7e]*$/.test(named) ? named.toLowerCase() : named
 }
 
 /** Peels each paired delimiter, keeping whatever the pair's capture groups held. */
@@ -161,8 +191,8 @@ export function washReadoutText(text: string, lang?: string | null): string {
       const washed = washBareUrl(url)
       return washed === '' ? '' : introducer + washed
     })
-  const expanded = withoutLinks.replace(ISSUE_REFERENCE, (match, number: string) =>
-    HEX_COLOR_LENGTHS.has(number.length)
+  const expanded = withoutLinks.replace(ISSUE_REFERENCE, (match, number: string, offset: number) =>
+    COLOR_CONTEXT.test(withoutLinks.slice(0, offset))
       ? match
       : spokenIssueReference(number, referenceLanguage(lang, text))
   )
