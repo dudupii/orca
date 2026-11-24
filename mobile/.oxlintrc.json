@@ -71,19 +71,6 @@
           }
         ]
       }
-    },
-    {
-      "files": ["src/voice-mode/voice-mode-host.test.tsx"],
-      "rules": {
-        "max-lines": [
-          "error",
-          {
-            "max": 1113,
-            "skipBlankLines": true,
-            "skipComments": true
-          }
-        ]
-      }
     }
   ]
 }

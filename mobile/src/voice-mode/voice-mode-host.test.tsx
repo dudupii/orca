@@ -68,31 +68,37 @@ type Seam = {
   livenessRequests: string[]
 }
 
-const seam = vi.hoisted((): Seam => ({
-  calls: [],
-  read: { revision: 0, committed: '', tentative: '', failure: null },
-  speechStartResult: { started: true, locale: 'en-US', reason: null },
-  openResult: { ok: true },
-  beginResult: true,
-  turnActive: false,
-  replyText: '',
-  ttsAvailable: true,
-  ttsStatus: 'done',
-  ttsSpeakCalls: [],
-  ttsStopCalls: 0,
-  tone: null,
-  toneCalls: [],
-  sendOutcome: 'accepted',
-  routerPushes: [],
-  navigations: [],
-  speakSink: null,
-  speakSubscribed: 0,
-  speakUnsubscribed: 0,
-  speakClients: [],
-  worktreeMissing: false,
-  sessionTabs: { tabs: [] },
-  livenessRequests: []
-}))
+// The one place the seam's starting state is written: the hoisted literal and the per-test reset
+// both draw from it, so a field added to Seam has exactly one fresh value to keep in step.
+function freshSeam(): Seam {
+  return {
+    calls: [],
+    read: { revision: 0, committed: '', tentative: '', failure: null },
+    speechStartResult: { started: true, locale: 'en-US', reason: null },
+    openResult: { ok: true },
+    beginResult: true,
+    turnActive: false,
+    replyText: '',
+    ttsAvailable: true,
+    ttsStatus: 'done',
+    ttsSpeakCalls: [],
+    ttsStopCalls: 0,
+    tone: null,
+    toneCalls: [],
+    sendOutcome: 'accepted',
+    routerPushes: [],
+    navigations: [],
+    speakSink: null,
+    speakSubscribed: 0,
+    speakUnsubscribed: 0,
+    speakClients: [],
+    worktreeMissing: false,
+    sessionTabs: { tabs: [] },
+    livenessRequests: []
+  }
+}
+
+const seam = vi.hoisted((): Seam => freshSeam())
 
 // The AppState the host subscribes to: change handlers only ever registered for 'change', fired by hand.
 const appState = vi.hoisted(() => ({
@@ -105,6 +111,13 @@ const appState = vi.hoisted(() => ({
     }
   }
 }))
+
+// Puts the seam and the hand-fired AppState back to their starting state between tests.
+function resetHarnessState(): void {
+  Object.assign(seam, freshSeam())
+  appState.listeners.length = 0
+  appState.subscribedTypes.length = 0
+}
 
 // The capture and speech contracts let the bridge reject and native begin throw part-way.
 function settle<T>(value: T | Error): Promise<T> {
@@ -414,32 +427,28 @@ type Harness = {
   unmount: () => void
 }
 
+// The chat's send verb both loop paths ride, answering from the seam so a test can flip the outcome.
+function sendOutcomeFn() {
+  return vi.fn(
+    async (
+      _text: string,
+      _images?: string[],
+      _deadline?: number,
+      _attachments?: readonly unknown[],
+      _sentAt?: number,
+      _intent?: MobileNativeChatSendIntent
+    ): Promise<MobileNativeChatSendOutcome> => seam.sendOutcome
+  )
+}
+
 function mountVoiceModeHost(options: { strict?: boolean } = {}): Harness {
   const showToast = vi.fn()
   const send = vi.fn(async () => true)
-  // The chat's send verb both loop paths ride; the steer intent is the only thing telling them apart.
-  const sendWithOutcome = vi.fn(
-    async (
-      _text: string,
-      _images?: string[],
-      _deadline?: number,
-      _attachments?: readonly unknown[],
-      _sentAt?: number,
-      _intent?: MobileNativeChatSendIntent
-    ): Promise<MobileNativeChatSendOutcome> => seam.sendOutcome
-  )
+  // The steer intent is the only thing telling the loop's two send paths apart.
+  const sendWithOutcome = sendOutcomeFn()
   // A stacked copy of the same session stands on another pane; its chat must never answer for the owner's.
   const stackedSend = vi.fn(async () => true)
-  const stackedSendWithOutcome = vi.fn(
-    async (
-      _text: string,
-      _images?: string[],
-      _deadline?: number,
-      _attachments?: readonly unknown[],
-      _sentAt?: number,
-      _intent?: MobileNativeChatSendIntent
-    ): Promise<MobileNativeChatSendOutcome> => seam.sendOutcome
-  )
+  const stackedSendWithOutcome = sendOutcomeFn()
   let dictation = fakeDictation(false)
   const dictationHost: MobileDictationHost = {
     owner: null,
@@ -577,31 +586,7 @@ async function speak(harness: Harness, revision: number, text: string): Promise<
 describe('MobileVoiceModeHostProvider', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    seam.calls.length = 0
-    seam.read = { revision: 0, committed: '', tentative: '', failure: null }
-    seam.speechStartResult = { started: true, locale: 'en-US', reason: null }
-    seam.openResult = { ok: true }
-    seam.beginResult = true
-    seam.turnActive = false
-    seam.replyText = ''
-    seam.ttsAvailable = true
-    seam.ttsStatus = 'done'
-    seam.ttsSpeakCalls.length = 0
-    seam.ttsStopCalls = 0
-    seam.tone = null
-    seam.toneCalls.length = 0
-    appState.listeners.length = 0
-    appState.subscribedTypes.length = 0
-    seam.sendOutcome = 'accepted'
-    seam.routerPushes.length = 0
-    seam.navigations.length = 0
-    seam.speakSink = null
-    seam.speakSubscribed = 0
-    seam.speakUnsubscribed = 0
-    seam.speakClients.length = 0
-    seam.worktreeMissing = false
-    seam.sessionTabs = { tabs: [] }
-    seam.livenessRequests.length = 0
+    resetHarnessState()
   })
 
   afterEach(() => {
