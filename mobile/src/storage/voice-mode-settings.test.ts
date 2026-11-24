@@ -11,7 +11,8 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   }
 }))
 
-// The module keeps its loaded value in memory, so each read needs a fresh instance.
+// Reads hit storage every time (the writer lives in the native bundle), so one instance stays
+// honest; a fresh instance only isolates tests that seed storage directly.
 async function fresh(): Promise<typeof VoiceModeSettings> {
   vi.resetModules()
   return await import('./voice-mode-settings')
@@ -52,6 +53,13 @@ describe('voice mode response delay storage', () => {
     const second = await fresh()
     expect(await second.loadVoiceModeResponseDelaySeconds()).toBe(1.5)
   })
+
+  it('reads a save made after an earlier read, so a settings change reaches the next loop', async () => {
+    const { loadVoiceModeResponseDelaySeconds, saveVoiceModeResponseDelaySeconds } = await fresh()
+    expect(await loadVoiceModeResponseDelaySeconds()).toBe(1.5)
+    await saveVoiceModeResponseDelaySeconds(0)
+    expect(await loadVoiceModeResponseDelaySeconds()).toBe(0)
+  })
 })
 
 describe('voice mode speaking toggles storage', () => {
@@ -85,5 +93,12 @@ describe('voice mode speaking toggles storage', () => {
     const { loadVoiceModeBargeIn, loadVoiceModeFallbackReadout } = await fresh()
     expect(await loadVoiceModeBargeIn()).toBe(true)
     expect(await loadVoiceModeFallbackReadout()).toBe(true)
+  })
+
+  it('reads a save made after an earlier read, so a toggle change reaches the next loop', async () => {
+    const { loadVoiceModeBargeIn, saveVoiceModeBargeIn } = await fresh()
+    expect(await loadVoiceModeBargeIn()).toBe(true)
+    await saveVoiceModeBargeIn(false)
+    expect(await loadVoiceModeBargeIn()).toBe(false)
   })
 })

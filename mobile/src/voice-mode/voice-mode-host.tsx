@@ -108,6 +108,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   const captureRef = useRef(capture)
   const dictationHostRef = useRef(dictationHost)
   const toneRef = useRef(tone)
+  // The default holds only until the first loop's start loads the saved delay.
   const delaySecondsRef = useRef(1.5)
   // The loop's one playback owner; its broadcasts land here while the loop runs.
   const readoutRef = useRef<VoiceReadout | null>(null)
@@ -141,12 +142,6 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   // revision re-renders the host so the pill reads them where they stand.
   const refresh = useCallback(() => setRevision((revision) => revision + 1), [])
   const clearAwayToast = useCallback(() => setAwayToast(null), [])
-
-  useEffect(() => {
-    void loadVoiceModeResponseDelaySeconds().then((seconds) => {
-      delaySecondsRef.current = seconds
-    })
-  }, [])
 
   const settleReplyWaits = useCallback(() => {
     for (const wait of replyWaitsRef.current) {
@@ -295,13 +290,16 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
       }
       startingLoopRef.current = true
       void (async () => {
-        // Each loop loads the persisted speaking toggles as it starts — not at the host's mount —
-        // so a save made since the last loop, or one this phone had not read yet, is in force for
-        // this one. The loads answer unreadable storage with the defaults instead of rejecting.
-        const [bargeIn, fallbackReadout] = await Promise.all([
+        // Each loop loads the persisted delay and speaking toggles as it starts — not at the
+        // host's mount — so a save made since the last loop, or one this phone had not read yet,
+        // is in force for this one. The loads answer unreadable storage with the defaults
+        // instead of rejecting.
+        const [delaySeconds, bargeIn, fallbackReadout] = await Promise.all([
+          loadVoiceModeResponseDelaySeconds(),
           loadVoiceModeBargeIn(),
           loadVoiceModeFallbackReadout()
         ])
+        delaySecondsRef.current = delaySeconds
         startingLoopRef.current = false
         // The starting screen left while the settings loaded; no loop may begin after it.
         if (!bindingsRef.current.some((binding) => binding.sessionKey === next.sessionKey)) {

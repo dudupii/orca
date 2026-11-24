@@ -20,7 +20,7 @@ import { storageReadResultSchema } from '../src/mobile-web-shell/bridge/native-c
 import { BRIDGE_HOST_CATALOGS_GRANT } from '../src/mobile-web-shell/bridge/protocol/bridge-frame-fields'
 import {
   publishPageStorage,
-  refreshPageTerminalSettings
+  refreshPageNativeSettings
 } from '../src/mobile-web-shell/bridge/page-storage/page-async-storage'
 import {
   createPageDeviceStore,
@@ -208,7 +208,7 @@ bootstrapShellPage({
     client.onStorageUpdate(() => {
       const current = client.getShellSession()
       if (current !== null) {
-        refreshPageTerminalSettings(current.storage, current.storageOversize)
+        refreshPageNativeSettings(current.storage, current.storageOversize)
       }
     })
     const bootRoutes = preloadBootRoutes(route.pathname)

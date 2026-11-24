@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { PAGE_STORAGE_MAX_VALUE_CHARS } from '../../page-storage/page-storage-keys'
-import pageAsyncStorage, { PageStorageRefusedError, publishPageStorage } from './page-async-storage'
+import pageAsyncStorage, {
+  PageStorageRefusedError,
+  publishPageStorage,
+  refreshPageNativeSettings
+} from './page-async-storage'
 
 type Write = { key: string; value: string | null }
 
@@ -55,6 +59,22 @@ describe('what init primed', () => {
     publish({ 'orca:pins:host-1': '["wt-1"]' })
     publish({ 'orca:pins:host-2': '["wt-2"]' })
     await expect(pageAsyncStorage.getItem('orca:pins:host-1')).resolves.toBeNull()
+  })
+})
+
+describe('a native settings change after init', () => {
+  it('reaches the next read, clearing a key the app no longer holds', async () => {
+    publish({ 'orca:voiceModeResponseDelaySeconds': '1.5' })
+    refreshPageNativeSettings({ 'orca:voiceModeBargeIn': 'false' }, [])
+    await expect(pageAsyncStorage.getItem('orca:voiceModeBargeIn')).resolves.toBe('false')
+    // A key absent from the refreshed session reads as gone, never as the stale init value.
+    await expect(pageAsyncStorage.getItem('orca:voiceModeResponseDelaySeconds')).resolves.toBeNull()
+  })
+
+  it('leaves page-owned keys alone', async () => {
+    publish({ 'orca:pins:host-1': '["wt-1"]' })
+    refreshPageNativeSettings({ 'orca:voiceModeFallbackReadout': 'false' }, [])
+    await expect(pageAsyncStorage.getItem('orca:pins:host-1')).resolves.toBe('["wt-1"]')
   })
 })
 

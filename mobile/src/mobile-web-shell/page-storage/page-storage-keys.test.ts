@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isPageStorageKey,
   isPageStorageKeyForRoute,
+  pageReadsStorageKey,
   pageRouteWorkspace,
   pageStorageEntriesForInit,
   PAGE_STORAGE_MAX_VALUE_CHARS
@@ -26,6 +27,28 @@ describe('the keys a page may read and write', () => {
   it('refuses a key that only starts like an allowlisted one', () => {
     expect(isPageStorageKey('orca:last-visited-worktree:other')).toBe(false)
     expect(isPageStorageKey('not-orca:pins:host-1')).toBe(false)
+  })
+
+  it('admits the voice mode settings the page loop reads at each start', () => {
+    for (const key of [
+      'orca:voiceModeResponseDelaySeconds',
+      'orca:voiceModeBargeIn',
+      'orca:voiceModeFallbackReadout'
+    ]) {
+      expect(isPageStorageKey(key), key).toBe(true)
+      expect(isPageStorageKeyForRoute(key, 'host-1', SESSION_ROUTE), key).toBe(true)
+    }
+  })
+})
+
+describe('keys negotiated with the page', () => {
+  it('withholds the voice mode keys from a page whose ready named nothing', () => {
+    expect(pageReadsStorageKey('orca:voiceModeResponseDelaySeconds', null)).toBe(false)
+    expect(pageReadsStorageKey('orca:voiceModeBargeIn', ['orca:voiceModeBargeIn'])).toBe(true)
+  })
+
+  it('still sends the older exact keys without negotiation', () => {
+    expect(pageReadsStorageKey('orca:terminalTextScale', null)).toBe(true)
   })
 })
 

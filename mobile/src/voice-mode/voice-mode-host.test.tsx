@@ -26,7 +26,10 @@ import { MobileVoiceModeHostProvider } from './voice-mode-host'
 import { useMobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import type { MobileSessionVoiceMode } from './use-mobile-session-voice-mode'
 import { VOICE_MODE_OWNER_LIVENESS_POLL_MS } from './voice-mode-owner-liveness'
-import { loadVoiceModeBargeIn } from '../storage/voice-mode-settings'
+import {
+  loadVoiceModeBargeIn,
+  loadVoiceModeResponseDelaySeconds
+} from '../storage/voice-mode-settings'
 import type { MobileSessionController } from '../session/use-mobile-session-controller'
 import type { MobileSessionTab } from '../session/tabs/mobile-session-tabs'
 import type {
@@ -616,6 +619,19 @@ describe('MobileVoiceModeHostProvider', () => {
     expect(harness.subscriptionLive()).toBe(true)
     expect(seam.speakSubscribed).toBe(1)
     expect(harness.owner()?.sessionKey).toBe(SESSION_KEY)
+  })
+
+  it('sends with no wait when the loop loaded a zero response delay', async () => {
+    vi.mocked(loadVoiceModeResponseDelaySeconds).mockReturnValue(Promise.resolve(0))
+    const harness = mountVoiceModeHost()
+    await startLoop(harness)
+    seam.read = { revision: 1, committed: 'send at once', tentative: '', failure: null }
+    await act(async () => {
+      // One poll past the silence window sends: the 1500ms wait a default delay would still owe
+      // (150 + 1200 + 1500) has nothing left of it here.
+      await vi.advanceTimersByTimeAsync(150 + 1200 + 150)
+    })
+    expect(harness.send).toHaveBeenCalledWith('send at once')
   })
 
   it('keeps the loop when the chat hides, still sending what is spoken over it', async () => {
