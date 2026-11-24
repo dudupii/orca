@@ -25,15 +25,17 @@ const INJECTION: VoiceSpeakLaunchInjection = {
 const OWN_SESSION_BRIEFING =
   'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
   'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
-  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
-  "worth hearing aloud. This conversation's session id is session-voice-1: pass it as the " +
-  'session argument on every `speak` call so the briefing plays only here.'
+  'keep the written reply for the details. A briefing is spoken prose: plain sentences, no ' +
+  'markdown, no URLs, at most three sentences. Speaking is optional: skip it when there is ' +
+  "nothing worth hearing aloud. This conversation's session id is session-voice-1: pass it as " +
+  'the session argument on every `speak` call so the briefing plays only here.'
 const OTHER_SESSION_BRIEFING =
   'A paired phone is listening: the `speak` tool reads a short briefing aloud there. Close ' +
   'meaningful work with one spoken briefing - briefings over readouts, prose over lists - and ' +
-  'keep the written reply for the details. Speaking is optional: skip it when there is nothing ' +
-  "worth hearing aloud. This conversation's session id is session-voice-2: pass it as the " +
-  'session argument on every `speak` call so the briefing plays only here.'
+  'keep the written reply for the details. A briefing is spoken prose: plain sentences, no ' +
+  'markdown, no URLs, at most three sentences. Speaking is optional: skip it when there is ' +
+  "nothing worth hearing aloud. This conversation's session id is session-voice-2: pass it as " +
+  'the session argument on every `speak` call so the briefing plays only here.'
 
 function resolverDeps(
   voiceDeps: {

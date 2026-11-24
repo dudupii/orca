@@ -1,4 +1,5 @@
 import { condenseReplyForReadout } from './fallback-prose-extractor'
+import { washReadoutText } from './readout-text-wash'
 
 /**
  * The voice-mode loop as a pure routing table. Three active routes — listening, thinking,
@@ -6,7 +7,8 @@ import { condenseReplyForReadout } from './fallback-prose-extractor'
  * close-tab exit. Speech during speaking is a barge-in: playback stops and the loop
  * re-enters listening, but speech inside the AEC-tail window after any playback stop is
  * echo, not the user, and is refused. A reply carries either a model-authored briefing,
- * spoken verbatim, or the reply's own condensed prose; with neither, or with the fallback
+ * or the reply's own condensed prose; either way the spoken text passes through one wash
+ * that strips what a screen renders silently but TTS reads aloud. With neither, or with the fallback
  * muted by its setting, there is nothing to say and the loop returns to listening without
  * playback. Speech while the loop's own turn runs is steering: held across pauses shorter
  * than the silence window, then injected into the running turn when the window closes or a
@@ -195,16 +197,20 @@ export function voiceLoopTransition(
         steering: [],
         lastSpeechAt: null
       }
-      // A model-authored briefing is spoken verbatim; without one the reply's condensed prose is the readout,
-      // unless the fallback setting mutes it.
-      const readout =
+      // A model-authored briefing is the readout; without one the reply's condensed prose is,
+      // unless the fallback setting mutes it. Both sides write for a screen, so both pass
+      // through the same wash before anything is spoken; the wash can empty a readout that
+      // was all markup, and an empty readout is silence, never a stalled loop. The wash's
+      // language rides the same locale the speak effect will carry.
+      const readout = washReadoutText(
         event.briefing !== undefined
           ? event.briefing.text
           : deps.fallbackReadout === false
             ? ''
-            : condenseReplyForReadout(event.text)
+            : condenseReplyForReadout(event.text),
+        event.briefing?.lang ?? null
+      )
       if (!readout) {
-        // Nothing authored and no prose to read: silence, never a stalled loop.
         return moved({ ...dropped, route: 'listening' })
       }
       return moved(dropped, [

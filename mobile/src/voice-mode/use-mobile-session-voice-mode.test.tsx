@@ -472,7 +472,8 @@ describe('useMobileSessionVoiceMode', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250 + 150 + 100)
     })
-    // No briefing arrived, so the reply's condensed prose is spoken in the phone's language.
+    // No briefing arrived, so the wash over the reply's condensed prose is spoken, in the
+    // phone's language.
     expect(seam.ttsSpeakCalls).toEqual([
       { text: 'The build passed. Tests are green.', locale: null }
     ])
