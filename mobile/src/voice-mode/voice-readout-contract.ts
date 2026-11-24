@@ -21,7 +21,8 @@ export type VoiceReadoutEnd = 'done' | 'stopped' | 'interrupted' | 'failed'
 /**
  * The single owner of the speaking side: got words → started playing → playback ended or was
  * interrupted all converge here, so nothing else in voice mode touches playback. The loop's
- * machine decides what is said (briefing verbatim, else condensed reply prose, else nothing) and
+ * machine decides what is said (the wash over an authored briefing, else the wash over the
+ * condensed reply prose, else nothing) and
  * hands this module the words; this module claims them on the phone's speaker and settles how
  * they ended. Later tickets attach without rewiring:
  * - T7 (session gating, overrides) wraps briefingArrived and reads settleBriefing — its session

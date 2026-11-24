@@ -105,6 +105,84 @@ it.each([
     expected: '## Notes\nThe palette is #ffcc00 today.'
   },
   {
+    label: 'a digits-only hex color is not an issue reference',
+    text: 'The palette is #505050.',
+    lang: 'en-US',
+    expected: 'The palette is #505050.'
+  },
+  {
+    label: 'underscore bold and italic peel off',
+    text: 'The __bold__ and _italic_ remain.',
+    lang: null,
+    expected: 'The bold and italic remain.'
+  },
+  {
+    label: 'escaped delimiters survive as literals without their backslash',
+    text: 'Escaped \\*word\\* stays literal.',
+    lang: null,
+    expected: 'Escaped *word* stays literal.'
+  },
+  {
+    label: 'spaced asterisks are multiplication, not emphasis',
+    text: '2 * 3 * 4 keeps its spacing.',
+    lang: null,
+    expected: '2 * 3 * 4 keeps its spacing.'
+  },
+  {
+    label: 'snake_case identifiers keep their underscores',
+    text: 'Rename foo_bar_baz to match.',
+    lang: null,
+    expected: 'Rename foo_bar_baz to match.'
+  },
+  {
+    label: 'a short autolink reads as its domain, brackets dropped',
+    text: 'Docs live at <https://example.com/>.',
+    lang: null,
+    expected: 'Docs live at example.com.'
+  },
+  {
+    label: 'a deep autolink is skipped whole, brackets dropped',
+    text: 'See <https://example.com/a/b> for notes.',
+    lang: null,
+    expected: 'See for notes.'
+  },
+  {
+    label: 'a URL keeps its fullwidth sentence punctuation',
+    text: '详见 https://example.com。',
+    lang: null,
+    expected: '详见 example.com。'
+  },
+  {
+    label: 'a URL wearing bold loses the markers and keeps its domain',
+    text: 'Docs at **https://example.com** end.',
+    lang: null,
+    expected: 'Docs at example.com end.'
+  },
+  {
+    label: 'a bare URL speaks its hostname, never its credentials',
+    text: 'Login at https://user:hunter2@example.com.',
+    lang: null,
+    expected: 'Login at example.com.'
+  },
+  {
+    label: 'a bare URL speaks its hostname, never its port',
+    text: 'The dev server is at https://localhost:8080.',
+    lang: null,
+    expected: 'The dev server is at localhost.'
+  },
+  {
+    label: 'a labeled link with a title keeps the label and drops both',
+    text: 'See [docs](https://example.com/abc "Official") first.',
+    lang: null,
+    expected: 'See docs first.'
+  },
+  {
+    label: 'a labeled link with an angle-bracket destination keeps the label',
+    text: 'See [docs](<https://example.com/abc>) first.',
+    lang: null,
+    expected: 'See docs first.'
+  },
+  {
     label: 'mixed Chinese and English prose washes as one piece',
     text: '修好了 **登录** 问题,详见 #50 和 https://github.com/dudupii/orca/issues/50#issuecomment-1。',
     lang: null,
