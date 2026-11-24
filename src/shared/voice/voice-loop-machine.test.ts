@@ -430,6 +430,43 @@ it('a briefing without a language leaves the locale to the phone', () => {
   expect(spoken.effects).toEqual([{ kind: 'speak', text: 'Brief words.' }])
 })
 
+it('washes a screen-written briefing before it is spoken, its language still riding the effect', () => {
+  const { m } = thinkingMachine()
+  const spoken = m.dispatch({
+    type: 'reply',
+    text: 'ignored',
+    briefing: {
+      text: '**Done**. 清单在 [#50 评论里的清单](https://github.com/dudupii/orca/issues/50#issuecomment-7086648152)。',
+      lang: 'zh-CN'
+    }
+  })
+  expect(spoken.effects).toEqual([
+    { kind: 'speak', text: 'Done. 清单在 50 号问题 评论里的清单。', locale: 'zh-CN' }
+  ])
+})
+
+it('washes the condensed fallback too, so markdown never reaches the speak effect', () => {
+  const { m } = thinkingMachine()
+  const spoken = m.dispatch({
+    type: 'reply',
+    text: 'It is *noon*. Grab an **umbrella**. Rain is likely. Fourth sentence.'
+  })
+  expect(spoken.effects).toEqual([
+    { kind: 'speak', text: 'It is noon. Grab an umbrella. Rain is likely.' }
+  ])
+})
+
+it('stays silent when a briefing washes away to nothing', () => {
+  const { m } = thinkingMachine()
+  const silent = m.dispatch({
+    type: 'reply',
+    text: 'ignored',
+    briefing: { text: 'https://github.com/dudupii/orca/pull/27#issuecomment-1', lang: null }
+  })
+  expect(silent.effects).toEqual([])
+  expect(silent.state.route).toBe('listening')
+})
+
 it('returns to listening without playback when there is nothing to read aloud', () => {
   const { m, clock } = thinkingMachine()
   const silent = m.dispatch({ type: 'reply', text: '' })
