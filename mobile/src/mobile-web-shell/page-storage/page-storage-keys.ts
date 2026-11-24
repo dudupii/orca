@@ -28,6 +28,22 @@ export const TERMINAL_SETTINGS_STORAGE_KEYS = [
   'orca:terminalLinkOpenMode'
 ] as const
 
+// The voice loop runs in the page and reads these at each loop's start; the native settings screen
+// is the only writer. They are phone-local UX preferences of the same standing as the terminal
+// settings above, not state the app owns defensively (pairings, push registrations stay refused).
+export const VOICE_MODE_SETTINGS_STORAGE_KEYS = [
+  'orca:voiceModeResponseDelaySeconds',
+  'orca:voiceModeBargeIn',
+  'orca:voiceModeFallbackReadout'
+] as const
+
+// Keys a native settings screen owns and re-publishes to a page that already loaded, so a change
+// made after init is in force for that screen's next read.
+export const REFRESHED_PAGE_SETTINGS_STORAGE_KEYS = [
+  ...TERMINAL_SETTINGS_STORAGE_KEYS,
+  ...VOICE_MODE_SETTINGS_STORAGE_KEYS
+] as const
+
 export const PAGE_STORAGE_EXACT_KEYS = [
   'orca:last-visited-worktree',
   'orca:hostSidebarWidth',
@@ -42,7 +58,8 @@ export const PAGE_STORAGE_EXACT_KEYS = [
   /** Whether a terminal link opens in Orca's browser or the phone's. */
   'orca:terminalLinkOpenMode',
   /** The split terminal's chosen direction. */
-  'orca:terminalSplitLayout'
+  'orca:terminalSplitLayout',
+  ...VOICE_MODE_SETTINGS_STORAGE_KEYS
 ] as const
 
 /**
@@ -50,7 +67,10 @@ export const PAGE_STORAGE_EXACT_KEYS = [
  * reader refines each key against its own list and refuses the whole frame on one it lacks, so
  * the host sends these only to a page whose `ready` named them in `storageKeys`.
  */
-export const NEGOTIATED_PAGE_STORAGE_KEYS = ['orca:terminalSplitLayout'] as const
+export const NEGOTIATED_PAGE_STORAGE_KEYS = [
+  'orca:terminalSplitLayout',
+  ...VOICE_MODE_SETTINGS_STORAGE_KEYS
+] as const
 
 /** Whether a page that declared `storageKeys` (null: declared nothing) reads this key in `init`. */
 export function pageReadsStorageKey(key: string, declared: readonly string[] | null): boolean {

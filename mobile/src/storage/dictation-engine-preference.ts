@@ -24,7 +24,8 @@ export async function loadDictationEnginePreference(): Promise<DictationEnginePr
       DEFAULT_DICTATION_ENGINE_PREFERENCE
     return cached
   } catch {
-    return DEFAULT_DICTATION_ENGINE_PREFERENCE
+    // A save that landed while the read was failing already chose; it wins over the default.
+    return cached ?? DEFAULT_DICTATION_ENGINE_PREFERENCE
   }
 }
 

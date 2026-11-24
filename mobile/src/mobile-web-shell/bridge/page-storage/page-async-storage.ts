@@ -1,5 +1,5 @@
 import {
-  TERMINAL_SETTINGS_STORAGE_KEYS,
+  REFRESHED_PAGE_SETTINGS_STORAGE_KEYS,
   isHostWorkspaceStorageKey,
   isPageStorageKeyForRoute,
   PAGE_STORAGE_MAX_VALUE_CHARS
@@ -59,13 +59,13 @@ export function publishPageStorage(
   readWorkspaceKey = forWorkspaceKeyReader
 }
 
-/** Apply native terminal settings without replacing page-owned drafts or pending journals. */
-export function refreshPageTerminalSettings(
+/** Apply native-owned settings (terminal, voice mode) without replacing page-owned drafts or pending journals. */
+export function refreshPageNativeSettings(
   entries: Readonly<Record<string, string>>,
   oversize: readonly string[]
 ): void {
   const nextOversize = new Set(oversizeKeys)
-  for (const key of TERMINAL_SETTINGS_STORAGE_KEYS) {
+  for (const key of REFRESHED_PAGE_SETTINGS_STORAGE_KEYS) {
     const value = entries[key]
     if (value === undefined) {
       values.delete(key)
