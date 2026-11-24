@@ -64,7 +64,13 @@ export function createVoiceReadout(deps: VoiceReadoutDeps): VoiceReadout {
         return 'failed'
       }
       try {
-        const claimed = await playback.speak(utterance)
+        // A lang-less utterance gets its locale here, once, where both play paths — the reply's
+        // own and the restore's parked utterance — converge; the model's named locale passes as-is.
+        const locale =
+          utterance.locale !== null || deps.resolveLocale === undefined
+            ? utterance.locale
+            : deps.resolveLocale(utterance.text)
+        const claimed = await playback.speak({ text: utterance.text, locale })
         return await playClaimed(playback, claimed.revision)
       } catch {
         return 'failed'

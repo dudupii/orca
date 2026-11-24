@@ -8,6 +8,7 @@
  */
 
 import { PROSE_HTTP_URL_SOURCE } from '../prose-url-boundary'
+import { probeReadoutScriptLanguage } from './readout-script-language'
 
 /**
  * A markdown image is scaffolding twice over: its URL is unread and its alt text is not prose.
@@ -64,10 +65,6 @@ const ISSUE_REFERENCE = /#(\d+)\b/g
 const COLOR_CONTEXT =
   /(?:^|[^\p{L}\p{N}])(?:palette|colou?r|background|foreground|fill|stroke|hex|颜色|色彩|配色|色值|背景色)\s*(?:is|was|are|=|:)?\s*$/iu
 
-// Kana settles the language before han does: Japanese prose borrows ideographs, Chinese does not borrow kana.
-const KANA = /[぀-ヿ]/
-const IDEOGRAPH = /[一-鿿]/
-
 type ReferenceLanguage = 'zh' | 'ja' | 'en'
 
 /**
@@ -86,13 +83,9 @@ function referenceLanguage(lang: string | null | undefined, text: string): Refer
   if (spoken) {
     return 'en'
   }
-  if (KANA.test(text)) {
-    return 'ja'
-  }
-  if (IDEOGRAPH.test(text)) {
-    return 'zh'
-  }
-  return 'en'
+  // A null probe is English here, where the speak chain would instead fall to the device's
+  // language: the reference must merely sound native to the prose, not name a locale.
+  return probeReadoutScriptLanguage(text) ?? 'en'
 }
 
 /** The natural spoken form of issue `#50` in each language the wash distinguishes. */

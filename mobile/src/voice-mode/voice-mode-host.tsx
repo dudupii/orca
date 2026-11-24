@@ -21,9 +21,11 @@ import type { RpcClient } from '../transport/rpc/rpc-client-contract'
 import {
   loadVoiceModeBargeIn,
   loadVoiceModeFallbackReadout,
+  loadVoiceModeReadoutLanguage,
   loadVoiceModeResponseDelaySeconds
 } from '../storage/voice-mode-settings'
 import { voiceModeCopy } from './voice-mode-copy'
+import { readoutLocaleResolver } from './readout-speak-locale'
 import { createVoiceReadout } from './voice-readout'
 import type { VoiceReadout } from './voice-readout-contract'
 import { subscribeToSpeakBroadcasts } from './speak-broadcast'
@@ -294,10 +296,11 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
         // host's mount — so a save made since the last loop, or one this phone had not read yet,
         // is in force for this one. The loads answer unreadable storage with the defaults
         // instead of rejecting.
-        const [delaySeconds, bargeIn, fallbackReadout] = await Promise.all([
+        const [delaySeconds, bargeIn, fallbackReadout, readoutLanguage] = await Promise.all([
           loadVoiceModeResponseDelaySeconds(),
           loadVoiceModeBargeIn(),
-          loadVoiceModeFallbackReadout()
+          loadVoiceModeFallbackReadout(),
+          loadVoiceModeReadoutLanguage()
         ])
         delaySecondsRef.current = delaySeconds
         startingLoopRef.current = false
@@ -306,7 +309,12 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
           return
         }
         // The speaking side's single owner for this loop; a shell without the tts verb stays silent, never broken.
-        const readout = createVoiceReadout({ playback: ttsRef.current })
+        // The readout language is fixed for this loop's life like the toggles above, resolved per
+        // utterance against the device locale the seam reads each time.
+        const readout = createVoiceReadout({
+          playback: ttsRef.current,
+          resolveLocale: readoutLocaleResolver(readoutLanguage)
+        })
         readoutRef.current = readout
         const loop = new VoiceLoopShell({
           now: Date.now,

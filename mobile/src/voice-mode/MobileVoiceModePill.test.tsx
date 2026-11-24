@@ -127,6 +127,11 @@ vi.mock('../platform/speech/on-device-speech', () => {
   }
   return { useOnDeviceSpeech: () => speech }
 })
+// The device-locale seam pulls expo-localization, which no vitest run defines; the loop only
+// needs a stable locale to resolve a lang-less readout against.
+vi.mock('../platform/speech/on-device-speech-locale', () => ({
+  onDeviceSpeechLocale: vi.fn(() => 'en-US')
+}))
 
 vi.mock('../platform/audio-capture/dictation-capture', () => {
   const capture: DictationCapture = {
@@ -187,6 +192,7 @@ vi.mock('../storage/voice-mode-settings', () => ({
   loadVoiceModeBargeIn: vi.fn(async () => true),
   saveVoiceModeBargeIn: vi.fn(async () => {}),
   loadVoiceModeFallbackReadout: vi.fn(async () => true),
+  loadVoiceModeReadoutLanguage: vi.fn(async () => ({ mode: 'automatic' })),
   saveVoiceModeFallbackReadout: vi.fn(async () => {})
 }))
 

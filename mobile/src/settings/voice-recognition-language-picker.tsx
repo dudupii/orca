@@ -32,7 +32,8 @@ export function languageDisplayName(tag: string): string {
 }
 
 // The device's whole UI preference list plus a stored choice the system no longer lists; probed, never a hardcoded catalog.
-function candidateTags(selected: string | null): string[] {
+// Shared with the readout-language picker, which offers the same language choices for speaking.
+export function candidateTags(selected: string | null): string[] {
   const tags: string[] = []
   for (const tag of [...readDeviceUiLocaleTags(), ...(selected === null ? [] : [selected])]) {
     if (!tags.includes(tag)) {

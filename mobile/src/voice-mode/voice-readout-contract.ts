@@ -48,4 +48,10 @@ export type VoiceReadout = {
 /** What createVoiceReadout plays through; null mutes playback without breaking the turn. */
 export type VoiceReadoutDeps = {
   readonly playback: OnDeviceTtsChannel | null
+  /**
+   * The locale for an utterance that arrived without one — the model named no language for the
+   * readout (briefing.lang outranks this and never reaches it as null-by-choice). Null keeps the
+   * engine's own language. Absent, a lang-less utterance plays lang-less.
+   */
+  readonly resolveLocale?: (text: string) => string | null
 }
