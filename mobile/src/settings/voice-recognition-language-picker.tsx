@@ -254,7 +254,11 @@ export function VoiceRecognitionLanguagePicker({
           </Fragment>
         ) : null}
         {otherError === null ? null : (
-          <Text style={styles.otherError} testID="voice-recognition-language-other-error">
+          <Text
+            accessibilityRole="alert"
+            style={styles.otherError}
+            testID="voice-recognition-language-other-error"
+          >
             {otherError}
           </Text>
         )}

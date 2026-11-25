@@ -76,10 +76,19 @@ describe('voice language candidates', () => {
     const tags = voiceLanguageCandidateTags(['ja-JP'], null)
     expect(tags[0]).toBe('ja-JP')
     expect(tags).toContain('zh-CN')
-    // ja-JP is an exact duplicate and ja is its bare-language fold.
+    // The catalog's ja-JP duplicates the system entry exactly; the catalog has no bare ja to fold.
     expect(tags.filter((tag) => tag.toLowerCase().startsWith('ja'))).toEqual(['ja-JP'])
     // System first, catalog after: every catalog survivor follows the system entry.
     expect(tags.indexOf('ar')).toBe(1)
+  })
+
+  it('folds a bare catalog language under a regional system tag, keeping the unrelated rows', () => {
+    // The system's en-US covers English, so the catalog's bare en is folded away; de and ja-JP stay.
+    const tags = voiceLanguageCandidateTags(['en-US'], null)
+    expect(tags[0]).toBe('en-US')
+    expect(tags).not.toContain('en')
+    expect(tags).toContain('de')
+    expect(tags).toContain('ja-JP')
   })
 
   it('keeps a stored choice that neither the system list nor the catalog spells', () => {
@@ -204,6 +213,8 @@ describe('voice recognition language picker', () => {
       rowByTestId(renderer.root, 'voice-recognition-language-other-use').props.onPress()
     })
     expect(otherErrorRows(renderer.root)).toHaveLength(1)
+    // The error announces itself to screen readers, like the settings error-note path.
+    expect(otherErrorRows(renderer.root)[0]?.props.accessibilityRole).toBe('alert')
     expect(onSelect).not.toHaveBeenCalled()
   })
 
