@@ -224,11 +224,12 @@ describe('the stored recognition language read again at each arm', () => {
   })
 
   it('arms each dictation in what a save between arms chose', async () => {
-    const { saveVoiceRecognitionLanguage, loadVoiceRecognitionLanguage } =
-      await import('../../storage/voice-recognition-language')
+    // The reader stays this module instance across the whole test; each save comes from a fresh one, so
+    // the arm can only see the save by re-reading storage, never from memory the reader already holds.
+    const reader = await import('../../storage/voice-recognition-language')
     const engine: NativeSpeechEngine = {
       ...engineWith('automatic'),
-      recognitionLocale: loadVoiceRecognitionLanguage,
+      recognitionLocale: reader.loadVoiceRecognitionLanguage,
       start: async (locale) => ({ started: true, locale })
     }
     const server = createNativeSpeechServer(engine)
@@ -237,13 +238,17 @@ describe('the stored recognition language read again at each arm', () => {
       locale: 'en-US',
       reason: null
     })
-    await saveVoiceRecognitionLanguage('zh-CN')
+    vi.resetModules()
+    const writer = await import('../../storage/voice-recognition-language')
+    await writer.saveVoiceRecognitionLanguage('zh-CN')
     expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
       started: true,
       locale: 'zh-CN',
       reason: null
     })
-    await saveVoiceRecognitionLanguage(null)
+    vi.resetModules()
+    const nextWriter = await import('../../storage/voice-recognition-language')
+    await nextWriter.saveVoiceRecognitionLanguage(null)
     expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
       started: true,
       locale: 'en-US',

@@ -6,11 +6,12 @@ const VOICE_RECOGNITION_LANGUAGE_KEY = 'orca:voiceRecognitionLanguage'
 // Where a save and an arm each happen: the settings screen writes through saveVoiceRecognitionLanguage
 // (mobile/app/voice-settings.tsx -> VoiceModeSettingsSection), and the recognizer is armed by the shell's
 // native.speech.act server (MobileWebShellScreen -> use-native-device-verbs -> nativeSpeechDeviceEngine's
-// recognitionLocale) resolving engine.recognitionLocale() -> loadVoiceRecognitionLanguage. The two do not
-// share one instance of this module — the shell's bundle and the page's webview bundle each evaluate it
-// once, and each keeps its own memory — so the only channel a save is guaranteed to reach the next arm
-// through is AsyncStorage itself. Read it on every load: a process-lifetime cache pins the pre-save choice
-// until restart, which is the stale arm #31 observed.
+// recognitionLocale) resolving engine.recognitionLocale() -> loadVoiceRecognitionLanguage. Statically both
+// paths are native-side: the page bundle mounts only the h route subtree (the rest of mobile/app, settings
+// included, is native-only), and the section is hasNativeSpeech()-gated, false in the page build — so
+// static analysis establishes no separate writer context for the stale arm #31 observed on device.
+// Whatever boundary the device actually crosses, AsyncStorage is the one channel correct under every
+// topology. Read it on every load: a process-lifetime cache pins the pre-save choice until restart.
 
 // Missing, empty, and overlong reads are Follow system; 35 is the bridge's locale schema's own bound.
 function saneLocale(raw: string | null): string | null {

@@ -108,6 +108,9 @@ describe('a save and an arm across the context boundary', () => {
   it('shows a save from one module instance in the read of another, with no reset between', async () => {
     const writer = await fresh()
     const reader = await fresh()
+    // Read once before any save: a reader that has never loaded would cross the boundary on first-read
+    // luck, while the bug is a process-lifetime cache pinned to the pre-save choice.
+    expect(await reader.loadVoiceRecognitionLanguage()).toBe(null)
     await writer.saveVoiceRecognitionLanguage('zh-CN')
     expect(await reader.loadVoiceRecognitionLanguage()).toBe('zh-CN')
     await writer.saveVoiceRecognitionLanguage(null)
@@ -120,6 +123,13 @@ describe('a save and an arm across the context boundary', () => {
     const writer = await fresh()
     const reader = await fresh()
     const server = createNativeSpeechServer(engineArmedBy(reader.loadVoiceRecognitionLanguage))
+    // One arm before any save, so a process-lifetime cache in the reader is pinned to Follow system when
+    // the save lands; arming from it afterwards is exactly the stale arm #31 observed.
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'en-US',
+      reason: null
+    })
     await writer.saveVoiceRecognitionLanguage('zh-CN')
     expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
       started: true,
