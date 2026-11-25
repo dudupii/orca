@@ -4,7 +4,7 @@ import type {
   ReleaseBuildListResult,
   UpdateCheckOptions
 } from '../../../shared/update-status-types'
-import { isReleaseChannel, type ReleaseChannel } from '../../../shared/release-channel'
+import { isKnownReleaseChannel, type ReleaseChannel } from '../../../shared/release-channel'
 import { getTrustedUIRendererWindow, isTrustedUIRenderer } from '../../ipc/ui'
 import type { Store } from '../../persistence/loading-store/store'
 import { logStartupMilestone } from '../../startup/diagnostics/startup-diagnostics'
@@ -180,8 +180,9 @@ export function registerUpdaterHandlers(_store: Store): void {
       channel: ReleaseChannel,
       options?: { force?: boolean }
     ): Promise<ReleaseBuildListResult> => {
-      // The picker list omits the personal channel, but a personal build still lists its own releases.
-      if (!isReleaseChannel(channel)) {
+      // The picker list omits the personal channel, but a personal build still lists its own
+      // releases, so the guard admits every known channel rather than the selectable five.
+      if (!isKnownReleaseChannel(channel)) {
         return { ok: false, channel, ...updaterCodedMessage('unknownReleaseChannel', { channel }) }
       }
       try {

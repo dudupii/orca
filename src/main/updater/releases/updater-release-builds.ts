@@ -102,6 +102,7 @@ type GitHubReleaseEntry = {
   tag_name?: unknown
   name?: unknown
   draft?: unknown
+  created_at?: unknown
   published_at?: unknown
   html_url?: unknown
   assets?: unknown
@@ -142,6 +143,8 @@ function parseReleaseEntry(
     version,
     channel,
     name: name && name !== tag ? name : null,
+    // created_at is the personal build-order stamp; published_at stays the dev-channel order field.
+    createdAt: typeof entry.created_at === 'string' ? entry.created_at : null,
     publishedAt: typeof entry.published_at === 'string' ? entry.published_at : null,
     releaseUrl:
       typeof entry.html_url === 'string'

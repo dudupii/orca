@@ -19,15 +19,13 @@ import {
 } from './updater-release-delay'
 
 const ATOM_FEED_URL = 'https://github.com/stablyai/orca/releases.atom'
-const PERSONAL_ATOM_FEED_URL = `https://github.com/${PERSONAL_RELEASE_REPO}/releases.atom`
+const PERSONAL_FEED_RELEASES_LIMIT = 100
+const PERSONAL_RELEASES_API_URL = `https://api.github.com/repos/${PERSONAL_RELEASE_REPO}/releases?per_page=${PERSONAL_FEED_RELEASES_LIMIT}`
 const MAX_MANIFEST_PROBE_CANDIDATES = 6
 
 // Atom includes stable and prerelease tags without channel filtering.
 const ENTRY_RE = /<entry>([\s\S]*?)<\/entry>/g
 const TAG_HREF_RE = /href="https:\/\/github\.com\/stablyai\/orca\/releases\/tag\/([^"]+)"/
-const PERSONAL_TAG_HREF_RE = new RegExp(
-  `href="https://github\\.com/${PERSONAL_RELEASE_REPO.replaceAll('/', '\\/')}/releases/tag/([^"]+)"`
-)
 const ENTRY_UPDATED_RE = /<updated>([^<]+)<\/updated>/
 
 export function normalizeTagToVersion(tag: string): string {
@@ -49,7 +47,7 @@ export function isPerfPrereleaseTag(tag: string): boolean {
   )
 }
 
-/** Personal builds order by release recency; semver cannot order commit-hash suffixes of one base version. */
+/** Personal builds order by release created_at; semver cannot order commit-hash suffixes of one base version. */
 function comparePersonalFeedTags(left: DatedReleaseTag, right: DatedReleaseTag): number {
   // Unknown dates sort last so known-newer releases win the newest-first slot.
   const leftAt = left.releasedAt ?? Number.NEGATIVE_INFINITY
@@ -60,13 +58,60 @@ function comparePersonalFeedTags(left: DatedReleaseTag, right: DatedReleaseTag):
   return compareVersions(right.version, left.version)
 }
 
-async function fetchReleaseFeedTags(currentVersion: string): Promise<ReleaseFeedTag[] | null> {
-  // The running version picks the feed: personal builds track only the fork's releases.
-  const personal = isPersonalVersion(currentVersion)
-  const atomUrl = personal ? PERSONAL_ATOM_FEED_URL : ATOM_FEED_URL
-  const tagHrefRe = personal ? PERSONAL_TAG_HREF_RE : TAG_HREF_RE
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+/** Personal build order comes from the releases API's created_at field, never from the atom
+ *  feed's <updated> (or REST published_at): editing a release or changing its assets advances
+ *  both of those, which would re-offer an edited older release as newer. Update checks are
+ *  infrequent, so the unauthenticated per-IP quota carries them; failures surface as a feed
+ *  outage rather than a silently wrong order. */
+async function fetchPersonalReleaseFeedTags(): Promise<ReleaseFeedTag[] | null> {
   try {
-    const res = await net.fetch(atomUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    const res = await net.fetch(PERSONAL_RELEASES_API_URL, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    })
+    if (!res.ok) {
+      return null
+    }
+    const payload: unknown = await res.json()
+    if (!Array.isArray(payload)) {
+      return null
+    }
+    const tags: ReleaseFeedTag[] = []
+    for (const entry of payload) {
+      if (!isRecord(entry)) {
+        continue
+      }
+      const tag = entry.tag_name
+      // The fork repo can carry stray non-personal tags; the personal channel trusts only its own.
+      if (typeof tag !== 'string' || !isPersonalReleaseTag(tag)) {
+        continue
+      }
+      const createdAt = entry.created_at
+      const releasedAt = typeof createdAt === 'string' ? Date.parse(createdAt) : Number.NaN
+      tags.push({
+        tag,
+        version: normalizeTagToVersion(tag),
+        releasedAt: Number.isNaN(releasedAt) ? null : releasedAt
+      })
+    }
+    tags.sort(comparePersonalFeedTags)
+    return tags
+  } catch {
+    return null
+  }
+}
+
+async function fetchReleaseFeedTags(currentVersion: string): Promise<ReleaseFeedTag[] | null> {
+  // The running version picks the feed: personal builds track only the fork's releases,
+  // resolved through the releases API so build order follows created_at.
+  if (isPersonalVersion(currentVersion)) {
+    return fetchPersonalReleaseFeedTags()
+  }
+  try {
+    const res = await net.fetch(ATOM_FEED_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
     if (!res.ok) {
       return null
     }
@@ -74,24 +119,18 @@ async function fetchReleaseFeedTags(currentVersion: string): Promise<ReleaseFeed
     const tags: ReleaseFeedTag[] = []
 
     for (const entry of body.matchAll(ENTRY_RE)) {
-      const tag = entry[1].match(tagHrefRe)?.[1]
+      const tag = entry[1].match(TAG_HREF_RE)?.[1]
       if (!tag) {
         continue
       }
-      // The fork repo can carry stray non-personal tags; the personal channel trusts only its own.
-      if (personal && !isPersonalReleaseTag(tag)) {
-        continue
-      }
       const version = normalizeTagToVersion(tag)
-      if (isValidVersion(version) && (!personal || isPersonalVersion(version))) {
+      if (isValidVersion(version)) {
         const releasedAt = Date.parse(entry[1].match(ENTRY_UPDATED_RE)?.[1] ?? '')
         tags.push({ tag, version, releasedAt: Number.isNaN(releasedAt) ? null : releasedAt })
       }
     }
 
-    tags.sort((left, right) =>
-      personal ? comparePersonalFeedTags(left, right) : compareVersions(right.version, left.version)
-    )
+    tags.sort((left, right) => compareVersions(right.version, left.version))
     return tags
   } catch {
     return null
@@ -157,9 +196,10 @@ export async function fetchNewerReleaseTags(
 }
 
 /** Decide whether a feed entry is newer than the running build.
- *  Official channels order by semver. Personal builds order by release recency: the installed
- *  release's own feed entry anchors the comparison, the same tag is never newer, and a release
- *  absent from the 10-entry feed is older than everything listed. */
+ *  Official channels order by semver. Personal builds order by release created_at: the
+ *  installed release's own entry anchors the comparison, the same tag is never newer, an
+ *  equal (same-second) or missing created_at never promotes a release, and a release absent
+ *  from the listed window is older than everything listed. */
 function createNewerReleaseTagTest(
   currentVersion: string,
   allTags: DatedReleaseTag[]

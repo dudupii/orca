@@ -6,13 +6,21 @@ export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc' | 'p
  * Picker-listed channels. The personal channel stays off this list: it exists only inside the
  * fork that publishes it, so official builds must never offer it as a browsing option.
  */
-export const RELEASE_CHANNELS: readonly ReleaseChannel[] = [
+export const RELEASE_CHANNELS = [
   'stable',
   'rc',
   'hourly',
   'daily',
   'adhoc'
-]
+] as const satisfies readonly ReleaseChannel[]
+
+/** Channels the settings picker offers; personal stays update-feed-only. */
+export type SelectableReleaseChannel = (typeof RELEASE_CHANNELS)[number]
+
+/** Every channel the updater can name: the selectable five plus personal, which only a fork
+ *  build carries. Guards on routes a personal build legitimately calls (listBuilds) admit this
+ *  wider set, while picker options and stored overrides stay on RELEASE_CHANNELS. */
+export const KNOWN_RELEASE_CHANNELS: readonly ReleaseChannel[] = [...RELEASE_CHANNELS, 'personal']
 
 export const RELEASE_CHANNEL_LABELS: Readonly<Record<ReleaseChannel, string>> = {
   stable: 'Stable',
@@ -50,7 +58,13 @@ const CHANNEL_RELEASE_REPOS: Record<ReleaseChannel, string> = {
 }
 
 export function isReleaseChannel(value: unknown): value is ReleaseChannel {
-  return typeof value === 'string' && RELEASE_CHANNELS.includes(value as ReleaseChannel)
+  return typeof value === 'string' && RELEASE_CHANNELS.some((channel) => channel === value)
+}
+
+/** Widest channel validator: picker-selectable channels plus personal, which a personal
+ *  build names when listing its own releases through the release API. */
+export function isKnownReleaseChannel(value: unknown): value is ReleaseChannel {
+  return typeof value === 'string' && KNOWN_RELEASE_CHANNELS.some((channel) => channel === value)
 }
 
 /** True for channels published outside the main repo. The updater reports these
@@ -280,6 +294,8 @@ export type ReleaseBuild = {
   channel: ReleaseChannel
   /** Null for missing/tag-repeated titles so the picker distinguishes workflow names from unnamed builds. */
   name: string | null
+  /** GitHub release created_at — the personal build-order stamp, which edits never advance. */
+  createdAt: string | null
   publishedAt: string | null
   releaseUrl: string
   /** Platform installer, null when unpublished; signed Windows builds use this to bootstrap unsigned dev channels. */
@@ -297,8 +313,8 @@ export function sortReleaseBuildsNewestFirst(builds: ReleaseBuild[]): ReleaseBui
     }
 
     if (hasDedicatedReleaseRepo(left.channel) && hasDedicatedReleaseRepo(right.channel)) {
-      const leftPublished = left.publishedAt ? Date.parse(left.publishedAt) : Number.NaN
-      const rightPublished = right.publishedAt ? Date.parse(right.publishedAt) : Number.NaN
+      const leftPublished = dedicatedRepoOrderStamp(left)
+      const rightPublished = dedicatedRepoOrderStamp(right)
       if (
         Number.isFinite(leftPublished) &&
         Number.isFinite(rightPublished) &&
@@ -310,4 +326,12 @@ export function sortReleaseBuildsNewestFirst(builds: ReleaseBuild[]): ReleaseBui
 
     return compareAppVersions(right.version, left.version)
   })
+}
+
+/** Dedicated-repo order stamp: personal builds read release created_at because editing a
+ *  release or swapping its assets advances published_at (and the atom feed's <updated>) but
+ *  never created_at, so an edited older build must not float above newer ones. */
+function dedicatedRepoOrderStamp(build: ReleaseBuild): number {
+  const stamp = build.channel === 'personal' ? build.createdAt : build.publishedAt
+  return stamp ? Date.parse(stamp) : Number.NaN
 }
