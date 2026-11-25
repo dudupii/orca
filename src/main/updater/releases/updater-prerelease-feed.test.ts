@@ -207,33 +207,43 @@ describe('fetchNewerReleaseTag', () => {
 })
 
 describe('personal-channel feed', () => {
-  const PERSONAL_ATOM_URL = 'https://github.com/dudupii/orca/releases.atom'
+  const PERSONAL_RELEASES_API_URL =
+    'https://api.github.com/repos/dudupii/orca/releases?per_page=100'
   const T1 = '2026-11-20T10:00:00Z'
   const T2 = '2026-11-21T10:00:00Z'
   const T3 = '2026-11-22T10:00:00Z'
+  const T4 = '2026-11-23T10:00:00Z'
 
-  function buildPersonalAtomFeed(tags: string[], updatedAt: Record<string, string> = {}): string {
-    const entries = tags
-      .map(
-        (tag) =>
-          `<entry>${updatedAt[tag] ? `<updated>${updatedAt[tag]}</updated>` : ''}<link rel="alternate" type="text/html" href="https://github.com/dudupii/orca/releases/tag/${tag}"/><title>${tag}</title></entry>`
-      )
-      .join('')
-    return `<?xml version="1.0" encoding="UTF-8"?><feed>${entries}</feed>`
+  type PersonalReleaseEntry = {
+    tag_name: string
+    created_at: string | null
+    published_at?: string
+    updated_at?: string
   }
 
-  /** Serve the fork repo's feed plus generic manifest/asset HEAD responders (repo-agnostic paths). */
-  function respondWithPersonalAtom(
-    tags: string[],
-    updatedAt: Record<string, string>,
+  /** Build fork releases-API entries; edited releases can carry published/updated stamps past created_at. */
+  function buildPersonalReleasesPayload(
+    entries: { tag: string; createdAt: string | null; editedAt?: string }[]
+  ): PersonalReleaseEntry[] {
+    return entries.map(({ tag, createdAt, editedAt }) => ({
+      tag_name: tag,
+      created_at: createdAt,
+      published_at: editedAt ?? createdAt ?? undefined,
+      updated_at: editedAt ?? createdAt ?? undefined
+    }))
+  }
+
+  /** Serve the fork repo's releases API plus generic manifest/asset HEAD responders (repo-agnostic paths). */
+  function respondWithPersonalReleases(
+    entries: { tag: string; createdAt: string | null; editedAt?: string }[],
     missingManifestTags: string[] = []
   ): void {
     const missingManifests = new Set(missingManifestTags)
     netFetchMock.mockImplementation((url: string, init?: { method?: string }) => {
-      if (url === PERSONAL_ATOM_URL) {
+      if (url === PERSONAL_RELEASES_API_URL) {
         return Promise.resolve({
           ok: true,
-          text: () => Promise.resolve(buildPersonalAtomFeed(tags, updatedAt))
+          json: () => Promise.resolve(buildPersonalReleasesPayload(entries))
         })
       }
 
@@ -269,21 +279,34 @@ describe('personal-channel feed', () => {
     setArchForTest(ORIGINAL_ARCH)
   })
 
-  it('reads the fork feed and offers a release published after the installed one', async () => {
-    respondWithPersonalAtom(['personal-1.4.215-5f6e7d8c9', 'personal-1.4.214-4e2f1a0b3'], {
-      'personal-1.4.215-5f6e7d8c9': T3,
-      'personal-1.4.214-4e2f1a0b3': T1
-    })
+  it('reads the fork releases API and offers a release created after the installed one', async () => {
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T3 },
+      { tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T1 }
+    ])
     const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
 
     expect(await fetchNewerReleaseTag('1.4.214-4e2f1a0b3')).toBe('personal-1.4.215-5f6e7d8c9')
-    expect(netFetchMock).toHaveBeenCalledWith(PERSONAL_ATOM_URL, expect.anything())
+    expect(netFetchMock).toHaveBeenCalledWith(PERSONAL_RELEASES_API_URL, expect.anything())
   })
 
   it('never re-offers the installed tag even when it is the newest entry', async () => {
-    respondWithPersonalAtom(['personal-1.4.214-4e2f1a0b3'], {
-      'personal-1.4.214-4e2f1a0b3': T3
+    respondWithPersonalReleases([{ tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T3 }])
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
+      tags: [],
+      state: 'no-newer'
     })
+  })
+
+  it('does not offer an older edited release whose published and updated stamps passed the installed one', async () => {
+    // Editing the older release (asset swap) advanced published_at/updated_at past the installed
+    // build; created_at alone may order personal releases, so nothing here counts as newer.
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T3 },
+      { tag: 'personal-1.4.213-999999999', createdAt: T1, editedAt: T4 }
+    ])
     const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
 
     expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
@@ -293,10 +316,36 @@ describe('personal-channel feed', () => {
   })
 
   it('does not offer a release older than the installed one', async () => {
-    respondWithPersonalAtom(['personal-1.4.214-4e2f1a0b3', 'personal-1.4.215-5f6e7d8c9'], {
-      'personal-1.4.214-4e2f1a0b3': T3,
-      'personal-1.4.215-5f6e7d8c9': T1
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T3 },
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T1 }
+    ])
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
+      tags: [],
+      state: 'no-newer'
     })
+  })
+
+  it('does not offer a release created in the same second as the installed one', async () => {
+    // created_at has second resolution; an equal stamp cannot prove a later build.
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T3 },
+      { tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T3 }
+    ])
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
+      tags: [],
+      state: 'no-newer'
+    })
+  })
+
+  it('fails closed on entries without a parseable created_at', async () => {
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: null, editedAt: T4 }
+    ])
     const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
 
     expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
@@ -306,31 +355,31 @@ describe('personal-channel feed', () => {
   })
 
   it('prefers build order over semver for same-base rebuilds', async () => {
-    // 111112222 sorts below fffff9999 in semver but was published later; recency must win.
-    respondWithPersonalAtom(['personal-1.4.214-fffff9999', 'personal-1.4.214-111112222'], {
-      'personal-1.4.214-fffff9999': T1,
-      'personal-1.4.214-111112222': T3
-    })
+    // 111112222 sorts below fffff9999 in semver but was created later; recency must win.
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.214-fffff9999', createdAt: T1 },
+      { tag: 'personal-1.4.214-111112222', createdAt: T3 }
+    ])
     const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
 
     expect(await fetchNewerReleaseTag('1.4.214-fffff9999')).toBe('personal-1.4.214-111112222')
   })
 
-  it('offers the newest entry when the installed release has aged out of the feed', async () => {
-    respondWithPersonalAtom(['personal-1.4.215-5f6e7d8c9', 'personal-1.4.216-0a1b2c3d4'], {
-      'personal-1.4.215-5f6e7d8c9': T1,
-      'personal-1.4.216-0a1b2c3d4': T2
-    })
+  it('offers the newest entry when the installed release has aged out of the listed releases', async () => {
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T1 },
+      { tag: 'personal-1.4.216-0a1b2c3d4', createdAt: T2 }
+    ])
     const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
 
     expect(await fetchNewerReleaseTag('1.4.214-4e2f1a0b3')).toBe('personal-1.4.216-0a1b2c3d4')
   })
 
-  it('ignores stray non-personal tags on the fork feed', async () => {
-    respondWithPersonalAtom(['v1.4.999', 'personal-1.4.215-5f6e7d8c9'], {
-      'v1.4.999': T3,
-      'personal-1.4.215-5f6e7d8c9': T2
-    })
+  it('ignores stray non-personal tags on the fork releases', async () => {
+    respondWithPersonalReleases([
+      { tag: 'v1.4.999', createdAt: T3 },
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T2 }
+    ])
     const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
 
     const result = await fetchNewerReleaseTagsWithReadiness('1.4.213-123456789', 5)
@@ -341,10 +390,10 @@ describe('personal-channel feed', () => {
   })
 
   it('probes personal manifests against the fork download base', async () => {
-    respondWithPersonalAtom(['personal-1.4.215-5f6e7d8c9', 'personal-1.4.214-4e2f1a0b3'], {
-      'personal-1.4.215-5f6e7d8c9': T2,
-      'personal-1.4.214-4e2f1a0b3': T1
-    })
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T2 },
+      { tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T1 }
+    ])
     const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
     const { getReleaseDownloadUrl } = await import('./updater-release-readiness')
 
@@ -366,12 +415,11 @@ describe('personal-channel feed', () => {
   it('holds a fresh personal release behind the update delay like the official channel', async () => {
     const DAY_MS = 24 * 60 * 60 * 1000
     const NOW = Date.parse('2026-11-23T12:00:00Z')
-    respondWithPersonalAtom(
-      ['personal-1.4.215-5f6e7d8c9', 'personal-1.4.214-9aaa00001'],
-      {
-        'personal-1.4.215-5f6e7d8c9': new Date(NOW - DAY_MS).toISOString(),
-        'personal-1.4.214-9aaa00001': new Date(NOW - 8 * DAY_MS).toISOString()
-      },
+    respondWithPersonalReleases(
+      [
+        { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: new Date(NOW - DAY_MS).toISOString() },
+        { tag: 'personal-1.4.214-9aaa00001', createdAt: new Date(NOW - 8 * DAY_MS).toISOString() }
+      ],
       ['personal-1.4.214-9aaa00001']
     )
     const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
@@ -385,13 +433,13 @@ describe('personal-channel feed', () => {
     expect(result.tags).toEqual([])
   })
 
-  it('never consults the fork feed for official versions', async () => {
+  it('never consults the fork releases API for official versions', async () => {
     respondWithAtom(['v1.4.2'])
     const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
 
     expect(await fetchNewerReleaseTag('1.4.1')).toBe('v1.4.2')
     const fetchedUrls = netFetchMock.mock.calls.map(([url]) => String(url))
-    expect(fetchedUrls).not.toContain(PERSONAL_ATOM_URL)
+    expect(fetchedUrls).not.toContain(PERSONAL_RELEASES_API_URL)
   })
 })
 

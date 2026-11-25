@@ -6,7 +6,9 @@ import {
   getVersionChannel,
   hasDedicatedReleaseRepo,
   isChannelSupportedOnPlatform,
+  isKnownReleaseChannel,
   isPersonalReleaseTag,
+  isReleaseChannel,
   normalizeTagToVersion,
   parseHourlyVersionStamp,
   parsePersonalReleaseTag,
@@ -46,6 +48,7 @@ describe('release channel', () => {
       version,
       channel: 'adhoc',
       name: null,
+      createdAt: null,
       publishedAt: null,
       releaseUrl: `https://github.com/stablyai/orca-adhoc/releases/tag/v${version}`,
       installerUrl: null
@@ -58,6 +61,18 @@ describe('release channel', () => {
       '1.4.206-adhoc.20260919173504',
       '1.4.207-adhoc.20260919025813'
     ])
+  })
+
+  it('splits picker-selectable channels from the wider known set', () => {
+    for (const channel of ['stable', 'rc', 'hourly', 'daily', 'adhoc'] as const) {
+      expect(isReleaseChannel(channel)).toBe(true)
+      expect(isKnownReleaseChannel(channel)).toBe(true)
+    }
+    // Personal stays off the picker, but the listBuilds route a personal build calls still names it.
+    expect(isReleaseChannel('personal')).toBe(false)
+    expect(isKnownReleaseChannel('personal')).toBe(true)
+    expect(isKnownReleaseChannel('garbage')).toBe(false)
+    expect(isKnownReleaseChannel(null)).toBe(false)
   })
 })
 
@@ -113,17 +128,18 @@ describe('personal release channel', () => {
     )
   })
 
-  it('sorts personal builds by publication time across one base version', () => {
-    const build = (version: string, publishedAt: string): ReleaseBuild => ({
+  it('sorts personal builds by created_at across one base version', () => {
+    const build = (version: string, createdAt: string): ReleaseBuild => ({
       tag: `personal-${version}`,
       version,
       channel: 'personal',
       name: null,
-      publishedAt,
+      createdAt,
+      publishedAt: null,
       releaseUrl: `https://github.com/dudupii/orca/releases/tag/personal-${version}`,
       installerUrl: null
     })
-    // Semver sorts the later-rebuilt 111112222 last (1 < f); build order must follow publication.
+    // Semver sorts the later-rebuilt 111112222 last (1 < f); build order must follow created_at.
     const sorted = sortReleaseBuildsNewestFirst([
       build('1.4.214-fffff9999', '2026-11-01T10:00:00Z'),
       build('1.4.214-111112222', '2026-11-03T10:00:00Z'),
@@ -133,6 +149,28 @@ describe('personal release channel', () => {
       'personal-1.4.214-111112222',
       'personal-1.4.215-bbbbb2222',
       'personal-1.4.214-fffff9999'
+    ])
+  })
+
+  it('keeps an edited older personal release below newer builds despite its advanced published_at', () => {
+    const build = (version: string, createdAt: string, publishedAt: string): ReleaseBuild => ({
+      tag: `personal-${version}`,
+      version,
+      channel: 'personal',
+      name: null,
+      createdAt,
+      publishedAt,
+      releaseUrl: `https://github.com/dudupii/orca/releases/tag/personal-${version}`,
+      installerUrl: null
+    })
+    // Editing the older release advanced its published_at past the newest build's; created_at must still order it last.
+    const sorted = sortReleaseBuildsNewestFirst([
+      build('1.4.214-4e2f1a0b3', '2026-11-01T10:00:00Z', '2026-11-05T10:00:00Z'),
+      build('1.4.215-5f6e7d8c9', '2026-11-03T10:00:00Z', '2026-11-03T10:00:05Z')
+    ])
+    expect(sorted.map((entry) => entry.tag)).toEqual([
+      'personal-1.4.215-5f6e7d8c9',
+      'personal-1.4.214-4e2f1a0b3'
     ])
   })
 })

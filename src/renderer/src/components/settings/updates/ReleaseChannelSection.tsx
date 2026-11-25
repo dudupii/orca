@@ -25,43 +25,39 @@ import {
   requiresManualDevChannelInstall,
   type DedicatedRepoChannel,
   type ReleaseBuild,
-  type ReleaseChannel
+  type ReleaseChannel,
+  type SelectableReleaseChannel
 } from '../../../../../shared/release-channel'
 
-const CHANNEL_DESCRIPTIONS: Record<ReleaseChannel, string> = {
+const CHANNEL_DESCRIPTIONS: Record<SelectableReleaseChannel, string> = {
   stable: 'Shipped releases. What everyone else is running.',
   rc: 'Release candidates cut ahead of each stable.',
   hourly: 'macOS and Windows. Unvetted builds from main, built every hour. No tests.',
   daily:
     'macOS and Windows. Unvetted builds from main, cut once a day at 14:15 UTC (early morning Pacific). No tests.',
-  adhoc: 'macOS and Windows. One-off builds cut from a branch to try a feature before it lands.',
-  personal:
-    'Builds from this fork, published under personal-* tags. Only a personal build can browse them.'
+  adhoc: 'macOS and Windows. One-off builds cut from a branch to try a feature before it lands.'
 }
 
-const DEDICATED_CHANNEL_WARNINGS: Record<DedicatedRepoChannel, { key: string; fallback: string }> =
-  {
-    hourly: {
-      key: 'auto.components.settings.ReleaseChannelSection.hourlyWarning',
-      fallback:
-        'Hourly builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.'
-    },
-    daily: {
-      key: 'auto.components.settings.ReleaseChannelSection.dailyWarning',
-      fallback:
-        'Daily builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.'
-    },
-    adhoc: {
-      key: 'auto.components.settings.ReleaseChannelSection.adhocWarning',
-      fallback:
-        'Adhoc builds come from a branch that has not landed, and the Windows ones are unsigned. Whoever cut one may abandon it — keep a stable build handy.'
-    },
-    personal: {
-      key: 'auto.components.settings.ReleaseChannelSection.personalWarning',
-      fallback:
-        'Personal builds come from a private fork of Orca and are unsigned, so updates can lag or stop at any time. Keep a stable build handy.'
-    }
+const DEDICATED_CHANNEL_WARNINGS: Record<
+  Exclude<DedicatedRepoChannel, 'personal'>,
+  { key: string; fallback: string }
+> = {
+  hourly: {
+    key: 'auto.components.settings.ReleaseChannelSection.hourlyWarning',
+    fallback:
+      'Hourly builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.'
+  },
+  daily: {
+    key: 'auto.components.settings.ReleaseChannelSection.dailyWarning',
+    fallback:
+      'Daily builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.'
+  },
+  adhoc: {
+    key: 'auto.components.settings.ReleaseChannelSection.adhocWarning',
+    fallback:
+      'Adhoc builds come from a branch that has not landed, and the Windows ones are unsigned. Whoever cut one may abandon it — keep a stable build handy.'
   }
+}
 
 export function ReleaseChannelSection(): React.JSX.Element {
   const t = useTranslate()
@@ -78,13 +74,14 @@ export function ReleaseChannelSection(): React.JSX.Element {
   const platform = getShortcutPlatform()
   const runningChannel = appVersion ? getVersionChannel(appVersion) : null
   const requestedChannel = releaseChannelOverride ?? runningChannel ?? 'stable'
+  // Personal builds update through their own feed, never the picker; they see the five shipped
+  // channels like an official build instead of a segment for the channel they already run.
+  const pickerChannel: SelectableReleaseChannel =
+    requestedChannel === 'personal' ? 'stable' : requestedChannel
   // Synced Mac profiles can carry unsupported hourly channels; fall back instead of offering uninstallable builds.
-  const activeChannel = isChannelSupportedOnPlatform(requestedChannel, platform)
-    ? requestedChannel
+  const activeChannel = isChannelSupportedOnPlatform(pickerChannel, platform)
+    ? pickerChannel
     : 'stable'
-  // Personal builds browse their own channel first; official builds keep the five shipped channels.
-  const pickerChannels: readonly ReleaseChannel[] =
-    runningChannel === 'personal' ? ['personal', ...RELEASE_CHANNELS] : RELEASE_CHANNELS
   const busy = updateStatus.state === 'checking' || updateStatus.state === 'downloading'
 
   useEffect(() => {
@@ -197,7 +194,7 @@ export function ReleaseChannelSection(): React.JSX.Element {
       </div>
 
       <div className="space-y-2">
-        <SettingsSegmentedControl<ReleaseChannel>
+        <SettingsSegmentedControl<SelectableReleaseChannel>
           value={activeChannel}
           // Selecting the running channel clears the override so browsing cannot permanently pin background checks.
           onChange={(channel) =>
@@ -208,7 +205,7 @@ export function ReleaseChannelSection(): React.JSX.Element {
             'Update channel'
           )}
           // Show unsupported channels disabled with reasons so users can discover why they are unavailable.
-          options={pickerChannels.map((channel) => {
+          options={RELEASE_CHANNELS.map((channel) => {
             const supported = isChannelSupportedOnPlatform(channel, platform)
             return {
               value: channel,
