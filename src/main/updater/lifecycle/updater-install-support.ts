@@ -9,7 +9,7 @@ import { recordUpdaterLifecycle } from '../updater-lifecycle-diagnostics'
 import { disarmUpdateInstallExitWatchdog } from '../update-install-exit-watchdog'
 import { resetMacInstallState } from '../mac-install/updater-mac-install'
 import type { LinuxPackageInstallRecovery, UpdateStatus } from '../../../shared/update-status-types'
-import { compareVersions } from '../releases/updater-fallback'
+import { isInstallableUpdateVersion } from '../releases/updater-fallback'
 import { PRE_QUIT_CLEANUP_TIMEOUT_MS, REQUIRED_PRE_QUIT_CLEANUP_TIMEOUT_MS } from './updater-state'
 import { UpdaterCheckState } from './updater-check-state'
 import { releaseServeSupervisorPark } from './serve-supervisor-install-park'
@@ -25,7 +25,7 @@ export abstract class UpdaterInstallSupport extends UpdaterCheckState {
       // Local and pinned builds may intentionally downgrade.
       (this.activeUpdateSource !== 'release' ||
         this.isPinnedBuildActive ||
-        compareVersions(this.availableVersion, app.getVersion()) > 0)
+        isInstallableUpdateVersion(this.availableVersion, app.getVersion()))
     )
   }
 

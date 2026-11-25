@@ -4,10 +4,22 @@ import {
   isPrereleaseAppVersion,
   isValidAppVersion
 } from '../../../shared/app-version'
+import { isPersonalVersion } from '../../../shared/release-channel'
 
 export const compareVersions = compareAppVersions
 export const isPrereleaseVersion = isPrereleaseAppVersion
 export const isValidVersion = isValidAppVersion
+
+/** May an update event's version be offered for the running build? Official checks stay
+ *  newer-only; personal builds order by release recency, so any differing version that the
+ *  deliberately pinned feed delivered is installable and only an equal version is not. */
+export function isInstallableUpdateVersion(
+  candidateVersion: string,
+  currentVersion: string
+): boolean {
+  const comparison = compareAppVersions(candidateVersion, currentVersion)
+  return isPersonalVersion(currentVersion) ? comparison !== 0 : comparison > 0
+}
 
 export function statusesEqual(left: UpdateStatus, right: UpdateStatus): boolean {
   if (left.source !== right.source) {
