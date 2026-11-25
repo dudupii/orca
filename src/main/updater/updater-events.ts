@@ -4,7 +4,7 @@ import {
   registerMacUpdaterEvents,
   resetMacInstallState
 } from './mac-install/updater-mac-install'
-import { compareVersions } from './releases/updater-fallback'
+import { isInstallableUpdateVersion } from './releases/updater-fallback'
 import { fetchChangelog } from './releases/updater-changelog'
 import { getUnsupportedSystemUpdate } from './releases/updater-system-requirement'
 import type { UpdaterHandlerContext } from './updater-handler-context'
@@ -102,7 +102,7 @@ export function registerAutoUpdaterHandlers({
     if (
       !isLocalBuildCheck() &&
       !isPinnedBuildCheck() &&
-      compareVersions(info.version, app.getVersion()) <= 0
+      !isInstallableUpdateVersion(info.version, app.getVersion())
     ) {
       clearAvailableUpdateContext()
       if (missingManifestFallback || publishingWindowLastGoodCheck) {
@@ -238,7 +238,7 @@ export function registerAutoUpdaterHandlers({
     if (
       !isLocalBuildCheck() &&
       !isPinnedBuildCheck() &&
-      compareVersions(info.version, app.getVersion()) <= 0
+      !isInstallableUpdateVersion(info.version, app.getVersion())
     ) {
       clearAvailableUpdateContext()
       linuxPackageRecovery.clearTrackedLinuxPackageArtifact()

@@ -1,7 +1,11 @@
 import { compareAppVersions, isValidAppVersion } from './app-version'
 
-export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc'
+export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc' | 'personal'
 
+/**
+ * Picker-listed channels. The personal channel stays off this list: it exists only inside the
+ * fork that publishes it, so official builds must never offer it as a browsing option.
+ */
 export const RELEASE_CHANNELS: readonly ReleaseChannel[] = [
   'stable',
   'rc',
@@ -15,7 +19,8 @@ export const RELEASE_CHANNEL_LABELS: Readonly<Record<ReleaseChannel, string>> = 
   rc: 'RC',
   hourly: 'Hourly',
   daily: 'Daily',
-  adhoc: 'Adhoc'
+  adhoc: 'Adhoc',
+  personal: 'Personal'
 }
 
 /** Keep dev tags out of the 10-entry main releases feed, where hourlies would evict stable/RC updates. */
@@ -24,8 +29,14 @@ export const DAILY_RELEASE_REPO = 'stablyai/orca-daily'
 export const ADHOC_RELEASE_REPO = 'stablyai/orca-adhoc'
 export const MAIN_RELEASE_REPO = 'stablyai/orca'
 
+/** Personal-channel releases live on the fork that builds them, not on the main repo. */
+export const PERSONAL_RELEASE_REPO = 'dudupii/orca'
+
+/** Personal release tags are `personal-<version>`, e.g. `personal-1.4.214-4e2f1a0b3`. */
+export const PERSONAL_RELEASE_TAG_PREFIX = 'personal-'
+
 /** The dev channels, each published to its own repo rather than the main one. */
-const DEDICATED_REPO_CHANNELS = ['hourly', 'daily', 'adhoc'] as const
+const DEDICATED_REPO_CHANNELS = ['hourly', 'daily', 'adhoc', 'personal'] as const
 
 export type DedicatedRepoChannel = (typeof DEDICATED_REPO_CHANNELS)[number]
 
@@ -34,7 +45,8 @@ const CHANNEL_RELEASE_REPOS: Record<ReleaseChannel, string> = {
   rc: MAIN_RELEASE_REPO,
   hourly: HOURLY_RELEASE_REPO,
   daily: DAILY_RELEASE_REPO,
-  adhoc: ADHOC_RELEASE_REPO
+  adhoc: ADHOC_RELEASE_REPO,
+  personal: PERSONAL_RELEASE_REPO
 }
 
 export function isReleaseChannel(value: unknown): value is ReleaseChannel {
@@ -47,11 +59,13 @@ export function hasDedicatedReleaseRepo(channel: ReleaseChannel): channel is Ded
   return (DEDICATED_REPO_CHANNELS as readonly ReleaseChannel[]).includes(channel)
 }
 
-/** Repository separation does not imply platform availability; dev workflows publish macOS/Windows, while Linux retains stable/RC. */
+/** Repository separation does not imply platform availability; dev workflows publish macOS/Windows, while Linux retains stable/RC.
+ *  Personal releases build every desktop platform, so their channel stays selectable everywhere. */
 const DEV_CHANNEL_PLATFORMS: Readonly<Record<DedicatedRepoChannel, readonly NodeJS.Platform[]>> = {
   hourly: ['darwin', 'win32'],
   daily: ['darwin', 'win32'],
-  adhoc: ['darwin', 'win32']
+  adhoc: ['darwin', 'win32'],
+  personal: ['darwin', 'win32', 'linux']
 }
 
 /** Shared availability copy must stay aligned with the platform table. */
@@ -88,7 +102,34 @@ export function getReleaseRepoForChannel(channel: ReleaseChannel): string {
 }
 
 export function normalizeTagToVersion(tag: string): string {
-  return tag.replace(/^v/i, '')
+  // Release tags are `v<version>`; personal-channel releases instead prefix `personal-`.
+  return tag.replace(/^v/i, '').replace(/^personal-/, '')
+}
+
+/** Personal builds stamp the first 9 hex characters of the build commit as the whole prerelease
+ *  (1.4.214-4e2f1a0b3). No official channel ever produces a bare 9-hex-digit prerelease, so the
+ *  shape alone identifies the fork's builds — official versions can never parse as personal. */
+const PERSONAL_VERSION = /^\d+\.\d+\.\d+-[0-9a-f]{9}$/
+
+export function isPersonalVersion(version: string): boolean {
+  return PERSONAL_VERSION.test(normalizeTagToVersion(version))
+}
+
+export function getPersonalReleaseTag(version: string): string {
+  return `${PERSONAL_RELEASE_TAG_PREFIX}${normalizeTagToVersion(version)}`
+}
+
+/** Version carried by a `personal-<version>` release tag; null for every other tag shape. */
+export function parsePersonalReleaseTag(tag: string): string | null {
+  if (!tag.startsWith(PERSONAL_RELEASE_TAG_PREFIX)) {
+    return null
+  }
+  const version = tag.slice(PERSONAL_RELEASE_TAG_PREFIX.length)
+  return isPersonalVersion(version) ? version : null
+}
+
+export function isPersonalReleaseTag(tag: string): boolean {
+  return parsePersonalReleaseTag(tag) !== null
 }
 
 /** Timestamp versions prevent electron-updater treating successive builds as identical (1.4.160-hourly.202607281400). */
@@ -171,6 +212,9 @@ export function getVersionChannel(version: string): ReleaseChannel | null {
   }
   // Why the dev channels are tested first: they are prereleases too, so this
   // catch-all would otherwise file every one of them under rc.
+  if (isPersonalVersion(normalized)) {
+    return 'personal'
+  }
   return normalized.includes('-') ? 'rc' : 'stable'
 }
 
@@ -178,6 +222,10 @@ export function getVersionChannel(version: string): ReleaseChannel | null {
 export function getReleaseNotesUrlForVersion(version: string | null): string {
   const channel = version ? getVersionChannel(version) : null
   const repo = channel ? getReleaseRepoForChannel(channel) : MAIN_RELEASE_REPO
+  // Personal tags carry the `personal-` prefix instead of `v`; every other channel tags `v<version>`.
+  if (channel === 'personal' && version) {
+    return `https://github.com/${repo}/releases/tag/${getPersonalReleaseTag(version)}`
+  }
   return version
     ? `https://github.com/${repo}/releases/tag/v${normalizeTagToVersion(version)}`
     : `https://github.com/${repo}/releases`
