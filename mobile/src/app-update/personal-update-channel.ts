@@ -7,6 +7,9 @@
 /** Variant values carrying this prefix were built by the fork's personal release workflow. */
 export const PERSONAL_VARIANT_PREFIX = 'dudupii/'
 
+/** The fork's workflow names every personal release `personal-<version>-<commit short hash>`. */
+export const PERSONAL_RELEASE_TAG_PREFIX = 'personal-'
+
 export type AppUpdateChannel =
   | { readonly kind: 'official' }
   | { readonly kind: 'personal'; readonly installedTag: string }
@@ -49,7 +52,12 @@ export function isNewerPersonalRelease(
  * Offline re-check that a stored update still beats the installed build: order is unknowable
  * without the network, so only the same tag is known stale. Installing the update clears the
  * banner, and a manual sideload past the stored tag self-heals at the next check.
+ *
+ * The stored latest is not channel-qualified, and a personal APK can inherit the preferences of
+ * an official build that owned this AsyncStorage before it (same package). Official versions are
+ * never `personal-` tags, so only personal-tagged latests carry a personal build order at all;
+ * anything else — `0.0.70`, a retired `mobile-android-v*` shape — is not ours to offer offline.
  */
 export function isStoredPersonalUpdateNewer(latestTag: string, installedTag: string): boolean {
-  return latestTag !== installedTag
+  return latestTag.startsWith(PERSONAL_RELEASE_TAG_PREFIX) && latestTag !== installedTag
 }

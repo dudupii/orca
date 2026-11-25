@@ -82,4 +82,13 @@ describe('stored personal update against the installed tag', () => {
       isStoredPersonalUpdateNewer('personal-1.4.214-520cdf128', 'personal-1.4.214-3b51e62d1')
     ).toBe(true)
   })
+
+  it('never offers a stored latest inherited from the official channel', () => {
+    // Preferences are not channel-qualified: an official APK that owned this AsyncStorage before
+    // a personal sideload leaves its own latest behind, official version or retired tag shape.
+    expect(isStoredPersonalUpdateNewer('0.0.70', 'personal-1.4.214-520cdf128')).toBe(false)
+    expect(
+      isStoredPersonalUpdateNewer('0.0.48-slash-commands.3', 'personal-1.4.214-520cdf128')
+    ).toBe(false)
+  })
 })
