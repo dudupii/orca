@@ -4,15 +4,17 @@ import { ListGroup, ListRow } from '../components/list/ListGroup'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import type { VoiceModeReadoutLanguage } from '../storage/voice-mode-settings'
+import { sameLocaleTag } from './voice-language-catalog'
 import { voiceSettingsStyles as styles } from './voice-settings-styles'
 import { candidateTags, languageDisplayName } from './voice-recognition-language-picker'
 
 /**
  * The readout-language stage's choices: automatic probes each reply and falls to the device's
  * language, follow-system hands the choice to the engine, and a tag names one outright. The
- * language list is the recognition picker's own — the device's languages plus a stored choice —
- * without its recognizer probing: a language with no installed voice is the engine's problem at
- * speak time, and its failed utterance settles as a failed playback, never a broken loop.
+ * language list is the recognition picker's own — the device's languages, its common-language
+ * catalog and a stored choice — without its recognizer probing: a language with no installed
+ * voice is the engine's problem at speak time, and its failed utterance settles as a failed
+ * playback, never a broken loop.
  */
 export function VoiceReadoutLanguagePicker({
   selected,
@@ -55,7 +57,7 @@ export function VoiceReadoutLanguagePicker({
           <ListRow
             key={tag}
             title={languageDisplayName(tag)}
-            selected={selected.mode === 'language' && selected.tag === tag}
+            selected={selected.mode === 'language' && sameLocaleTag(selected.tag, tag)}
             onPress={() => onSelect({ mode: 'language', tag })}
           />
         ))}

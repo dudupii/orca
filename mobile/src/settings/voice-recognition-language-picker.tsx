@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Text } from 'react-native'
+import { Text, TextInput, View } from 'react-native'
 import {
   addExpoTwoWayAudioEventListener,
   speechAvailability,
@@ -11,7 +11,13 @@ import { readDeviceUiLocaleTags } from '../i18n/system-ui-locale'
 import { getUiIntlLocale } from '../i18n/ui-intl-locale'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { isSpeechBusyError } from '../platform/speech/native-speech'
+import { colors } from '../theme/mobile-theme'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
+import {
+  parseSpeechLocaleInput,
+  sameLocaleTag,
+  voiceLanguageCandidateTags
+} from './voice-language-catalog'
 import { phoneStatusText } from './voice-transcribe-on-section'
 import { voiceSettingsStyles as styles } from './voice-settings-styles'
 
@@ -31,16 +37,12 @@ export function languageDisplayName(tag: string): string {
   }
 }
 
-// The device's whole UI preference list plus a stored choice the system no longer lists; probed, never a hardcoded catalog.
+// The device's whole UI preference list, a stored choice neither it nor the catalog spells, and #31's
+// common-language catalog — the engine has no enumeration API, so the catalog is a suggestion list and the
+// engine's own needs-download/unsupported answers stay the guard.
 // Shared with the readout-language picker, which offers the same language choices for speaking.
 export function candidateTags(selected: string | null): string[] {
-  const tags: string[] = []
-  for (const tag of [...readDeviceUiLocaleTags(), ...(selected === null ? [] : [selected])]) {
-    if (!tags.includes(tag)) {
-      tags.push(tag)
-    }
-  }
-  return tags
+  return voiceLanguageCandidateTags(readDeviceUiLocaleTags(), selected)
 }
 
 // The progress event carries the engine's resolved locale, so match either spelling of the row.
@@ -67,6 +69,28 @@ export function VoiceRecognitionLanguagePicker({
   // Progress events and the download's promise arrive apart; a late event must not reopen a finished download.
   const downloadingRef = useRef<{ tag: string; resolved: string | null } | null>(null)
   const probedRef = useRef<Set<string>>(new Set())
+  const [otherOpen, setOtherOpen] = useState(false)
+  const [otherDraft, setOtherDraft] = useState('')
+  const [otherError, setOtherError] = useState<string | null>(null)
+
+  // #31's operator addition: any language a user can name. Only the tag's shape is checked here; the engine's
+  // own answer remains the guard on what the choice can do.
+  const chooseOther = (): void => {
+    const tag = parseSpeechLocaleInput(otherDraft)
+    if (tag === null) {
+      setOtherError(
+        t(
+          'settings.voiceSettingsScreen.recognitionLanguageOtherInvalid',
+          'Not a language tag — use a shape like en, zh-CN or yue-Hant.'
+        )
+      )
+      return
+    }
+    setOtherOpen(false)
+    setOtherDraft('')
+    setOtherError(null)
+    onSelect(tag)
+  }
 
   // A busy speech service shows as checking and is asked again while the picker is open; it is never read as unsupported.
   const readTag = useCallback(async (tag: string) => {
@@ -161,9 +185,10 @@ export function VoiceRecognitionLanguagePicker({
               <ListRow
                 title={languageDisplayName(tag)}
                 subtitle={phoneStatusText(state ?? null, t)}
-                selected={selected === tag}
+                selected={selected !== null && sameLocaleTag(selected, tag)}
                 disabled={state?.status === 'unsupported'}
                 onPress={() => onSelect(tag)}
+                testID={`voice-recognition-language-${tag}`}
               />
               {state?.status === 'needs-download' || downloading ? (
                 <ListRow
@@ -174,11 +199,65 @@ export function VoiceRecognitionLanguagePicker({
                       download(tag, state.resolved)
                     }
                   }}
+                  testID={`voice-recognition-language-download-${tag}`}
                 />
               ) : null}
             </Fragment>
           )
         })}
+        <ListRow
+          title={t('settings.voiceSettingsScreen.recognitionLanguageOther', 'Other language')}
+          subtitle={t(
+            'settings.voiceSettingsScreen.recognitionLanguageOtherHint',
+            'Type any language tag, e.g. yue or pt-BR'
+          )}
+          onPress={() => {
+            setOtherOpen(!otherOpen)
+            setOtherDraft('')
+            setOtherError(null)
+          }}
+          testID="voice-recognition-language-other"
+        />
+        {otherOpen ? (
+          <Fragment key="otherLanguageInput">
+            <View style={styles.otherFieldWrap}>
+              <TextInput
+                style={styles.otherField}
+                value={otherDraft}
+                onChangeText={(text) => {
+                  setOtherDraft(text)
+                  setOtherError(null)
+                }}
+                placeholder={t(
+                  'settings.voiceSettingsScreen.recognitionLanguageOtherPlaceholder',
+                  'e.g. yue, pt-BR, zh-Hant'
+                )}
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel={t(
+                  'settings.voiceSettingsScreen.recognitionLanguageOther',
+                  'Other language'
+                )}
+                onSubmitEditing={chooseOther}
+                testID="voice-recognition-language-other-input"
+              />
+            </View>
+            <ListRow
+              title={t(
+                'settings.voiceSettingsScreen.recognitionLanguageOtherUse',
+                'Use this language'
+              )}
+              onPress={chooseOther}
+              testID="voice-recognition-language-other-use"
+            />
+          </Fragment>
+        ) : null}
+        {otherError === null ? null : (
+          <Text style={styles.otherError} testID="voice-recognition-language-other-error">
+            {otherError}
+          </Text>
+        )}
       </ListGroup>
     </>
   )
