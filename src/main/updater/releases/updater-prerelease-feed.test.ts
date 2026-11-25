@@ -405,11 +405,43 @@ describe('personal-channel feed', () => {
       'https://github.com/stablyai/orca/releases/download/v1.4.215'
     )
     const probedUrls = netFetchMock.mock.calls.map(([url]) => String(url))
+    // The readiness probe names the manifest per electron-updater's channel-file rule, which
+    // tracks the runner's platform and arch; assert the fork base and the latest*.yml family.
     expect(probedUrls).toContainEqual(
       expect.stringMatching(
-        /^https:\/\/github\.com\/dudupii\/orca\/releases\/download\/personal-1\.4\.215-5f6e7d8c9\/latest(-linux|-mac)?\.yml$/
+        /^https:\/\/github\.com\/dudupii\/orca\/releases\/download\/personal-1\.4\.215-5f6e7d8c9\/latest(?:-linux(?:-arm64|-x64)?|-mac)?\.yml$/
       )
     )
+  })
+
+  it('probes the manifest name electron-updater expects on every platform and arch', async () => {
+    respondWithPersonalReleases([
+      { tag: 'personal-1.4.215-5f6e7d8c9', createdAt: T2 },
+      { tag: 'personal-1.4.214-4e2f1a0b3', createdAt: T1 }
+    ])
+    const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
+    const downloadBase =
+      'https://github.com/dudupii/orca/releases/download/personal-1.4.215-5f6e7d8c9'
+    // electron-updater's channel-file prefix tracks the runner: non-x64 Linux appends the arch,
+    // macOS never does. Pin the exact probed name per shape so no host arch masks another's URL.
+    const manifestPerRunner: {
+      platform: NodeJS.Platform
+      arch: NodeJS.Architecture
+      manifest: string
+    }[] = [
+      { platform: 'linux', arch: 'x64', manifest: 'latest-linux.yml' },
+      { platform: 'linux', arch: 'arm64', manifest: 'latest-linux-arm64.yml' },
+      { platform: 'darwin', arch: 'x64', manifest: 'latest-mac.yml' },
+      { platform: 'darwin', arch: 'arm64', manifest: 'latest-mac.yml' }
+    ]
+    for (const { platform, arch, manifest } of manifestPerRunner) {
+      setPlatformForTest(platform)
+      setArchForTest(arch)
+      const callsBefore = netFetchMock.mock.calls.length
+      expect(await fetchNewerReleaseTag('1.4.214-4e2f1a0b3')).toBe('personal-1.4.215-5f6e7d8c9')
+      const probedUrls = netFetchMock.mock.calls.slice(callsBefore).map(([url]) => String(url))
+      expect(probedUrls).toContainEqual(`${downloadBase}/${manifest}`)
+    }
   })
 
   it('holds a fresh personal release behind the update delay like the official channel', async () => {
