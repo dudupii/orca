@@ -1,6 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DictationEnginePreference } from '../../mobile-web-shell/bridge/native-capabilities/bridge-speech-verbs'
 import { createNativeSpeechServer, type NativeSpeechEngine } from './native-speech'
+
+const stored = vi.hoisted(() => new Map<string, string>())
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getItem: vi.fn(async (key: string) => stored.get(key) ?? null),
+    setItem: vi.fn(async (key: string, value: string) => {
+      stored.set(key, value)
+    }),
+    removeItem: vi.fn(async (key: string) => {
+      stored.delete(key)
+    })
+  }
+}))
 
 function engineWith(preference: DictationEnginePreference): NativeSpeechEngine {
   return {
@@ -202,5 +215,39 @@ describe('the recognition language left to the system', () => {
     })
     expect(asked).toBe('zh-CN')
     expect(startedWith).toBe('zh-CN')
+  })
+})
+
+describe('the stored recognition language read again at each arm', () => {
+  beforeEach(() => {
+    stored.clear()
+  })
+
+  it('arms each dictation in what a save between arms chose', async () => {
+    const { saveVoiceRecognitionLanguage, loadVoiceRecognitionLanguage } =
+      await import('../../storage/voice-recognition-language')
+    const engine: NativeSpeechEngine = {
+      ...engineWith('automatic'),
+      recognitionLocale: loadVoiceRecognitionLanguage,
+      start: async (locale) => ({ started: true, locale })
+    }
+    const server = createNativeSpeechServer(engine)
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'en-US',
+      reason: null
+    })
+    await saveVoiceRecognitionLanguage('zh-CN')
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'zh-CN',
+      reason: null
+    })
+    await saveVoiceRecognitionLanguage(null)
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'en-US',
+      reason: null
+    })
   })
 })

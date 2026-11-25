@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createNativeSpeechServer, type NativeSpeechEngine } from '../platform/speech/native-speech'
 import type * as VoiceRecognitionLanguage from './voice-recognition-language'
 
 const stored = vi.hoisted(() => new Map<string, string>())
@@ -14,10 +15,25 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   }
 }))
 
-// The module keeps its loaded value in memory, so each read needs a fresh instance.
+// Each import is one bundle's evaluation of the module, as the shell's and the page's are on device;
+// the mocked store is all they share, which is exactly the boundary a save has to cross.
 async function fresh(): Promise<typeof VoiceRecognitionLanguage> {
   vi.resetModules()
   return await import('./voice-recognition-language')
+}
+
+// The device engine reads the stored choice through recognitionLocale; the fake stands in for native's recognizer.
+function engineArmedBy(load: () => Promise<string | null>): NativeSpeechEngine {
+  return {
+    availability: async () => ({ status: 'ready', locale: 'en-US' }),
+    start: async (locale) => ({ started: true, locale }),
+    finish: async () => '',
+    cancel: () => {},
+    readPreference: async () => 'automatic',
+    recognitionLocale: load,
+    onText: () => {},
+    onError: () => {}
+  }
 }
 
 describe('voice recognition language storage', () => {
@@ -70,5 +86,57 @@ describe('voice recognition language storage', () => {
     await saveVoiceRecognitionLanguage('ja-JP')
     rejectRead(new Error('storage unavailable'))
     expect(await loading).toBe('ja-JP')
+  })
+
+  it('reads Follow system when storage fails twice in a row', async () => {
+    const { loadVoiceRecognitionLanguage } = await fresh()
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default
+    // Two rejections, not a standing one: the mock is shared across resetModules, so a standing one would poison the reads after this test.
+    vi.mocked(AsyncStorage.getItem)
+      .mockRejectedValueOnce(new Error('storage unavailable'))
+      .mockRejectedValueOnce(new Error('storage unavailable'))
+    expect(await loadVoiceRecognitionLanguage()).toBe(null)
+  })
+})
+
+describe('a save and an arm across the context boundary', () => {
+  beforeEach(() => {
+    stored.clear()
+    vi.resetModules()
+  })
+
+  it('shows a save from one module instance in the read of another, with no reset between', async () => {
+    const writer = await fresh()
+    const reader = await fresh()
+    await writer.saveVoiceRecognitionLanguage('zh-CN')
+    expect(await reader.loadVoiceRecognitionLanguage()).toBe('zh-CN')
+    await writer.saveVoiceRecognitionLanguage(null)
+    expect(await reader.loadVoiceRecognitionLanguage()).toBe(null)
+    await writer.saveVoiceRecognitionLanguage('ja-JP')
+    expect(await reader.loadVoiceRecognitionLanguage()).toBe('ja-JP')
+  })
+
+  it('arms the recognizer in what another instance saved, and follows the next switch without a reset', async () => {
+    const writer = await fresh()
+    const reader = await fresh()
+    const server = createNativeSpeechServer(engineArmedBy(reader.loadVoiceRecognitionLanguage))
+    await writer.saveVoiceRecognitionLanguage('zh-CN')
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'zh-CN',
+      reason: null
+    })
+    await writer.saveVoiceRecognitionLanguage(null)
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'en-US',
+      reason: null
+    })
+    await writer.saveVoiceRecognitionLanguage('ja-JP')
+    expect(await server.serve({ action: 'start', locale: 'en-US' })).toEqual({
+      started: true,
+      locale: 'ja-JP',
+      reason: null
+    })
   })
 })
