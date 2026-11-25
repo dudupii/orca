@@ -63,6 +63,24 @@ describe('stored app update gate', () => {
     stopSame()
   })
 
+  it('offers nothing at cold start when a personal install inherited an official stored latest', async () => {
+    // Preferences are not channel-qualified, so a personal APK installed over an official one
+    // (same package) reads the official channel's latest on first launch; it has no personal
+    // build order, so the home card must stay empty until the personal check runs.
+    const inheritedOfficial = checkerWith({
+      isStoredLatestNewer: isStoredPersonalUpdateNewer,
+      installedVersion: PERSONAL_TAG,
+      latest: {
+        version: '0.0.70',
+        url: 'https://github.com/stablyai/orca/releases/tag/android-v0.0.70'
+      }
+    })
+    const stop = inheritedOfficial.start()
+    await flushLoading()
+    expect(inheritedOfficial.getSnapshot().available).toEqual(null)
+    stop()
+  })
+
   it('keeps the official semver gate, where a stored personal tag never qualifies', async () => {
     const officialSemver = checkerWith({
       isStoredLatestNewer: isNewerReleaseVersion,

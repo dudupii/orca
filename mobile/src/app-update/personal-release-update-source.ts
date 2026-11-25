@@ -1,11 +1,13 @@
 import { z } from 'zod'
 import type { AppUpdateCheckResult, AppUpdateSource } from './app-update-source'
-import { isNewerPersonalRelease, type PersonalReleaseIdentity } from './personal-update-channel'
+import {
+  isNewerPersonalRelease,
+  PERSONAL_RELEASE_TAG_PREFIX,
+  type PersonalReleaseIdentity
+} from './personal-update-channel'
 
 // The fork's own repo: every personal-* tag's release carries the APK alongside the desktop packages.
 const RELEASES_API = 'https://api.github.com/repos/dudupii/orca/releases'
-/** The fork's workflow names every personal release `personal-<version>-<commit short hash>`. */
-export const PERSONAL_RELEASE_TAG_PREFIX = 'personal-'
 
 type Fetch = typeof fetch
 
