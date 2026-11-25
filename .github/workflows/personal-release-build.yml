@@ -45,6 +45,36 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Give the APK the desktop personal version's shape (x.y.z-<9-hex>) so the
+      # About screen names the exact build. prebuild flows app.json's version
+      # into both the native versionName and the runtime expoConfig the About
+      # screen reads, so rewriting it once feeds both; the versionCode step
+      # below still owns upgrade detection. Fail loud on either half missing —
+      # a suffix-less version would read as an official build.
+      - name: Stamp personal version suffix into app.json
+        run: |
+          set -euo pipefail
+          base="$(node -p "require('./app.json').expo.version")"
+          short9="${GITHUB_SHA:0:9}"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "app.json expo.version is not a plain x.y.z base: '$base'" >&2
+            exit 1
+          fi
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
+            exit 1
+          fi
+          version="${base}-${short9}"
+          if [[ "$(grep -c '^    "version":' app.json)" -ne 1 ]]; then
+            echo "expected exactly one expo.version line in app.json" >&2
+            exit 1
+          fi
+          sed -i "s/^\(    \"version\": \"\)[^\"]*\"/\1${version}\"/" app.json
+          if [[ "$(node -p "require('./app.json').expo.version")" != "$version" ]]; then
+            echo "app.json expo.version was not rewritten to '${version}'" >&2
+            exit 1
+          fi
+
       - name: Expo prebuild
         run: npx expo prebuild --platform android --no-install
 
@@ -92,14 +122,38 @@ jobs:
       # install mobile deps for the same reason).
       - uses: ./.github/actions/install-mobile-dependencies
 
+      # The personal channel's identity IS its version shape: the desktop updater
+      # recognizes `x.y.z-<9-hex>` as this fork's personal channel and maps it to
+      # this repo's personal-<version> tags. A build that silently lost its suffix
+      # would look like an official stable release to every updater, so both
+      # halves are validated fail-loud before anything is built.
+      - name: Compute personal build version
+        run: |
+          set -euo pipefail
+          base="$(node -p "require('./package.json').version")"
+          short9="${GITHUB_SHA:0:9}"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json version is not a plain x.y.z base: '$base'" >&2
+            exit 1
+          fi
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
+            exit 1
+          fi
+          echo "PERSONAL_BUILD_VERSION=${base}-${short9}" >> "$GITHUB_ENV"
+
       # Same chain as a local build:linux (typecheck → relay → cli → vite → web →
       # mobile-web → electron-builder). CI runners have a clean tar/xz, so all
       # three targets build; only the deb and AppImage are shipped.
       # --publish never: on a tag push electron-builder would otherwise
       # implicitly publish to GitHub Releases (needs GH_TOKEN, which this job
       # doesn't have). The release job below owns all uploads.
+      # --config.extraMetadata.version: the personal version above overrides the
+      # package.json version electron-builder would otherwise stamp, so the deb
+      # filename and the app's About version carry the channel-identifying
+      # suffix (the AppImage name is version-less, so upload globs stay put).
       - name: Build Linux desktop packages
-        run: pnpm run build:linux -- --publish never
+        run: pnpm run build:linux -- --publish never --config.extraMetadata.version="$PERSONAL_BUILD_VERSION"
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v7
@@ -166,11 +220,34 @@ jobs:
       # resolves React Native and Expo from mobile/node_modules.
       - uses: ./.github/actions/install-mobile-dependencies
 
+      # Same shape and rationale as the linux job's compute step; see there.
+      - name: Compute personal build version
+        run: |
+          set -euo pipefail
+          base="$(node -p "require('./package.json').version")"
+          short9="${GITHUB_SHA:0:9}"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json version is not a plain x.y.z base: '$base'" >&2
+            exit 1
+          fi
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
+            exit 1
+          fi
+          echo "PERSONAL_BUILD_VERSION=${base}-${short9}" >> "$GITHUB_ENV"
+
       # Same chain as a local build:mac; the mac config builds dmg + zip for
       # x64 and arm64 in one electron-builder run. --publish never for the
       # same reason as the linux job: the release job owns uploads.
+      # --config.extraMetadata.version: the personal version above must also
+      # beat build-mac-local.mjs's own ORCA_LOCAL_BUILD_VERSION stamp (a
+      # local.<timestamp>.<commit> shape the personal channel would not
+      # recognize) — CLI dot-notation overrides win app-builder-lib's config
+      # merge, so the packaged app's version (About page, updater identity)
+      # keeps the channel-recognizable shape. The dmg filename itself is
+      # version-less, so upload globs stay put.
       - name: Build macOS packages
-        run: pnpm run build:mac -- --publish never
+        run: pnpm run build:mac -- --publish never --config.extraMetadata.version="$PERSONAL_BUILD_VERSION"
 
       - name: Upload dmg artifacts
         uses: actions/upload-artifact@v7
