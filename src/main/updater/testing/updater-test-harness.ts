@@ -244,8 +244,9 @@ export function createUpdaterMocks(): UpdaterMocks {
           ? { tags: result, state: result.length > 0 ? 'ready' : 'no-newer' }
           : result
       },
+      // Mirror the real tag-derived base: personal-* tags download from the fork repo.
       getReleaseDownloadUrl: (tag: string) =>
-        `https://github.com/stablyai/orca/releases/download/${tag}`
+        `https://github.com/${tag.startsWith('personal-') ? 'dudupii/orca' : 'stablyai/orca'}/releases/download/${tag}`
     }),
     localBuildSwitch: () => ({ chooseLocalBuild: chooseLocalBuildMock }),
     localBuildFeedServer: () => ({ startLocalBuildFeed: startLocalBuildFeedMock })

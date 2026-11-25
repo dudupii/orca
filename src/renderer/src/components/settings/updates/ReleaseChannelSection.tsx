@@ -34,7 +34,9 @@ const CHANNEL_DESCRIPTIONS: Record<ReleaseChannel, string> = {
   hourly: 'macOS and Windows. Unvetted builds from main, built every hour. No tests.',
   daily:
     'macOS and Windows. Unvetted builds from main, cut once a day at 14:15 UTC (early morning Pacific). No tests.',
-  adhoc: 'macOS and Windows. One-off builds cut from a branch to try a feature before it lands.'
+  adhoc: 'macOS and Windows. One-off builds cut from a branch to try a feature before it lands.',
+  personal:
+    'Builds from this fork, published under personal-* tags. Only a personal build can browse them.'
 }
 
 const DEDICATED_CHANNEL_WARNINGS: Record<DedicatedRepoChannel, { key: string; fallback: string }> =
@@ -53,6 +55,11 @@ const DEDICATED_CHANNEL_WARNINGS: Record<DedicatedRepoChannel, { key: string; fa
       key: 'auto.components.settings.ReleaseChannelSection.adhocWarning',
       fallback:
         'Adhoc builds come from a branch that has not landed, and the Windows ones are unsigned. Whoever cut one may abandon it — keep a stable build handy.'
+    },
+    personal: {
+      key: 'auto.components.settings.ReleaseChannelSection.personalWarning',
+      fallback:
+        'Personal builds come from a private fork of Orca and are unsigned, so updates can lag or stop at any time. Keep a stable build handy.'
     }
   }
 
@@ -75,6 +82,9 @@ export function ReleaseChannelSection(): React.JSX.Element {
   const activeChannel = isChannelSupportedOnPlatform(requestedChannel, platform)
     ? requestedChannel
     : 'stable'
+  // Personal builds browse their own channel first; official builds keep the five shipped channels.
+  const pickerChannels: readonly ReleaseChannel[] =
+    runningChannel === 'personal' ? ['personal', ...RELEASE_CHANNELS] : RELEASE_CHANNELS
   const busy = updateStatus.state === 'checking' || updateStatus.state === 'downloading'
 
   useEffect(() => {
@@ -198,7 +208,7 @@ export function ReleaseChannelSection(): React.JSX.Element {
             'Update channel'
           )}
           // Show unsupported channels disabled with reasons so users can discover why they are unavailable.
-          options={RELEASE_CHANNELS.map((channel) => {
+          options={pickerChannels.map((channel) => {
             const supported = isChannelSupportedOnPlatform(channel, platform)
             return {
               value: channel,

@@ -206,6 +206,195 @@ describe('fetchNewerReleaseTag', () => {
   })
 })
 
+describe('personal-channel feed', () => {
+  const PERSONAL_ATOM_URL = 'https://github.com/dudupii/orca/releases.atom'
+  const T1 = '2026-11-20T10:00:00Z'
+  const T2 = '2026-11-21T10:00:00Z'
+  const T3 = '2026-11-22T10:00:00Z'
+
+  function buildPersonalAtomFeed(tags: string[], updatedAt: Record<string, string> = {}): string {
+    const entries = tags
+      .map(
+        (tag) =>
+          `<entry>${updatedAt[tag] ? `<updated>${updatedAt[tag]}</updated>` : ''}<link rel="alternate" type="text/html" href="https://github.com/dudupii/orca/releases/tag/${tag}"/><title>${tag}</title></entry>`
+      )
+      .join('')
+    return `<?xml version="1.0" encoding="UTF-8"?><feed>${entries}</feed>`
+  }
+
+  /** Serve the fork repo's feed plus generic manifest/asset HEAD responders (repo-agnostic paths). */
+  function respondWithPersonalAtom(
+    tags: string[],
+    updatedAt: Record<string, string>,
+    missingManifestTags: string[] = []
+  ): void {
+    const missingManifests = new Set(missingManifestTags)
+    netFetchMock.mockImplementation((url: string, init?: { method?: string }) => {
+      if (url === PERSONAL_ATOM_URL) {
+        return Promise.resolve({
+          ok: true,
+          text: () => Promise.resolve(buildPersonalAtomFeed(tags, updatedAt))
+        })
+      }
+
+      const manifestMatch = url.match(/\/releases\/download\/([^/]+)\/latest(?:-[a-z0-9-]+)?\.yml$/)
+      if (manifestMatch) {
+        const tag = decodeURIComponent(manifestMatch[1])
+        const missing = missingManifests.has(tag)
+        return Promise.resolve({
+          ok: !missing,
+          status: missing ? 404 : 200,
+          text: () => Promise.resolve(buildManifest(tag))
+        })
+      }
+
+      const assetMatch = url.match(/\/releases\/download\/([^/]+)\/(.+)$/)
+      if (assetMatch && init?.method === 'HEAD') {
+        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('') })
+      }
+
+      return Promise.resolve({ ok: false, text: () => Promise.resolve('') })
+    })
+  }
+
+  beforeEach(() => {
+    vi.resetModules()
+    netFetchMock.mockReset()
+    netRequestMock.mockReset()
+    installNetRequestFetchAdapter(netRequestMock, netFetchMock)
+  })
+
+  afterEach(() => {
+    setPlatformForTest(ORIGINAL_PLATFORM)
+    setArchForTest(ORIGINAL_ARCH)
+  })
+
+  it('reads the fork feed and offers a release published after the installed one', async () => {
+    respondWithPersonalAtom(['personal-1.4.215-5f6e7d8c9', 'personal-1.4.214-4e2f1a0b3'], {
+      'personal-1.4.215-5f6e7d8c9': T3,
+      'personal-1.4.214-4e2f1a0b3': T1
+    })
+    const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTag('1.4.214-4e2f1a0b3')).toBe('personal-1.4.215-5f6e7d8c9')
+    expect(netFetchMock).toHaveBeenCalledWith(PERSONAL_ATOM_URL, expect.anything())
+  })
+
+  it('never re-offers the installed tag even when it is the newest entry', async () => {
+    respondWithPersonalAtom(['personal-1.4.214-4e2f1a0b3'], {
+      'personal-1.4.214-4e2f1a0b3': T3
+    })
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
+      tags: [],
+      state: 'no-newer'
+    })
+  })
+
+  it('does not offer a release older than the installed one', async () => {
+    respondWithPersonalAtom(['personal-1.4.214-4e2f1a0b3', 'personal-1.4.215-5f6e7d8c9'], {
+      'personal-1.4.214-4e2f1a0b3': T3,
+      'personal-1.4.215-5f6e7d8c9': T1
+    })
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1)).toMatchObject({
+      tags: [],
+      state: 'no-newer'
+    })
+  })
+
+  it('prefers build order over semver for same-base rebuilds', async () => {
+    // 111112222 sorts below fffff9999 in semver but was published later; recency must win.
+    respondWithPersonalAtom(['personal-1.4.214-fffff9999', 'personal-1.4.214-111112222'], {
+      'personal-1.4.214-fffff9999': T1,
+      'personal-1.4.214-111112222': T3
+    })
+    const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTag('1.4.214-fffff9999')).toBe('personal-1.4.214-111112222')
+  })
+
+  it('offers the newest entry when the installed release has aged out of the feed', async () => {
+    respondWithPersonalAtom(['personal-1.4.215-5f6e7d8c9', 'personal-1.4.216-0a1b2c3d4'], {
+      'personal-1.4.215-5f6e7d8c9': T1,
+      'personal-1.4.216-0a1b2c3d4': T2
+    })
+    const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTag('1.4.214-4e2f1a0b3')).toBe('personal-1.4.216-0a1b2c3d4')
+  })
+
+  it('ignores stray non-personal tags on the fork feed', async () => {
+    respondWithPersonalAtom(['v1.4.999', 'personal-1.4.215-5f6e7d8c9'], {
+      'v1.4.999': T3,
+      'personal-1.4.215-5f6e7d8c9': T2
+    })
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    const result = await fetchNewerReleaseTagsWithReadiness('1.4.213-123456789', 5)
+    expect(result.tags).toEqual(['personal-1.4.215-5f6e7d8c9'])
+    // The stable tag must not have been probed for readiness.
+    const probedUrls = netFetchMock.mock.calls.map(([url]) => String(url))
+    expect(probedUrls.some((url) => url.includes('/releases/download/v1.4.999/'))).toBe(false)
+  })
+
+  it('probes personal manifests against the fork download base', async () => {
+    respondWithPersonalAtom(['personal-1.4.215-5f6e7d8c9', 'personal-1.4.214-4e2f1a0b3'], {
+      'personal-1.4.215-5f6e7d8c9': T2,
+      'personal-1.4.214-4e2f1a0b3': T1
+    })
+    const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
+    const { getReleaseDownloadUrl } = await import('./updater-release-readiness')
+
+    expect(await fetchNewerReleaseTag('1.4.214-4e2f1a0b3')).toBe('personal-1.4.215-5f6e7d8c9')
+    expect(getReleaseDownloadUrl('personal-1.4.215-5f6e7d8c9')).toBe(
+      'https://github.com/dudupii/orca/releases/download/personal-1.4.215-5f6e7d8c9'
+    )
+    expect(getReleaseDownloadUrl('v1.4.215')).toBe(
+      'https://github.com/stablyai/orca/releases/download/v1.4.215'
+    )
+    const probedUrls = netFetchMock.mock.calls.map(([url]) => String(url))
+    expect(probedUrls).toContainEqual(
+      expect.stringMatching(
+        /^https:\/\/github\.com\/dudupii\/orca\/releases\/download\/personal-1\.4\.215-5f6e7d8c9\/latest(-linux|-mac)?\.yml$/
+      )
+    )
+  })
+
+  it('holds a fresh personal release behind the update delay like the official channel', async () => {
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const NOW = Date.parse('2026-11-23T12:00:00Z')
+    respondWithPersonalAtom(
+      ['personal-1.4.215-5f6e7d8c9', 'personal-1.4.214-9aaa00001'],
+      {
+        'personal-1.4.215-5f6e7d8c9': new Date(NOW - DAY_MS).toISOString(),
+        'personal-1.4.214-9aaa00001': new Date(NOW - 8 * DAY_MS).toISOString()
+      },
+      ['personal-1.4.214-9aaa00001']
+    )
+    const { fetchNewerReleaseTagsWithReadiness } = await import('./updater-prerelease-feed')
+
+    const result = await fetchNewerReleaseTagsWithReadiness('1.4.214-4e2f1a0b3', 1, {
+      minReleaseAgeMs: 7 * DAY_MS,
+      now: NOW
+    })
+    expect(result.releaseDelay?.heldRelease?.tag).toBe('personal-1.4.215-5f6e7d8c9')
+    // The aged release has no manifest, so nothing installable is offered.
+    expect(result.tags).toEqual([])
+  })
+
+  it('never consults the fork feed for official versions', async () => {
+    respondWithAtom(['v1.4.2'])
+    const { fetchNewerReleaseTag } = await import('./updater-prerelease-feed')
+
+    expect(await fetchNewerReleaseTag('1.4.1')).toBe('v1.4.2')
+    const fetchedUrls = netFetchMock.mock.calls.map(([url]) => String(url))
+    expect(fetchedUrls).not.toContain(PERSONAL_ATOM_URL)
+  })
+})
+
 describe('fetchNewerReleaseTagsWithReadiness update delay', () => {
   const DAY_MS = 24 * 60 * 60 * 1000
   const NOW = Date.parse('2026-11-02T12:00:00Z')

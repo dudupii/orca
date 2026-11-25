@@ -1,4 +1,3 @@
-import { compareVersions } from './updater-fallback'
 import { updateDelayDaysToMs } from '../../../shared/update-delay'
 import type { DelayedUpdate } from '../../../shared/update-status-types'
 import { AUTO_UPDATE_CHECK_INTERVAL_MS } from '../lifecycle/updater-state'
@@ -25,17 +24,16 @@ export type ReleaseDelayResult = {
 export function applyReleaseDelay(
   candidates: DatedReleaseTag[],
   allTags: DatedReleaseTag[],
-  currentVersion: string,
   minReleaseAgeMs: number,
-  now: number
+  now: number,
+  /** Channel-appropriate recency test; personal builds order by release time, not semver. */
+  isNewerRelease: (entry: DatedReleaseTag) => boolean
 ): { eligible: DatedReleaseTag[]; releaseDelay: ReleaseDelayResult } {
   const cutoff = now - minReleaseAgeMs
   // Unknown dates fail closed: a delay exists to avoid unvetted releases.
   const isOldEnough = (entry: DatedReleaseTag): boolean =>
     entry.releasedAt !== null && entry.releasedAt <= cutoff
-  const held = candidates.find(
-    (entry) => compareVersions(entry.version, currentVersion) > 0 && !isOldEnough(entry)
-  )
+  const held = candidates.find((entry) => isNewerRelease(entry) && !isOldEnough(entry))
   return {
     eligible: candidates.filter(isOldEnough),
     releaseDelay: {
