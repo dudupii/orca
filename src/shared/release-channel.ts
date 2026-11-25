@@ -1,21 +1,34 @@
 import { compareAppVersions, isValidAppVersion } from './app-version'
 
-export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc'
+export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc' | 'personal'
 
-export const RELEASE_CHANNELS: readonly ReleaseChannel[] = [
+/**
+ * Picker-listed channels. The personal channel stays off this list: it exists only inside the
+ * fork that publishes it, so official builds must never offer it as a browsing option.
+ */
+export const RELEASE_CHANNELS = [
   'stable',
   'rc',
   'hourly',
   'daily',
   'adhoc'
-]
+] as const satisfies readonly ReleaseChannel[]
+
+/** Channels the settings picker offers; personal stays update-feed-only. */
+export type SelectableReleaseChannel = (typeof RELEASE_CHANNELS)[number]
+
+/** Every channel the updater can name: the selectable five plus personal, which only a fork
+ *  build carries. Guards on routes a personal build legitimately calls (listBuilds) admit this
+ *  wider set, while picker options and stored overrides stay on RELEASE_CHANNELS. */
+export const KNOWN_RELEASE_CHANNELS: readonly ReleaseChannel[] = [...RELEASE_CHANNELS, 'personal']
 
 export const RELEASE_CHANNEL_LABELS: Readonly<Record<ReleaseChannel, string>> = {
   stable: 'Stable',
   rc: 'RC',
   hourly: 'Hourly',
   daily: 'Daily',
-  adhoc: 'Adhoc'
+  adhoc: 'Adhoc',
+  personal: 'Personal'
 }
 
 /** Keep dev tags out of the 10-entry main releases feed, where hourlies would evict stable/RC updates. */
@@ -24,8 +37,14 @@ export const DAILY_RELEASE_REPO = 'stablyai/orca-daily'
 export const ADHOC_RELEASE_REPO = 'stablyai/orca-adhoc'
 export const MAIN_RELEASE_REPO = 'stablyai/orca'
 
+/** Personal-channel releases live on the fork that builds them, not on the main repo. */
+export const PERSONAL_RELEASE_REPO = 'dudupii/orca'
+
+/** Personal release tags are `personal-<version>`, e.g. `personal-1.4.214-4e2f1a0b3`. */
+export const PERSONAL_RELEASE_TAG_PREFIX = 'personal-'
+
 /** The dev channels, each published to its own repo rather than the main one. */
-const DEDICATED_REPO_CHANNELS = ['hourly', 'daily', 'adhoc'] as const
+const DEDICATED_REPO_CHANNELS = ['hourly', 'daily', 'adhoc', 'personal'] as const
 
 export type DedicatedRepoChannel = (typeof DEDICATED_REPO_CHANNELS)[number]
 
@@ -34,11 +53,18 @@ const CHANNEL_RELEASE_REPOS: Record<ReleaseChannel, string> = {
   rc: MAIN_RELEASE_REPO,
   hourly: HOURLY_RELEASE_REPO,
   daily: DAILY_RELEASE_REPO,
-  adhoc: ADHOC_RELEASE_REPO
+  adhoc: ADHOC_RELEASE_REPO,
+  personal: PERSONAL_RELEASE_REPO
 }
 
 export function isReleaseChannel(value: unknown): value is ReleaseChannel {
-  return typeof value === 'string' && RELEASE_CHANNELS.includes(value as ReleaseChannel)
+  return typeof value === 'string' && RELEASE_CHANNELS.some((channel) => channel === value)
+}
+
+/** Widest channel validator: picker-selectable channels plus personal, which a personal
+ *  build names when listing its own releases through the release API. */
+export function isKnownReleaseChannel(value: unknown): value is ReleaseChannel {
+  return typeof value === 'string' && KNOWN_RELEASE_CHANNELS.some((channel) => channel === value)
 }
 
 /** True for channels published outside the main repo. The updater reports these
@@ -47,11 +73,13 @@ export function hasDedicatedReleaseRepo(channel: ReleaseChannel): channel is Ded
   return (DEDICATED_REPO_CHANNELS as readonly ReleaseChannel[]).includes(channel)
 }
 
-/** Repository separation does not imply platform availability; dev workflows publish macOS/Windows, while Linux retains stable/RC. */
+/** Repository separation does not imply platform availability; dev workflows publish macOS/Windows, while Linux retains stable/RC.
+ *  Personal releases build every desktop platform, so their channel stays selectable everywhere. */
 const DEV_CHANNEL_PLATFORMS: Readonly<Record<DedicatedRepoChannel, readonly NodeJS.Platform[]>> = {
   hourly: ['darwin', 'win32'],
   daily: ['darwin', 'win32'],
-  adhoc: ['darwin', 'win32']
+  adhoc: ['darwin', 'win32'],
+  personal: ['darwin', 'win32', 'linux']
 }
 
 /** Shared availability copy must stay aligned with the platform table. */
@@ -88,7 +116,34 @@ export function getReleaseRepoForChannel(channel: ReleaseChannel): string {
 }
 
 export function normalizeTagToVersion(tag: string): string {
-  return tag.replace(/^v/i, '')
+  // Release tags are `v<version>`; personal-channel releases instead prefix `personal-`.
+  return tag.replace(/^v/i, '').replace(/^personal-/, '')
+}
+
+/** Personal builds stamp the first 9 hex characters of the build commit as the whole prerelease
+ *  (1.4.214-4e2f1a0b3). No official channel ever produces a bare 9-hex-digit prerelease, so the
+ *  shape alone identifies the fork's builds — official versions can never parse as personal. */
+const PERSONAL_VERSION = /^\d+\.\d+\.\d+-[0-9a-f]{9}$/
+
+export function isPersonalVersion(version: string): boolean {
+  return PERSONAL_VERSION.test(normalizeTagToVersion(version))
+}
+
+export function getPersonalReleaseTag(version: string): string {
+  return `${PERSONAL_RELEASE_TAG_PREFIX}${normalizeTagToVersion(version)}`
+}
+
+/** Version carried by a `personal-<version>` release tag; null for every other tag shape. */
+export function parsePersonalReleaseTag(tag: string): string | null {
+  if (!tag.startsWith(PERSONAL_RELEASE_TAG_PREFIX)) {
+    return null
+  }
+  const version = tag.slice(PERSONAL_RELEASE_TAG_PREFIX.length)
+  return isPersonalVersion(version) ? version : null
+}
+
+export function isPersonalReleaseTag(tag: string): boolean {
+  return parsePersonalReleaseTag(tag) !== null
 }
 
 /** Timestamp versions prevent electron-updater treating successive builds as identical (1.4.160-hourly.202607281400). */
@@ -171,6 +226,9 @@ export function getVersionChannel(version: string): ReleaseChannel | null {
   }
   // Why the dev channels are tested first: they are prereleases too, so this
   // catch-all would otherwise file every one of them under rc.
+  if (isPersonalVersion(normalized)) {
+    return 'personal'
+  }
   return normalized.includes('-') ? 'rc' : 'stable'
 }
 
@@ -178,6 +236,10 @@ export function getVersionChannel(version: string): ReleaseChannel | null {
 export function getReleaseNotesUrlForVersion(version: string | null): string {
   const channel = version ? getVersionChannel(version) : null
   const repo = channel ? getReleaseRepoForChannel(channel) : MAIN_RELEASE_REPO
+  // Personal tags carry the `personal-` prefix instead of `v`; every other channel tags `v<version>`.
+  if (channel === 'personal' && version) {
+    return `https://github.com/${repo}/releases/tag/${getPersonalReleaseTag(version)}`
+  }
   return version
     ? `https://github.com/${repo}/releases/tag/v${normalizeTagToVersion(version)}`
     : `https://github.com/${repo}/releases`
@@ -232,6 +294,8 @@ export type ReleaseBuild = {
   channel: ReleaseChannel
   /** Null for missing/tag-repeated titles so the picker distinguishes workflow names from unnamed builds. */
   name: string | null
+  /** GitHub release created_at — the personal build-order stamp, which edits never advance. */
+  createdAt: string | null
   publishedAt: string | null
   releaseUrl: string
   /** Platform installer, null when unpublished; signed Windows builds use this to bootstrap unsigned dev channels. */
@@ -249,8 +313,8 @@ export function sortReleaseBuildsNewestFirst(builds: ReleaseBuild[]): ReleaseBui
     }
 
     if (hasDedicatedReleaseRepo(left.channel) && hasDedicatedReleaseRepo(right.channel)) {
-      const leftPublished = left.publishedAt ? Date.parse(left.publishedAt) : Number.NaN
-      const rightPublished = right.publishedAt ? Date.parse(right.publishedAt) : Number.NaN
+      const leftPublished = dedicatedRepoOrderStamp(left)
+      const rightPublished = dedicatedRepoOrderStamp(right)
       if (
         Number.isFinite(leftPublished) &&
         Number.isFinite(rightPublished) &&
@@ -262,4 +326,12 @@ export function sortReleaseBuildsNewestFirst(builds: ReleaseBuild[]): ReleaseBui
 
     return compareAppVersions(right.version, left.version)
   })
+}
+
+/** Dedicated-repo order stamp: personal builds read release created_at because editing a
+ *  release or swapping its assets advances published_at (and the atom feed's <updated>) but
+ *  never created_at, so an edited older build must not float above newer ones. */
+function dedicatedRepoOrderStamp(build: ReleaseBuild): number {
+  const stamp = build.channel === 'personal' ? build.createdAt : build.publishedAt
+  return stamp ? Date.parse(stamp) : Number.NaN
 }

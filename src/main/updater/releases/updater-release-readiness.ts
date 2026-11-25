@@ -1,11 +1,21 @@
 import { net } from 'electron'
 import { parse } from 'yaml'
+import {
+  MAIN_RELEASE_REPO,
+  PERSONAL_RELEASE_REPO,
+  isPersonalReleaseTag
+} from '../../../shared/release-channel'
 
-const RELEASES_DOWNLOAD_BASE = 'https://github.com/stablyai/orca/releases/download'
 export const FETCH_TIMEOUT_MS = 5000
 
+/** Personal-channel tags resolve against the fork's releases; every other tag stays on the main repo. */
+function getReleasesDownloadBase(tag: string): string {
+  const repo = isPersonalReleaseTag(tag) ? PERSONAL_RELEASE_REPO : MAIN_RELEASE_REPO
+  return `https://github.com/${repo}/releases/download`
+}
+
 export function getReleaseDownloadUrl(tag: string): string {
-  return `${RELEASES_DOWNLOAD_BASE}/${encodeURIComponent(tag)}`
+  return `${getReleasesDownloadBase(tag)}/${encodeURIComponent(tag)}`
 }
 
 function getPlatformManifestName(): string {
@@ -102,12 +112,16 @@ async function getGitHubReleaseAssetReadiness(assetUrl: string): Promise<Release
   return response.statusCode === 404 ? 'not-ready' : ready ? 'ready' : 'unavailable'
 }
 
+/** Windows manifests may list absolute release-asset URLs; either repo's URLs need the redirect-probing path. */
+const GITHUB_RELEASE_ASSET_URL = new RegExp(
+  `^https://github\\.com/(?:${MAIN_RELEASE_REPO}|${PERSONAL_RELEASE_REPO})/releases/download/`,
+  'i'
+)
+
 async function getReleaseAssetReadiness(tag: string, assetName: string): Promise<ReleaseReadiness> {
   const isRelativeAsset = !/^https?:\/\//i.test(assetName)
   const isGitHubReleaseAsset =
-    process.platform === 'win32' &&
-    (isRelativeAsset ||
-      /^https:\/\/github\.com\/stablyai\/orca\/releases\/download\//i.test(assetName))
+    process.platform === 'win32' && (isRelativeAsset || GITHUB_RELEASE_ASSET_URL.test(assetName))
   const assetUrl = isRelativeAsset
     ? getReleaseAssetUrl(tag, assetName.split('/').findLast(Boolean) ?? assetName)
     : assetName
