@@ -10,12 +10,15 @@ import {
 } from '../storage/app-update-preferences'
 import { appStoreUpdateSource } from './app-store-update-source'
 import { createAppUpdateChecker, type AppUpdateState } from './app-update-checker'
+import { isNewerReleaseVersion } from './app-update-source'
 import type { AppUpdateSource } from './app-update-source'
 import {
   ANDROID_RELEASE_TAG_PREFIX,
   createGithubReleaseUpdateSource,
   RETIRED_ANDROID_RELEASE_TAG_PREFIX
 } from './github-release-update-source'
+import { createPersonalReleaseUpdateSource } from './personal-release-update-source'
+import { isStoredPersonalUpdateNewer, resolveAppUpdateChannel } from './personal-update-channel'
 
 // expoConfig is embedded binary manifest because app does not use expo-updates; SDK 55 removed nativeAppVersion. Revisit version source if adopting OTA updates.
 export const installedAppVersion: string | null = Constants.expoConfig?.version ?? null
@@ -28,11 +31,21 @@ export const isRetiredGithubAndroidApp =
 export const isGooglePlayInstall =
   Platform.OS === 'android' && (OrcaPlayStorePresence?.isInstalledByPlayStore() ?? false)
 
+// The fork's personal builds bake their release tag here (Metro inlines EXPO_PUBLIC_*); official builds set nothing.
+const updateChannel = resolveAppUpdateChannel(process.env.EXPO_PUBLIC_ORCA_BUILD_VARIANT)
+
+/** The identity update checks compare against: the personal release tag, or the app version. */
+const installedUpdateIdentity: string | null =
+  updateChannel.kind === 'personal' ? updateChannel.installedTag : installedAppVersion
+
 /** The channel that installed this binary. */
 function resolveAppUpdateSource(): AppUpdateSource | null {
   if (Platform.OS === 'android') {
     if (isGooglePlayInstall) {
       return null
+    }
+    if (updateChannel.kind === 'personal') {
+      return createPersonalReleaseUpdateSource((input, init) => fetch(input, init))
     }
     return createGithubReleaseUpdateSource(
       (input, init) => fetch(input, init),
@@ -52,7 +65,9 @@ export const canCheckForAppUpdates = appUpdateSource !== null
 
 export const appUpdateChecker = createAppUpdateChecker({
   source: appUpdateSource,
-  installedVersion: installedAppVersion,
+  installedVersion: installedUpdateIdentity,
+  isStoredLatestNewer:
+    updateChannel.kind === 'personal' ? isStoredPersonalUpdateNewer : isNewerReleaseVersion,
   now: () => Date.now(),
   setTimer: (run, delayMs) => setTimeout(run, delayMs),
   clearTimer: (handle) => clearTimeout(handle),
