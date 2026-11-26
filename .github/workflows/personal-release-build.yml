@@ -159,7 +159,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: personal-linux-appimage
-          path: dist/orca-linux.AppImage
+          # The name carries the personal version (orca-linux-personal-<version>.AppImage); arm64 adds -arm64.
+          path: dist/orca-linux*.AppImage
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v7
@@ -325,11 +326,30 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download build artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
+
+      # Same shape and rationale as the linux job's compute step; see there.
+      - name: Compute personal build version
+        run: |
+          set -euo pipefail
+          base="$(node -p "require('./package.json').version")"
+          short9="${GITHUB_SHA:0:9}"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json version is not a plain x.y.z base: '$base'" >&2
+            exit 1
+          fi
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
+            exit 1
+          fi
+          echo "PERSONAL_BUILD_VERSION=${base}-${short9}" >> "$GITHUB_ENV"
 
       - name: Attach to the tag's GitHub Release
         env:
@@ -344,6 +364,16 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --title "Personal integration build ($tag)" --prerelease --latest=false \
               --notes-file "$notes" --target "$GITHUB_SHA"
+          fi
+
+          # The APK and IPA carry no electron-builder manifest, so they are renamed here; the
+          # desktop formats take their names from the builder's own templates (see
+          # personalArtifactInfix in config/electron-builder.config.cjs).
+          if [ -f artifacts/app-release.apk ]; then
+            mv artifacts/app-release.apk "artifacts/Orca-personal-${PERSONAL_BUILD_VERSION}.apk"
+          fi
+          if [ -f artifacts/Orca-ios-unsigned.ipa ]; then
+            mv artifacts/Orca-ios-unsigned.ipa "artifacts/Orca-personal-${PERSONAL_BUILD_VERSION}.ipa"
           fi
 
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \

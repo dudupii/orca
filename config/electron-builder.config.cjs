@@ -105,6 +105,28 @@ const isMacRelease = process.env.ORCA_MAC_RELEASE === '1' || isMacHourly || isMa
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 const localBuildVersion =
   isMacRelease || isWinDevChannel ? undefined : process.env.ORCA_LOCAL_BUILD_VERSION
+// Personal release builds (the workflow stamps PERSONAL_BUILD_VERSION = x.y.z-<9-hex>) name every
+// self-built package after the tag shape, e.g. orca-macos-personal-1.4.214-6c50beecc-arm64.dmg, so
+// a release's assets self-identify the way the deb's ${version} already does. Everything else —
+// official channels, local builds, PR CI — keeps the upstream names, which scripts and workflows
+// reference verbatim (pr.yml's AppImage node-runtime extraction, verify-release-required-assets,
+// homebrew-bump).
+const isPersonalArtifactBuild = /^\d+\.\d+\.\d+-[0-9a-f]{9}$/.test(
+  process.env.PERSONAL_BUILD_VERSION ?? ''
+)
+const dmgArtifactName = isPersonalArtifactBuild
+  ? 'orca-macos-personal-${version}-${arch}.${ext}'
+  : 'orca-macos-${arch}.${ext}'
+const appImageArtifactName = isLinuxArm64Release
+  ? isPersonalArtifactBuild
+    ? 'orca-linux-arm64-personal-${version}.${ext}'
+    : 'orca-linux-arm64.${ext}'
+  : isPersonalArtifactBuild
+    ? 'orca-linux-personal-${version}.${ext}'
+    : 'orca-linux.${ext}'
+const nsisArtifactName = isPersonalArtifactBuild
+  ? 'orca-windows-setup-personal-${version}.${ext}'
+  : 'orca-windows-setup.${ext}'
 const isHourlyChannel = isMacHourly || isWinHourly
 const isDailyChannel = isMacDaily || isWinDaily
 const isAdhocChannel = isMacAdhoc || isWinAdhoc
@@ -600,7 +622,7 @@ module.exports = {
     ]
   },
   nsis: {
-    artifactName: 'orca-windows-setup.${ext}',
+    artifactName: nsisArtifactName,
     shortcutName: '${productName}',
     uninstallDisplayName: '${productName}',
     createDesktopShortcut: 'always',
@@ -694,7 +716,7 @@ module.exports = {
   // silently downgrading to ad-hoc artifacts that look shippable in CI logs.
   forceCodeSigning: isMacRelease,
   dmg: {
-    artifactName: 'orca-macos-${arch}.${ext}'
+    artifactName: dmgArtifactName
   },
   linux: {
     // shared-mime-info already maps md/markdown: advertise handler only, leaving mimeapps.list defaults intact.
@@ -738,7 +760,7 @@ module.exports = {
     category: 'Utility'
   },
   appImage: {
-    artifactName: isLinuxArm64Release ? 'orca-linux-arm64.${ext}' : 'orca-linux.${ext}'
+    artifactName: appImageArtifactName
   },
   deb: {
     packageName: 'orca-ide',
