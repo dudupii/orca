@@ -1,7 +1,10 @@
 import { annotateBrowserPageHandles } from '@/store/slices/browser/hosts/browser-initialization-presentation-ownership'
 import type { AppState } from '../../../types'
 import type { WorkspaceLineage } from '../../../../../../shared/worktree/lineage-types'
-import { isWorkspaceKey, worktreeWorkspaceKey } from '../../../../../../shared/workspace-scope'
+import {
+  isWorkspaceKey,
+  worktreeWorkspaceKey
+} from '../../../../../../shared/workspace/identity/workspace-scope'
 import { normalizeRightSidebarRoute } from '../../right-sidebar/right-sidebar-route'
 import type { WorktreePurgeDoomedIds } from './worktree-purge-doomed-ids'
 import { omitRecordKeys } from './record-key-omission'
@@ -21,6 +24,14 @@ export function createWorktreePurgeOmitters(
     omitRecordKeys(
       obj,
       [...worktreeIdSet].map((id) => (isWorkspaceKey(id) ? id : worktreeWorkspaceKey(id)))
+    )
+  // Why both forms: session-keyed maps hold bare worktree ids and `worktree:` aliases.
+  const omitWorkspaceSessionKeyByWorktree = <T>(obj: Record<string, T>): Record<string, T> =>
+    omitRecordKeys(
+      obj,
+      [...worktreeIdSet].flatMap((id) =>
+        isWorkspaceKey(id) ? [id] : [id, worktreeWorkspaceKey(id)]
+      )
     )
   const pruneRightSidebarTabByWorktree = (): AppState['rightSidebarTabByWorktree'] => {
     const omitted = omitByWorktree(s.rightSidebarTabByWorktree)
@@ -71,6 +82,7 @@ export function createWorktreePurgeOmitters(
   return {
     omitByWorktree,
     omitWorkspaceLineageByWorktree,
+    omitWorkspaceSessionKeyByWorktree,
     pruneRightSidebarTabByWorktree,
     omitByTabId,
     omitByPtyId,

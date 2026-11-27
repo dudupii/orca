@@ -15,7 +15,7 @@ import {
   type AgentChildWorkState
 } from './agent-status-child-work'
 import { agentStatusSubjectsEqual } from '../contracts/agent-status-subject'
-import { groupedBy } from '../../grouped-by'
+import { groupedBy } from '../../collections/grouped-by'
 
 /** Publish read-only child views without host bookkeeping. Decode foreign versions permissively or gate by capability, never with the strict record codec. */
 export type AgentChildWorkView = {
@@ -105,14 +105,14 @@ function resolvedOwner(
     : undefined
 }
 
-/** Every surface starts here; foreground Codex tools stay in status records and tool rows. */
+/** Every surface starts here. A foreground command (any provider's ordinary tool call) stays in status
+ *  records and its transcript tool row; it shows once it moves to the background. */
 export function projectAgentChildWorkViews(
   records: readonly AgentChildWorkInput[],
   aliases: readonly AgentChildWorkViewAlias[]
 ): AgentChildWorkView[] {
   const visible = records.filter(
-    (record) =>
-      record.provider !== 'codex' || record.kind !== 'command' || record.residency !== 'foreground'
+    (record) => record.kind !== 'command' || record.residency !== 'foreground'
   )
   const byId = new Map(visible.map((record) => [record.childWorkId, record]))
   const aliasesByChild = groupedBy(aliases, (alias) => alias.childWorkId)

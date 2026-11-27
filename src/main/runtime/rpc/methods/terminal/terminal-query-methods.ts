@@ -1,12 +1,12 @@
 import { defineMethod } from '../../core'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../shared/layout-owner-switch'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../shared/workspace-layout/layout-owner-switch'
 import { remoteFileContentBudget } from '../files/files-remote-content-budget'
 import { remoteRpcResultExceedsContentBudget } from '../../../../../shared/remote-runtime/rpc/remote-rpc-content-budget'
 import { agentHookServer } from '../../../../agent-hooks/server/agent-hook-server'
 import {
   formatOrcaSessionAddress,
   type OrcaSessionAddress
-} from '../../../../../shared/orca-session-address'
+} from '../../../../../shared/agent-session/identity/orca-session-address'
 import {
   TerminalAgentId,
   TerminalHandle,
@@ -32,19 +32,21 @@ export const TERMINAL_QUERY_METHODS = [
       if (ORCA_LAYOUT_OWNER_IS_MAIN && params.placeUnshownLiveTerminals && params.worktree) {
         await runtime.placeUnshownLiveTerminalsOf(params.worktree)
       }
+      const includePreview = params.includePreview !== false
       const result = await runtime.listTerminals(params.worktree, params.limit, {
         handles: params.handles,
         requireFreshPtyLiveness: params.requireFreshPtyLiveness,
-        includeVisualLayouts: params.includeVisualLayouts
+        includeVisualLayouts: params.includeVisualLayouts,
+        alternateScreenGridPreviews: includePreview
       })
-      if (params.includePreview !== false && !params.includeAttention) {
+      if (includePreview && !params.includeAttention) {
         return result
       }
       return {
         ...result,
         terminals: result.terminals.map(({ preview, ...terminal }) => ({
           ...terminal,
-          ...(params.includePreview !== false ? { preview } : {}),
+          ...(includePreview ? { preview } : {}),
           ...(params.includeAttention && terminal.ptyId
             ? { attention: runtime.getTerminalAttention(terminal.ptyId) }
             : {})

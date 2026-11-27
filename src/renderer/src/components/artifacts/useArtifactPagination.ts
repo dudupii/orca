@@ -4,7 +4,7 @@ import type {
   ArtifactListItem,
   ArtifactListPage
 } from '../../../../shared/artifacts/artifacts'
-import type { OrcaProfileAuthStatus } from '../../../../shared/orca-profiles'
+import type { OrcaProfileAuthStatus } from '../../../../shared/orca-profiles/orca-profiles'
 import { translate } from '@/i18n/i18n'
 import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
 import { useAppStore } from '@/store'
@@ -43,6 +43,7 @@ export function useArtifactPagination(
 ): {
   accountIdentity: string | null
   artifacts: readonly ArtifactListItem[]
+  hasLoadedCurrentPage: boolean
   error: string | null
   loading: boolean
   loadingMore: boolean
@@ -206,6 +207,7 @@ export function useArtifactPagination(
   return {
     accountIdentity,
     artifacts,
+    hasLoadedCurrentPage: currentPage !== null && accountIdentity !== null,
     error,
     loading,
     loadingMore,

@@ -2,8 +2,8 @@ import type {
   AgentSessionBackgroundTask,
   AgentSessionBackgroundTaskRunState,
   AgentSessionBackgroundTaskState
-} from '../../../shared/agent-session/agent-session-background-task-wire'
-import { classifyClaudeBackgroundTaskKind } from '../../../shared/claude-background-task-kind'
+} from '../../../shared/agent-session/background-tasks/agent-session-background-task-wire'
+import { classifyClaudeBackgroundTaskKind } from '../../../shared/agent-hook-listener/providers/claude/background-tasks/claude-background-task-kind'
 import {
   liveClaudeTaskRunState,
   record,
@@ -76,6 +76,14 @@ export class ClaudeBackgroundTaskTracker {
       }
     } else if (!startsTurn && message.type !== 'result') {
       return false
+    }
+    return this.refreshMonitoring()
+  }
+
+  /** Many task starts at once (a reattach restating its open tasks), with one roster rebuild. */
+  restate(starts: readonly Record<string, unknown>[]): boolean {
+    for (const start of starts) {
+      this.observeSystemFrame(start)
     }
     return this.refreshMonitoring()
   }

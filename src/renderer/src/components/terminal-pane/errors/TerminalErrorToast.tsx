@@ -13,13 +13,14 @@ import { useTranslate } from '@/i18n/use-translate'
 import { Button } from '@/components/ui/button'
 import { CopyTextButton } from '@/components/clipboard/CopyTextButton'
 import { isAgentLaunchOnlyError } from '../launch-outcome/agent-launch-pane-notice-text'
-import { hasClientEnvironmentFooter } from '../../../../../shared/client-environment-info'
+import { hasClientEnvironmentFooter } from '../../../../../shared/feedback/client-environment-info'
 import {
   failedSpawnEnvironmentFooter,
   withoutTerminalSpawnIssueRequest
 } from './terminal-spawn-error-display'
 import { isWslDistroHoldText } from '@/runtime/hosts/wsl/wsl-distro-hold-copy'
 import { isSshSignInRequiredTerminalError } from './terminal-ssh-sign-in-error'
+import { runWithFinally } from '@/lib/run-with-finally'
 
 export function TerminalErrorToast({
   error,
@@ -101,14 +102,17 @@ export function TerminalErrorToast({
     onRestoreTerminalFocus?.()
     setRetrying(true)
     setRetryFailed(false)
-    try {
-      setRetryFailed(!(await onRetry()))
-    } catch {
-      // Keep the safety warning available when a best-effort remount cannot start.
-      setRetryFailed(true)
-    } finally {
-      setRetrying(false)
-    }
+    await runWithFinally(
+      async () => {
+        try {
+          setRetryFailed(!(await onRetry()))
+        } catch {
+          // Keep the safety warning available when a best-effort remount cannot start.
+          setRetryFailed(true)
+        }
+      },
+      () => setRetrying(false)
+    )
   }
 
   return (

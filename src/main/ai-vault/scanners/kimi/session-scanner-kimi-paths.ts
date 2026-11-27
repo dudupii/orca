@@ -5,14 +5,14 @@ import {
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { resolveAbsoluteDirOverride } from '../../../../shared/absolute-dir-override'
+import { resolveAbsoluteDirOverride } from '../../../../shared/file-access/absolute-dir-override'
 import {
   openTranscriptReadStream,
   wslGatedStat
 } from '../../../native-chat/transcript-filesystem/wsl-transcript-fs-access'
 import { WslTranscriptFsError } from '../../../native-chat/transcript-filesystem/wsl-transcript-fs-error'
 import { asRecord } from '../../parsing/session-record-fields'
-import { extractString } from '../../../../shared/trimmed-string'
+import { extractString } from '../../../../shared/text/trimmed-string'
 import { KimiSessionIndexCache } from './session-scanner-kimi-index-cache'
 
 export function resolveKimiSessionsDir(override?: string): string {
@@ -56,15 +56,26 @@ export function kimiPrimaryAgentWirePath(
   return join(dirname(statePath), 'agents', primaryId, 'wire.jsonl')
 }
 
+/** The session folder a wire transcript belongs to: `<session dir>/agents/<agent>/wire.jsonl`. */
+export function kimiSessionDirFromWirePath(wirePath: string): string {
+  return dirname(dirname(dirname(wirePath)))
+}
+
+/** The folder Kimi's session index records for the session a wire transcript belongs to: the
+ *  folder Session History lists it under. */
+export async function readKimiWireSessionWorkDir(wirePath: string): Promise<string | null> {
+  const sessionDir = kimiSessionDirFromWirePath(wirePath)
+  const workDirs = await readKimiWorkDirBySessionId(
+    kimiSessionIndexPathFromStatePath(join(sessionDir, 'state.json'))
+  )
+  return workDirs.get(basename(sessionDir)) ?? null
+}
+
 // Share parsed indexes by path and file identity; one home can hold many sessions.
 const workDirCacheByIndexPath = new KimiSessionIndexCache()
 
 export function clearKimiSessionIndexCache(): void {
   workDirCacheByIndexPath.clear()
-}
-
-export function hasKimiSessionIndexCacheEntryForTests(indexPath: string): boolean {
-  return workDirCacheByIndexPath.has(indexPath)
 }
 
 export async function readKimiWorkDirBySessionId(

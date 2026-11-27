@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native'
-import { colors, radii, spacing, typography } from '../../../../theme/mobile-theme'
+import { radii, spacing, typography } from '../../../../theme/mobile-theme'
 import {
   COMPOSER_INSET_TOP,
   COMPOSER_TUCK
@@ -16,7 +16,7 @@ const ROW_MIN_HEIGHT = 52
 export const QUEUED_ROW_NARROW_WIDTH = 340
 const STEER_PILL_HEIGHT = 32
 
-export const queuedMessageStyles = themedStyleSheet(() => ({
+export const queuedMessageStylesSheet = themedStyleSheet((colors) => ({
   list: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.xs,
@@ -24,13 +24,18 @@ export const queuedMessageStyles = themedStyleSheet(() => ({
   },
   box: {
     paddingBottom: COMPOSER_TUCK,
-    backgroundColor: colors.bgPanel,
+    backgroundColor: colors.chatPanel,
     borderTopLeftRadius: radii.surface,
     borderTopRightRadius: radii.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: 0,
     borderColor: colors.composerBorder,
     overflow: 'hidden'
+  },
+  // A box docked inside the composer's own inset (goal, MCP servers): as wide as the queue, tucked under it.
+  composerTab: {
+    marginHorizontal: spacing.xs,
+    marginBottom: -COMPOSER_TUCK
   },
   // Full editors and menus scroll above the ordinary composer instead of tucking under it.
   inlineList: { flexShrink: 1, minHeight: 0, marginBottom: 0 },
@@ -183,7 +188,8 @@ export const queuedMessageStyles = themedStyleSheet(() => ({
     gap: spacing.xs,
     paddingHorizontal: 11,
     borderRadius: radii.pill,
-    backgroundColor: colors.cardPillFill,
+    // Translucent, so it still reads on the queue box's chatPanel, which dark lifts to cardPillFill's grey.
+    backgroundColor: colors.translucentFill,
     flexShrink: 0
   },
   steerLabel: {
@@ -234,8 +240,5 @@ export const queuedMessageStyles = themedStyleSheet(() => ({
   },
   litActionLabel: {
     color: colors.bgBase
-  },
-  disabled: {
-    opacity: 0.5
   }
 }))

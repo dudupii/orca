@@ -1,6 +1,6 @@
 import * as z from 'zod'
 import type { ExecutionHostHealth } from '../../../../src/shared/execution-host/execution-host-health'
-import { parseExecutionHostId } from '../../../../src/shared/execution-host'
+import { parseExecutionHostId } from '../../../../src/shared/execution-host/execution-host'
 import {
   MOBILE_RELAY_HOST_WORKTREES_METHOD,
   MOBILE_RELAY_HOSTS_LIST_METHOD,
@@ -37,7 +37,8 @@ const relayHostSchema = z.looseObject({
   relay: z.enum(RELAY).catch('unavailable'),
   stoppedOnDesktop: z.literal(true).optional().catch(undefined),
   unavailableOnDesktop: z.literal(true).optional().catch(undefined),
-  installationId: z.string().optional().catch(undefined)
+  installationId: z.string().optional().catch(undefined),
+  rowChanges: z.literal(true).optional().catch(undefined)
 }) satisfies z.ZodType<MobileRelayHost>
 
 export const relayHostsListRead = bindDeferredRpcOperation(

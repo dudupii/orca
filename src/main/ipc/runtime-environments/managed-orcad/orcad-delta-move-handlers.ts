@@ -1,5 +1,6 @@
 /** IPC for a host an older build changed after conversion: move its newer projects, or keep the server's. */
 import { ipcMain } from 'electron'
+import type { IpcHandleRegistrar } from '../../lazy-ipc-handle-group'
 import type {
   OrcadDeltaMovePreview,
   OrcadDeltaMoveResult
@@ -22,8 +23,11 @@ import { requiredString } from './orcad-runtime-lifecycle-handlers'
 import { publishResolvedChangedHostStatus } from './runtime-environment-managed-tunnel'
 import { runTargetLifecycle } from '../../ssh/ssh-target-lifecycle-queue'
 
-export function registerOrcadDeltaMoveHandlers(getUserDataPath: () => string): void {
-  ipcMain.handle(
+export function registerOrcadDeltaMoveHandlers(
+  getUserDataPath: () => string,
+  ipc: IpcHandleRegistrar = ipcMain
+): void {
+  ipc.handle(
     'runtimeEnvironments:previewOrcadDeltaMove',
     (_event, args: { sshTargetId: string }): OrcadDeltaMovePreview => {
       const { store, target } = requireChangedHost(args)
@@ -32,12 +36,12 @@ export function registerOrcadDeltaMoveHandlers(getUserDataPath: () => string): v
       return { sshTargetId, environmentId, added, notReflected, blockers }
     }
   )
-  ipcMain.handle(
+  ipc.handle(
     'runtimeEnvironments:moveOrcadDelta',
     async (_event, args: { sshTargetId: string }): Promise<OrcadDeltaMoveResult> => {
       const userDataPath = getUserDataPath()
       const { store, claims, target } = requireChangedHost(args)
-      const environment = listEnvironments(userDataPath).find(
+      const environment = (await listEnvironments(userDataPath)).find(
         (entry) => entry.id === target.orcadFence?.environmentId
       )
       if (!environment) {
@@ -58,7 +62,9 @@ export function registerOrcadDeltaMoveHandlers(getUserDataPath: () => string): v
       })
       if (result.outcome === 'moved') {
         // Tunnel repair may have re-paired the server; read its current credentials.
-        const paired = listEnvironments(userDataPath).find((entry) => entry.id === environment.id)
+        const paired = (await listEnvironments(userDataPath)).find(
+          (entry) => entry.id === environment.id
+        )
         const automationsLeftDisabled = await enableMovedOrcadAutomationsForTarget(
           userDataPath,
           target.id,
@@ -72,7 +78,7 @@ export function registerOrcadDeltaMoveHandlers(getUserDataPath: () => string): v
       return result
     }
   )
-  ipcMain.handle(
+  ipc.handle(
     'runtimeEnvironments:keepOrcadServerVersion',
     async (_event, args: { sshTargetId: string }): Promise<void> => {
       const { store, claims, target, environmentId } = requireChangedHost(args)

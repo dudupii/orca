@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import {
   throwIfSignalAborted,
   waitForPromiseWithSignal
-} from '../../../../shared/abort-signal-reason'
+} from '../../../../shared/concurrency/abort-signal-reason'
 import { refuseUnclassified } from '../../../../shared/agent-session/failures/agent-session-wire-refusals'
 import { agentSessionWriteNoticeEnglish } from '../../../../shared/agent-session/failures/agent-session-refusal-notice'
 import { isQueuedAgentJournalSubmission } from '../../../../shared/agent-session/requests/agent-session-queued-submission'
@@ -85,9 +85,15 @@ export function registerStructuredAgentSessionStart(
             return result
           }
           const owned = handle.result
-          result = await lock.commit(async () =>
-            structuredAgentSessionOpenFailure(context.sessions.get(sessionId), owned)
-          )
+          const generation = owned.child?.generation
+          // A kept agent that had ended before it was reattached only showed its output: no
+          // start failed, and a send waiting on it goes to a fresh agent.
+          result =
+            generation && context.deps.adapter.endedBeforeAcquire?.(sessionId, generation)
+              ? { ...failedStructuredAgentSessionStart(), aborted: true }
+              : await lock.commit(async () =>
+                  structuredAgentSessionOpenFailure(context.sessions.get(sessionId), owned)
+                )
         }
         if (result.ok || result.aborted || result.expired || !result.retry || number === 4) {
           break
@@ -115,6 +121,7 @@ export function registerStructuredAgentSessionStart(
       }
       return failedStructuredAgentSessionStart()
     })
+  flights.trackAttempt(sessionId, attempting)
   let recorded: Promise<void> = Promise.resolve()
   // Stop, close, quit, the deadline and the contract guard decide the start at once, even while
   // its attempt or the session's serialized work is still held; late attempt work fails the

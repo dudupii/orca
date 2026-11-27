@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
-import type { CliInstallStatus } from '../../shared/cli-install-types'
-import { resolveAppImageCacheKey } from '../../shared/appimage-cache-identity'
+import type { IpcHandleRegistrar } from './lazy-ipc-handle-group'
+import type { CliInstallStatus } from '../../shared/cli/cli-install-types'
+import { resolveAppImageCacheKey } from '../../shared/desktop-distribution/appimage/appimage-cache-identity'
 import { CliInstaller } from '../cli/cli-installer'
 import { runKeyedSerializedOperation } from '../../shared/concurrency/keyed-serialized-operations'
 import {
@@ -94,13 +95,24 @@ async function hydrateLocalShellPathForCli(force = false): Promise<void> {
   }
 }
 
-export function registerCliHandlers(): void {
+/** Status without the stale-AppImage repair, which would re-register the command. */
+export async function readLocalCliInstallStatus(): Promise<CliInstallStatus> {
+  await hydrateLocalShellPathForCli()
+  return new CliInstaller().getStatus()
+}
+
+export async function removeLocalCliRegistration(): Promise<CliInstallStatus> {
+  await hydrateLocalShellPathForCli()
+  return runLocalCliRegistrationOperation(() => new CliInstaller().remove())
+}
+
+export function registerCliHandlers(ipc: IpcHandleRegistrar = ipcMain): void {
   let staleAppImageRepairAttempt: {
     promise: Promise<CliInstallStatus | null>
     retryAfter: number
   } | null = null
 
-  ipcMain.handle('cli:getInstallStatus', async (): Promise<CliInstallStatus> => {
+  ipc.handle('cli:getInstallStatus', async (): Promise<CliInstallStatus> => {
     await hydrateLocalShellPathForCli()
     const installer = new CliInstaller()
     const status = await installer.getStatus()
@@ -138,17 +150,14 @@ export function registerCliHandlers(): void {
     return (await staleAppImageRepairAttempt.promise) ?? status
   })
 
-  ipcMain.handle('cli:install', async (): Promise<CliInstallStatus> => {
+  ipc.handle('cli:install', async (): Promise<CliInstallStatus> => {
     await hydrateLocalShellPathForCli(true)
     return runLocalCliRegistrationOperation(() => new CliInstaller().install())
   })
 
-  ipcMain.handle('cli:remove', async (): Promise<CliInstallStatus> => {
-    await hydrateLocalShellPathForCli()
-    return runLocalCliRegistrationOperation(() => new CliInstaller().remove())
-  })
+  ipc.handle('cli:remove', removeLocalCliRegistration)
 
-  ipcMain.handle(
+  ipc.handle(
     'cli:getWslInstallStatus',
     async (
       _event,
@@ -176,7 +185,7 @@ export function registerCliHandlers(): void {
     }
   )
 
-  ipcMain.handle(
+  ipc.handle(
     'cli:installWsl',
     async (_event, args?: { distro?: string | null }): Promise<CliInstallStatus> => {
       const distro = resolveWslCliDistro(args)
@@ -193,7 +202,7 @@ export function registerCliHandlers(): void {
     }
   )
 
-  ipcMain.handle(
+  ipc.handle(
     'cli:removeWsl',
     async (_event, args?: { distro?: string | null }): Promise<CliInstallStatus> => {
       const distro = resolveWslCliDistro(args)

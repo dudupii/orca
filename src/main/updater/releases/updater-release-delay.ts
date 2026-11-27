@@ -1,5 +1,5 @@
-import { updateDelayDaysToMs } from '../../../shared/update-delay'
-import type { DelayedUpdate } from '../../../shared/update-status-types'
+import { updateDelayDaysToMs } from '../../../shared/updater/update-delay'
+import type { DelayedUpdate } from '../../../shared/updater/update-status-types'
 import { AUTO_UPDATE_CHECK_INTERVAL_MS } from '../lifecycle/updater-state'
 
 // Absorbs clock skew between this host and GitHub's feed timestamps.
@@ -8,8 +8,9 @@ const DELAYED_UPDATE_CLEAR_BUFFER_MS = 5 * 60 * 1000
 export type DatedReleaseTag = {
   tag: string
   version: string
-  /** Release time for ordering and delays: the official feed's Atom `updated`, or the personal
-   *  channel's release created_at, which edits never advance. */
+  /** Release time for ordering and delays: the official feed's Atom `updated` (never earlier
+   *  than publication) or REST `published_at` past the feed; the personal channel's release
+   *  created_at, which edits never advance. */
   releasedAt: number | null
 }
 
@@ -22,6 +23,11 @@ export type ReleaseDelayResult = {
   isTagOldEnough: (tag: string) => boolean
 }
 
+// Unknown dates fail closed: a delay exists to avoid unvetted releases.
+export function isReleaseOldEnough(entry: DatedReleaseTag, cutoff: number): boolean {
+  return entry.releasedAt !== null && entry.releasedAt <= cutoff
+}
+
 export function applyReleaseDelay(
   candidates: DatedReleaseTag[],
   allTags: DatedReleaseTag[],
@@ -31,9 +37,7 @@ export function applyReleaseDelay(
   isNewerRelease: (entry: DatedReleaseTag) => boolean
 ): { eligible: DatedReleaseTag[]; releaseDelay: ReleaseDelayResult } {
   const cutoff = now - minReleaseAgeMs
-  // Unknown dates fail closed: a delay exists to avoid unvetted releases.
-  const isOldEnough = (entry: DatedReleaseTag): boolean =>
-    entry.releasedAt !== null && entry.releasedAt <= cutoff
+  const isOldEnough = (entry: DatedReleaseTag): boolean => isReleaseOldEnough(entry, cutoff)
   const held = candidates.find((entry) => isNewerRelease(entry) && !isOldEnough(entry))
   return {
     eligible: candidates.filter(isOldEnough),

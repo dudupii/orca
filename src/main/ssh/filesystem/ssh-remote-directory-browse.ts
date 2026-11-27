@@ -1,11 +1,12 @@
+import { StringDecoder } from 'node:string_decoder'
 import { quotePosixShell } from '../../../shared/shell/launch/shell-argument-quoting'
 import type { SshConnectionManager } from '../connection/ssh-connection-manager'
 import type { SshExecOptions } from '../connection/ssh-exec-options'
 import { powerShellCommand } from '../remote-exec/ssh-remote-powershell'
-import { quotePowerShellLiteral as powerShellLiteral } from '../../../shared/powershell-native-argument'
+import { quotePowerShellLiteral as powerShellLiteral } from '../../../shared/shell/launch/powershell-native-argument'
 import type { FilesystemPathFlavor } from '../../../shared/file-access/filesystem-path-flavor'
 import { sortDirEntries } from '../../../shared/file-listing/file-name-sort'
-import { buildPosixStdoutFence } from '../../../shared/posix-stdout-fence'
+import { buildPosixStdoutFence } from '../../../shared/shell/launch/posix-stdout-fence'
 
 type RemoteDirEntry = {
   name: string
@@ -122,11 +123,14 @@ async function runBrowseCommand(
   // Fence startup stdout so login banners cannot become resolved paths.
   const fence = options?.wrapCommand === false ? null : buildPosixStdoutFence(command, 'SSH')
   const remoteCommand = fence?.command ?? command
-  const channel = options ? await conn.exec(remoteCommand, options) : await conn.exec(remoteCommand)
+  const channel = await conn.execWithClosedStdin(remoteCommand, options)
 
   return new Promise((resolve, reject) => {
     let stdout = ''
     let stderr = ''
+    // SSH packets can end mid-character; decoders carry partial bytes into the next packet.
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
     let exitCode: number | null = null
     let exitObserved = false
     let settled = false
@@ -177,10 +181,10 @@ async function runBrowseCommand(
     }
 
     const onStdoutData = (data: Buffer): void => {
-      stdout += data.toString()
+      stdout += stdoutDecoder.write(data)
     }
     const onStderrData = (data: Buffer): void => {
-      stderr += data.toString()
+      stderr += stderrDecoder.write(data)
     }
     // Capture exit before close to distinguish failed ls plus successful pwd from empty directory.
     const onExit = (code: number | null): void => {
@@ -195,6 +199,8 @@ async function runBrowseCommand(
       if (!exitObserved && typeof code === 'number') {
         exitCode = code
       }
+      stdout += stdoutDecoder.end()
+      stderr += stderrDecoder.end()
       stdout = fence?.readStdout(stdout) ?? stdout
       // Missing exit status is unknown, never successful empty directory.
       if (exitCode !== 0) {

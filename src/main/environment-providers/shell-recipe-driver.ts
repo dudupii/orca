@@ -1,7 +1,7 @@
 // orca.yaml environment recipes and plugin VM recipes as an environment provider: each lifecycle
 // call runs the recipe's shell step, exactly as the runtime service did before the driver seam.
 import { z } from 'zod'
-import type { OrcaVmRecipe } from '../../shared/orca-yaml-hook-types'
+import type { OrcaVmRecipe } from '../../shared/workspace-setup/orca-yaml-hook-types'
 import {
   EphemeralVmRecipeResultSchema,
   type EphemeralVmRecipeResult,
@@ -31,6 +31,7 @@ import {
   type EnvironmentStatus,
   type EnvironmentStatusSnapshot
 } from './environment-provider-driver'
+import { lazyZodSchema } from '../../shared/schema/lazy-zod-schema'
 
 export const SHELL_RECIPE_DRIVER_ID = 'shell-recipe'
 
@@ -44,12 +45,14 @@ type RecipeStepFailure = {
   timedOut?: true
 }
 
-const DriverStateSchema = z.object({
-  recipeResult: EphemeralVmRecipeResultSchema,
-  projectId: z.string().optional(),
-  workspaceId: z.string().optional(),
-  workspaceName: z.string().optional()
-})
+const DriverStateSchema = lazyZodSchema(() =>
+  z.object({
+    recipeResult: EphemeralVmRecipeResultSchema,
+    projectId: z.string().optional(),
+    workspaceId: z.string().optional(),
+    workspaceName: z.string().optional()
+  })
+)
 
 export class ShellRecipeDriver implements EnvironmentProviderDriver {
   readonly id = SHELL_RECIPE_DRIVER_ID

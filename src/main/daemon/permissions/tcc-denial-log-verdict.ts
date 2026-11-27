@@ -2,7 +2,8 @@
 
 import type { runProcess } from '@orca/process-host'
 import { z } from 'zod'
-import type { MacTccFolderClass } from '../../../shared/daemon-adoption-telemetry'
+import { lazyZodSchema } from '../../../shared/schema/lazy-zod-schema'
+import type { MacTccFolderClass } from '../../../shared/telemetry/daemon-adoption-telemetry'
 import type {
   TccAsked,
   TccAuthReason,
@@ -11,8 +12,8 @@ import type {
   RequirementFailure,
   TccService,
   YesNo
-} from '../../../shared/daemon-tcc-denial-capture'
-import { TCC_AUTH_REASONS } from '../../../shared/daemon-tcc-denial-capture'
+} from '../../../shared/terminal/daemon/daemon-tcc-denial-capture'
+import { TCC_AUTH_REASONS } from '../../../shared/terminal/daemon/daemon-tcc-denial-capture'
 
 // A prompted request logs its attribution long before its result; 30 s keeps both in one window.
 const LOG_LOOKBACK_MS = 30_000
@@ -49,9 +50,11 @@ type MsgGroup = {
   result: { authValue: string; authReason: string } | null
 }
 
-const LOG_ENTRY_SCHEMA = z.object({
-  eventMessage: z.string()
-})
+const LOG_ENTRY_SCHEMA = lazyZodSchema(() =>
+  z.object({
+    eventMessage: z.string()
+  })
+)
 const MSG_ID_PATTERN = /\bmsgID=(\d+\.\d+)/
 const ANY_PID_PATTERN = /\bpid=\d+/
 const SERVICE_PATTERN = /\bservice=kTCCService(\w+)/

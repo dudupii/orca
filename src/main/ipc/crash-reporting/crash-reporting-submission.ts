@@ -1,13 +1,12 @@
 import os from 'node:os'
 import { app } from 'electron'
-import type { CrashReportDiagnosticBundle } from '../../../shared/crash-reporting-diagnostic-bundle'
+import type { CrashReportDiagnosticBundle } from '../../../shared/crash-reporting/crash-reporting-diagnostic-bundle'
 import {
   type CrashReportSubmitArgs,
   type CrashReportSubmitResult,
   formatCrashReportText,
   formatUncapturedCrashReportText
-} from '../../../shared/crash-reporting'
-import { submitFeedback } from '../feedback'
+} from '../../../shared/crash-reporting/crash-reporting'
 import type { CrashReportStore } from '../../crash-reporting/reports/crash-report-store'
 import {
   diagnosticBundleForReportOnlyRetry,
@@ -44,6 +43,8 @@ export async function submitCrashReport(
   store: CrashReportStore,
   args: CrashReportSubmitArgs
 ): Promise<CrashReportSubmitResult> {
+  // Keep feedback.ts out of the boot module graph; crash submission is the only eager importer.
+  const { submitFeedback } = await import('../feedback/feedback')
   const report = await getRequestedCrashReport(store, args)
   if (!report) {
     const diagnosticUpload = await prepareCrashDiagnosticBundle(

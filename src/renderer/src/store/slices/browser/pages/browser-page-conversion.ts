@@ -1,10 +1,11 @@
+import { redactBrowserMetadata } from '../../../../../../shared/browser/browser-metadata-redaction'
 import type {
   BrowserPage,
   BrowserPageConversionOrigin,
   BrowserPageDocLocation,
   BrowserWorkspace
-} from '../../../../../../shared/browser-workspace-types'
-import { browserPageDocLocationsEqual } from '../../../../../../shared/browser-page-doc-location'
+} from '../../../../../../shared/browser/workspaces/browser-workspace-types'
+import { browserPageDocLocationsEqual } from '../../../../../../shared/browser/workspaces/browser-page-doc-location'
 import {
   buildBrowserPage,
   findPage,
@@ -75,7 +76,7 @@ export function planBrowserPageConversion(
   const convertedFrom = options?.leg === 'history-return' ? null : departed
   const convertedTo = options?.leg === 'history-return' ? departed : null
 
-  const newPage: BrowserPage = {
+  const newPage: BrowserPage = redactBrowserMetadata({
     ...(target.kind === 'workspace-doc'
       ? buildBrowserPage(
           workspace.id,
@@ -100,7 +101,7 @@ export function planBrowserPageConversion(
         )),
     ...(convertedFrom ? { convertedFrom } : {}),
     ...(convertedTo ? { convertedTo } : {})
-  }
+  })
 
   const currentPages = state.browserPagesByWorkspace[workspace.id] ?? []
   const nextPages = currentPages.map((page) => (page.id === pageId ? newPage : page))

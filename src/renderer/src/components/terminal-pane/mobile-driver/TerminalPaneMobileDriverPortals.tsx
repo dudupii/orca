@@ -11,17 +11,22 @@ export function TerminalPaneMobileDriverPortals({
   controller
 }: {
   controller: TerminalPaneController
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const {
     activePane,
     chatLeafId,
     effectiveChatViewMode,
+    isActive,
+    isVisible,
     managedPanes,
     paneTransportsRef,
     restoreAllTerminalFits,
     restorePaneTerminalFit,
     searchOpen
   } = controller
+  if (!isActive && !isVisible) {
+    return null
+  }
   return (
     <>
       {managedPanes.map((pane) => {
@@ -69,7 +74,7 @@ export function TerminalPaneMobileDriverPortals({
             hasFitOverride={hasFitOverride}
             rootClassName="mobile-driver-banner"
             onAction={() => restorePaneTerminalFit(pane, ptyId)}
-            onAllAction={() => restoreAllTerminalFits(pane)}
+            onAllAction={() => restoreAllTerminalFits(pane, driver.kind === 'mobile')}
           />,
           pane.container,
           `mobile-driver-banner-${pane.id}`

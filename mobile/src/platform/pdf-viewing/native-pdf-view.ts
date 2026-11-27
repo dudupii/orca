@@ -3,7 +3,7 @@ import { Platform } from 'react-native'
 import { File as FsFile } from 'expo-file-system'
 import { useFocusEffect, useNavigation } from 'expo-router'
 import { presentPdf } from '../../../modules/orca-mobile-web-shell/src/index'
-import { getRuntimePathBasename } from '../../../../src/shared/cross-platform-path'
+import { getRuntimePathBasename } from '../../../../src/shared/file-access/cross-platform-path'
 import { PDF_MIME_TYPE } from '../../files/media/mobile-file-media'
 import {
   downloadMobileFileMedia,
@@ -19,6 +19,7 @@ import { scopeRpcClientToExecutionHost } from '../../worktree/execution-hosts/ex
 import { useHostClient } from '../../transport/connection/host-client-hooks'
 import { discardUnreturnedMediaFile, freshCacheFolder } from '../media-picking/native-media-device'
 import type { RpcClient } from '../../transport/rpc/rpc-client-contract'
+import { recomputeOn } from '../../hooks/recompute-on'
 
 function pdfFileSink(file: FsFile): MobileMediaSink {
   file.create({ overwrite: true })
@@ -99,7 +100,10 @@ export function useNativePdfViewer(
     clientRef.current = client
   }, [client])
   const viewer = useMemo(
-    () => createNativePdfViewer(() => clientRef.current, navigation.isFocused),
+    () =>
+      recomputeOn([sessionId], () =>
+        createNativePdfViewer(() => clientRef.current, navigation.isFocused)
+      ),
     [navigation, sessionId]
   )
   useFocusEffect(useCallback(() => () => viewer.dispose(), [viewer]))

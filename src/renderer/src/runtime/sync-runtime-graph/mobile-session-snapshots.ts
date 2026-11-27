@@ -1,13 +1,14 @@
 import { getSystemPrefersDark } from '@/lib/terminal/appearance/terminal-theme'
-import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
+import { parseWorkspaceKey } from '../../../../shared/workspace/identity/workspace-scope'
 import {
   collectAmbiguousTerminalTabIds,
+  getLiveFolderWorkspaceIds,
+  getMobileSessionWorktreeIds,
   graphState,
   jsonContentEquals,
   mobilePublicationEpoch
 } from './graph-state'
 import {
-  buildMobileSessionAgentStatusByWorktree,
   buildMobileSessionWorktreeInputs,
   getOpenFileIndexes,
   excludeCrossPlacedEditorFiles
@@ -27,9 +28,17 @@ import {
 import { buildMobileTerminalSurfaceTabs } from './mobile-session-terminal-tabs'
 import { buildMobileMarkdownTab, buildMobileFileTab } from './mobile-session-editor-tabs'
 import { buildMobileBrowserTab } from './mobile-session-browser-tabs'
-import { canReuseMobileSessionSnapshot } from './mobile-session-capture'
-import { selectFolderWorkspaces } from '@/store/workspaces/catalog/workspace-record-fields'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
+import { buildBrowserPageInventory } from './browser-page-inventory'
+import {
+  canReuseBrowserPageInventory,
+  canReuseMobileSessionSnapshot
+} from './mobile-session-capture'
+import {
+  collectDirtyMobileSessionWorkspaces,
+  mobileSessionWorkspaceSourcesUnchanged,
+  readMobileSessionWorkspaceSources
+} from './mobile-session-dirty-workspaces'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/workspace-layout/layout-owner-switch'
 import type { AppState } from '@/store/types'
 import type { RuntimeMobileSessionTabsSnapshot } from '../../../../shared/remote-runtime/session-graph/runtime-session-contracts'
 import type { RuntimeMobileSessionSnapshotTab } from '../../../../shared/remote-runtime/session-graph/runtime-mobile-session-tab-contracts'
@@ -51,24 +60,17 @@ export function buildMobileSessionTabSnapshots(
     browserTabsByWorktree,
     openFileIndexes,
     editorDraftVersionByFileId: getEditorDraftVersionByFileId(state.editorDrafts, state.openFiles),
-    agentStatusByWorktreeId: buildMobileSessionAgentStatusByWorktree(
-      state.agentStatusByPaneKey ?? {},
-      state.tabsByWorktree
-    ),
     generatedTitlesEnabled: state.settings?.tabAutoGenerateTitle === true,
     terminalTheme: getMobileTerminalTheme(state, systemPrefersDark)
   }
-  const liveFolderWorkspaceIds = new Set(
-    (selectFolderWorkspaces(state) ?? []).map((workspace) => workspace.id)
-  )
-  const worktreeIds = new Set<string>([
-    ...Object.keys(state.tabsByWorktree),
-    ...Object.keys(state.groupsByWorktree),
-    ...Object.keys(state.unifiedTabsByWorktree),
-    ...Object.keys(browserTabsByWorktree),
-    ...state.openFiles.map((file) => file.worktreeId)
-  ])
+  const liveFolderWorkspaceIds = getLiveFolderWorkspaceIds(state)
+  const worktreeIds = getMobileSessionWorktreeIds(state, browserTabsByWorktree)
   const snapshots: RuntimeMobileSessionTabsSnapshot[] = []
+  const sources = { state, publication: publicationInputs, ambiguousTerminalTabIds }
+  const dirtyWorkspaces = collectDirtyMobileSessionWorkspaces(
+    graphState.mobileSessionPublicationSources,
+    sources
+  )
 
   for (const worktreeId of worktreeIds) {
     const workspaceScope = parseWorkspaceKey(worktreeId)
@@ -79,14 +81,37 @@ export function buildMobileSessionTabSnapshots(
       graphState.mobileSessionSnapshotCacheByWorktree.delete(worktreeId)
       continue
     }
+    const cached = graphState.mobileSessionSnapshotCacheByWorktree.get(worktreeId)
+    if (
+      cached &&
+      dirtyWorkspaces !== 'all' &&
+      !dirtyWorkspaces.has(worktreeId) &&
+      cached.inputs.mountedSurfaceCaptureByTabId.size === 0 &&
+      mobileSessionWorkspaceSourcesUnchanged(
+        cached.sources,
+        state,
+        worktreeId,
+        publicationInputs,
+        openFileIndexes.crossPlacedWorkspaces
+      )
+    ) {
+      snapshots.push(cached.snapshot)
+      continue
+    }
+    const worktreeSources = readMobileSessionWorkspaceSources(
+      state,
+      worktreeId,
+      publicationInputs,
+      openFileIndexes.crossPlacedWorkspaces
+    )
     const inputs = buildMobileSessionWorktreeInputs(
       state,
       worktreeId,
       publicationInputs,
       ambiguousTerminalTabIds
     )
-    const cached = graphState.mobileSessionSnapshotCacheByWorktree.get(worktreeId)
     if (cached && canReuseMobileSessionSnapshot(cached.inputs, inputs)) {
+      cached.sources = worktreeSources
       snapshots.push(cached.snapshot)
       continue
     }
@@ -214,6 +239,11 @@ export function buildMobileSessionTabSnapshots(
       activeTabType: active?.type ?? null,
       ...(tabGroups && tabGroups.length > 0 ? { tabGroups } : {}),
       ...(tabGroupLayout ? { tabGroupLayout } : {}),
+      // Same array object: equality checks and the wire base stop at identity, not at N rows.
+      browserPageInventory:
+        cached?.content.browserPageInventory && canReuseBrowserPageInventory(cached.inputs, inputs)
+          ? cached.content.browserPageInventory
+          : buildBrowserPageInventory(inputs),
       tabs
     }
     const candidateVersion = ++graphState.mobileSessionSnapshotVersion
@@ -231,6 +261,7 @@ export function buildMobileSessionTabSnapshots(
               ...content
             }
       graphState.mobileSessionSnapshotCacheByWorktree.set(worktreeId, {
+        sources: worktreeSources,
         inputs,
         content,
         snapshot
@@ -245,7 +276,12 @@ export function buildMobileSessionTabSnapshots(
       snapshotVersion: candidateVersion,
       ...content
     }
-    graphState.mobileSessionSnapshotCacheByWorktree.set(worktreeId, { inputs, content, snapshot })
+    graphState.mobileSessionSnapshotCacheByWorktree.set(worktreeId, {
+      sources: worktreeSources,
+      inputs,
+      content,
+      snapshot
+    })
     snapshots.push(snapshot)
   }
   for (const worktreeId of graphState.mobileSessionSnapshotCacheByWorktree.keys()) {
@@ -253,5 +289,7 @@ export function buildMobileSessionTabSnapshots(
       graphState.mobileSessionSnapshotCacheByWorktree.delete(worktreeId)
     }
   }
+  // Recorded last: a build that throws midway leaves the next one comparing against older sources.
+  graphState.mobileSessionPublicationSources = sources
   return snapshots
 }

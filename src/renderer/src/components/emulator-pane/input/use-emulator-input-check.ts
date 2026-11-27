@@ -1,8 +1,9 @@
+import { emulatorRuntimeTarget } from '@/lib/simulator/runtime/emulator-runtime-target'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
 import { emulatorErrorText } from '@/lib/simulator/launch/emulator-error-copy'
 import { hasRuntimeRpcErrorCode } from '../../../../../shared/remote-runtime/rpc/runtime-rpc-error-code'
-import { EMULATOR_FAILURE_COPY } from '../../../../../shared/emulator-failure-copy'
+import { EMULATOR_FAILURE_COPY } from '../../../../../shared/emulator/emulator-failure-copy'
 
 const INTERACTION_RECHECK_MS = 5_000
 
@@ -25,7 +26,9 @@ export function useEmulatorInputCheck(
     lastCheckAtRef.current = Date.now()
     let next: { target: string; message: string } | null = null
     try {
-      await callRuntimeRpc({ kind: 'local' }, 'emulator.checkInput', { worktree: worktreeId })
+      await callRuntimeRpc(emulatorRuntimeTarget(worktreeId), 'emulator.checkInput', {
+        worktree: worktreeId
+      })
     } catch (error) {
       if (!hasRuntimeRpcErrorCode(error, 'emulator_input_blocked')) {
         return

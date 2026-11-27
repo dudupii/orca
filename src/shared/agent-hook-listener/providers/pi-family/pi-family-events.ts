@@ -7,7 +7,7 @@ import { clearPaneTurnCacheState, type HookListenerState } from '../../listener-
 import { resolvePrompt, resolveToolState } from '../../prompt-fields'
 import { extractToolFields, isNewTurnEvent } from '../../provider-event-routing'
 import { readString } from '../../tool-input-preview'
-import { parseOmpPlanReviewPrompt } from '../../../omp-plan-review-prompt'
+import { parseOmpPlanReviewPrompt } from '../../../native-chat/input/questions/omp-plan-review-prompt'
 
 /** Normalize Pi/OMP/Prime lifecycle, question waits and live roster/model evidence; ignore events with no status. */
 export function normalizePiCompatibleEvent(
@@ -71,8 +71,7 @@ export function normalizePiCompatibleEvent(
   let stateName =
     isPiCompatibleAsk || isOmpApprovalRequest || isOmpPlanReview
       ? 'blocked'
-      : isOmpApprovalResolution ||
-          isPiCompactionStart ||
+      : isPiCompactionStart ||
           eventName === 'before_agent_start' ||
           eventName === 'agent_start' ||
           eventName === 'tool_call' ||
@@ -86,7 +85,7 @@ export function normalizePiCompatibleEvent(
 
   if (isPiUiPrompt) {
     stateName = 'waiting'
-  } else if (isPiUiPromptEnd || isOmpPlanReviewEnd) {
+  } else if (isPiUiPromptEnd || isOmpPlanReviewEnd || isOmpApprovalResolution) {
     stateName = hookPayload.is_idle === true ? 'done' : 'working'
   }
 

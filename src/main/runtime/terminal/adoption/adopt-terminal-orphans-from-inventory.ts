@@ -33,6 +33,9 @@ export abstract class OrcaRuntimeWithAdoptTerminalOrphansFromInventory extends O
   ): string | null
 
   abstract assertGraphReady(): void
+  protected abstract sleptAgentPaneForHandle(
+    handle: string
+  ): { paneKey: string; worktreeId: string } | null
 
   protected async adoptTerminalOrphansFromInventoryUnderMutation(
     request: RuntimeTerminalOrphanAdoptionRequest,
@@ -114,18 +117,20 @@ export abstract class OrcaRuntimeWithAdoptTerminalOrphansFromInventory extends O
             onlyRuntimeOwnedTerminals: true
           }),
         notifySessionChanged: (worktreeId) => this.notifyMobileSessionTabsChanged(worktreeId),
-        getSnapshot: (worktreeId) => this.getTerminalOrphanAdoptionSnapshot(worktreeId)
+        getSnapshot: async (worktreeId) => await this.getTerminalOrphanAdoptionSnapshot(worktreeId)
       }
     })
   }
 
-  protected getTerminalOrphanAdoptionSnapshot(worktreeId: string): RuntimeMobileSessionTabsResult {
+  protected async getTerminalOrphanAdoptionSnapshot(
+    worktreeId: string
+  ): Promise<RuntimeMobileSessionTabsResult> {
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId, {
       allowAttachedWindow: true,
       onlyRuntimeOwnedTerminals: true
     })
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
-    return this.getMobileSessionTabsForWorktree(worktreeId, undefined, {
+    return await this.getMobileSessionTabsForWorktree(worktreeId, undefined, {
       includeAgentSenders: false
     })
   }
@@ -141,7 +146,7 @@ export abstract class OrcaRuntimeWithAdoptTerminalOrphansFromInventory extends O
         : null
       const snapshots = targetWorktreeId
         ? [
-            this.getMobileSessionTabsForWorktree(targetWorktreeId, undefined, {
+            await this.getMobileSessionTabsForWorktree(targetWorktreeId, undefined, {
               includeAgentSenders: false
             })
           ]
@@ -237,6 +242,11 @@ export abstract class OrcaRuntimeWithAdoptTerminalOrphansFromInventory extends O
     if (structured) {
       // Runtime-owned structured workers accept direct mail even at rest; sending starts their agent.
       return structured.identity.paneKey
+    }
+    // An Agent-slept terminal keeps its pane mailbox: delivery wakes it in place.
+    const slept = this.sleptAgentPaneForHandle(handle)
+    if (slept) {
+      return slept.paneKey
     }
     const runtimePty = this.getLivePtyForHandle(handle, context)
     if (runtimePty) {

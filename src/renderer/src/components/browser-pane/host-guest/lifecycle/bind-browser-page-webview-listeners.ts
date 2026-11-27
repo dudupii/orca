@@ -1,13 +1,16 @@
+import {
+  takeKagiPrivateInitialNavigation,
+  discardKagiPrivateInitialNavigation
+} from '@/lib/kagi-private-initial-navigation'
 import { useAppStore } from '@/store/index'
 import {
-  issueBrowserGuestNavigation,
   browserGuestPreservesRequestedDocument,
   subscribeBrowserGuestMetadata
 } from '../metadata/browser-guest-metadata-cache'
 import { getBrowserDisplayTitle } from '../../../../../../shared/browser/browser-display-title'
 import { publishNativeChatVisualGuestTheme } from '@/components/native-chat/media/visuals/NativeChatVisualGuestThemePublisher'
 import { normalizeBrowserGuestSrc } from '../../../../../../shared/browser/extensions/browser-extension-url'
-import '../../../../../../shared/constants'
+import '../../../../../../shared/orca-profiles/constants'
 import { ORCA_BROWSER_BLANK_URL } from '../../../../../../shared/browser/browser-blank-page'
 import { parkBrowserPageViewport } from '../viewport/browser-page-viewport'
 import { subscribeBrowserSystemResume } from '../recovery/browser-system-resume'
@@ -17,6 +20,12 @@ import {
 } from '../webview-registry'
 import type { AttachBrowserPageWebviewArgs } from './attach-browser-page-webview'
 import { createBrowserPageWebviewGuestSession } from './browser-page-webview-guest-session'
+import {
+  isBrowserPageAttachWaiting,
+  resumeParkedBrowserPageAttach,
+  settleParkedBrowserPageAttach,
+  startBrowserPageDeferredAttach
+} from './browser-page-deferred-attach'
 import { createBrowserPageWebviewLoadingHandlers } from './browser-page-webview-loading-handlers'
 import { createBrowserPageWebviewNavigationHandlers } from './browser-page-webview-navigation-handlers'
 
@@ -141,6 +150,11 @@ export function bindBrowserPageWebviewListeners({
   retryGuestRecoveryRef.current = guestRecovery.retryRecovery
 
   webview.addEventListener('did-attach', handleDidAttach)
+  const attachedNavigationReady = (): void => {
+    delete webview.dataset.orcaAttachPending
+  }
+  webview.addEventListener('did-finish-load', attachedNavigationReady)
+  webview.addEventListener('did-fail-load', attachedNavigationReady)
   webview.addEventListener('dom-ready', handleDomReady)
   webview.addEventListener('render-process-gone', guestRecovery.recoverRenderer)
   webview.addEventListener('destroyed', handleGuestDestroyed)
@@ -215,11 +229,24 @@ export function bindBrowserPageWebviewListeners({
     // Why: set src only after listeners attach so a fast localhost failure isn't missed.
     const initialUrl =
       normalizeBrowserGuestSrc(initialBrowserUrlRef.current) ?? ORCA_BROWSER_BLANK_URL
+    const navigationUrl = takeKagiPrivateInitialNavigation(
+      browserTabId,
+      browserTabUrlRef.current,
+      initialUrl
+    )
     lastKnownWebviewUrlRef.current = initialUrl
-    issueBrowserGuestNavigation(webview, () => {
-      webview.src = initialUrl
+    webview.dataset.orcaAttachPending = 'true'
+    startBrowserPageDeferredAttach({
+      webview,
+      browserTabId,
+      initialUrl: navigationUrl,
+      lastKnownWebviewUrlRef,
+      onFailed: () => guestRecovery.recoverRenderer()
     })
-  } else if (isPaintableRef.current) {
+  } else if (webview.dataset.orcaAttachMarker) {
+    resumeParkedBrowserPageAttach(webview)
+  } else if (isPaintableRef.current && !isBrowserPageAttachWaiting(webview)) {
+    settleParkedBrowserPageAttach(webview)
     if (isBrowserPageRendererRecoveryPending(browserTabId)) {
       guestRecovery.recoverRenderer()
     } else {
@@ -228,6 +255,13 @@ export function bindBrowserPageWebviewListeners({
   }
 
   return () => {
+    webview.removeEventListener('did-finish-load', attachedNavigationReady)
+    webview.removeEventListener('did-fail-load', attachedNavigationReady)
+    // A parked page still waiting to attach opens its latest address when main answers; keep the
+    // private request it queued for that. Close and purge discard it, and it expires on its own.
+    if (!isBrowserPageAttachWaiting(webview)) {
+      discardKagiPrivateInitialNavigation(browserTabId)
+    }
     unsubscribeMetadata()
     webview.removeEventListener('did-attach', handleDidAttach)
     webview.removeEventListener('dom-ready', handleDomReady)

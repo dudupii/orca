@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
-import type { ExecutionHostId } from '../../../../src/shared/execution-host'
+import type { ExecutionHostId } from '../../../../src/shared/execution-host/execution-host'
 import type { MobileRelayHost } from '../../../../src/shared/remote-runtime/relay/mobile-relay-hosts-contract'
 import { reachableServerClients, relaysToServers } from './execution-host-scoped-rpc-client'
 import type { RpcClient } from '../../transport/rpc/rpc-client-contract'
 import { useRelayHosts } from './relay-hosts-feed'
+import { useKeptByKey } from '../../hooks/use-kept-by-key'
 
 // Key clients by the ready-server set so health/label changes cannot trigger repo reloads.
 export function useReachableServerClients(
@@ -21,9 +22,10 @@ export function useReachableServerClients(
     .map((host) => host.hostId)
     .sort()
     .join('\n')
+  const keptServers = useKeptByKey(readyKey, servers ?? [])
   const serverClients = useMemo(
-    () => reachableServerClients(client, hostCapabilities, servers ?? []),
-    [client, hostCapabilities, readyKey]
+    () => reachableServerClients(client, hostCapabilities, keptServers),
+    [client, hostCapabilities, keptServers]
   )
   return { servers, serverClients }
 }

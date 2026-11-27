@@ -1,4 +1,5 @@
 import { issueBrowserGuestNavigation } from '../host-guest/metadata/browser-guest-metadata-cache'
+import { queueKagiPrivateInitialNavigation } from '@/lib/kagi-private-initial-navigation'
 import { detectLanguage } from '../../../../../shared/editor-language/editor-language-detect'
 import { getConnectionId } from '@/lib/workspace/ownership/connection-context'
 import {
@@ -10,9 +11,9 @@ import type { RuntimeFileOperationArgs } from '@/runtime/files/runtime-file-clie
 import {
   normalizeBrowserNavigationUrl,
   redactKagiSessionToken
-} from '../../../../../shared/browser-url'
-import type { BrowserLoadError } from '../../../../../shared/browser-workspace-types'
-import '../../../../../shared/constants'
+} from '../../../../../shared/browser/navigation/browser-url'
+import type { BrowserLoadError } from '../../../../../shared/browser/workspaces/browser-workspace-types'
+import '../../../../../shared/orca-profiles/constants'
 import { ORCA_BROWSER_BLANK_URL } from '../../../../../shared/browser/browser-blank-page'
 import { BROWSER_GUEST_RECOVERY_ERROR_CODE } from '../host-guest/recovery/browser-page-guest-recovery'
 import {
@@ -83,6 +84,10 @@ export function navigateBrowserPageToUrl({
     recoveryNavigationValidationRef.current = recoveryLoadError
       ? { committed: false, started: false, targetUrl: normalizedBrowserModelUrl }
       : null
+    if (webview.dataset.orcaAttachWaiting) {
+      queueKagiPrivateInitialNavigation(browserTabId, targetUrl)
+      webview.dataset.orcaAttachRequestedUrl = normalizedBrowserModelUrl
+    }
     issueBrowserGuestNavigation(webview, () => {
       webview.src = targetUrl
     })

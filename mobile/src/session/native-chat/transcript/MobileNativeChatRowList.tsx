@@ -13,6 +13,7 @@ type PageProps = ComponentProps<typeof MobileNativeChatPageList>
 
 type Props = Pick<
   PageProps,
+  | 'itemJump'
   | 'rows'
   | 'roots'
   | 'renderItem'
@@ -36,13 +37,13 @@ export function MobileNativeChatRowList(props: Props): ReactElement {
   const { tail, rowKeys, rows, renderItem, contentContainerStyle, onScroll, footer } = props
   const { header, emptyStateView } = props
   if (Platform.OS === 'web') {
-    const { roots, runs, layoutKey, onNearTop } = props
+    const { roots, runs, layoutKey, onNearTop, itemJump } = props
     return (
       <MobileNativeChatPinchZoom gesture={props.pinchGesture}>
         <MobileNativeChatPageList
           {...tail.pageListProps}
           {...{ rows, rowKeys, roots, renderItem, runs, contentContainerStyle, layoutKey }}
-          {...{ header, footer, emptyStateView, onScroll, onNearTop }}
+          {...{ header, footer, emptyStateView, onScroll, onNearTop, itemJump }}
         />
       </MobileNativeChatPinchZoom>
     )

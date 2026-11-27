@@ -2,8 +2,8 @@ import { stripLeadingAgentTitleDecorationOrEmpty } from '../../../../src/shared/
 import { isClaudeManagementTitle } from '../../../../src/shared/agent-status/title/agent-title-core'
 import { isShellProcess } from '../../../../src/shared/agent-status/process/shell-process-detection'
 import { agentTypeToIconAgent } from '../../../../src/shared/agent-status/presentation/agent-type-icon-agent'
-import { resolveTabAgentFromSignalSnapshot } from '../../../../src/shared/tab-agent-from-signals'
-import { resolveTabNameSource } from '../../../../src/shared/tab-title-resolution'
+import { resolveTabAgentFromSignalSnapshot } from '../../../../src/shared/agent-status/identity/tab-agent-from-signals'
+import { resolveTabNameSource } from '../../../../src/shared/workspace-layout/tab-groups/tab-title-resolution'
 import type { AgentStatusEntry } from '../../../../src/shared/agent-status/contracts/agent-status-types'
 import type { TuiAgent } from '../../../../src/shared/agent-launch/catalog/tui-agent'
 import type { RuntimeMobileSessionTerminalTab } from '../../../../src/shared/remote-runtime/session-graph/runtime-mobile-session-tab-contracts'
@@ -12,7 +12,7 @@ import {
   type AgentSmartKeySet
 } from '../../../../src/shared/terminal/input/agent-smart-keys'
 import { isBlankBrowserUrl } from '../../browser/pane-view/browser-url'
-import { translate } from '../../i18n/mobile-i18n'
+import type { Translate } from '../../i18n/mobile-i18n'
 import type { MobileSessionTab } from './mobile-session-tabs'
 
 export type MobileTerminalTabAgentIdentity = Partial<
@@ -111,6 +111,7 @@ export function resolveMobileTerminalTabAgentId(
 
 export function getMobileSessionTabTitle(
   tab: MobileSessionTab,
+  t: Translate,
   hostAgentIdentity?: string | null
 ): string {
   if (tab.type === 'browser') {
@@ -119,27 +120,27 @@ export function getMobileSessionTabTitle(
       return title
     }
     if (isBlankBrowserUrl(tab.url)) {
-      return translate('session.terminalTabAgent.newBrowser', 'New Browser')
+      return t('session.terminalTabAgent.newBrowser', 'New Browser')
     }
-    return translate('session.terminalTabAgent.browser', 'Browser')
+    return t('session.terminalTabAgent.browser', 'Browser')
   }
   if (tab.type === 'markdown') {
-    return tab.title || translate('session.terminalTabAgent.markdown', 'Markdown')
+    return tab.title || t('session.terminalTabAgent.markdown', 'Markdown')
   }
   if (tab.type === 'file') {
-    return tab.title || translate('session.terminalTabAgent.file', 'File')
+    return tab.title || t('session.terminalTabAgent.file', 'File')
   }
   if (tab.type === 'agent-session') {
-    return tab.title || translate('session.terminalTabAgent.chat', 'Chat')
+    return tab.title || t('session.terminalTabAgent.chat', 'Chat')
   }
   // Strip status glyphs when showing provider icons; glyph-only iOS titles otherwise leave stray colored boxes.
   if (resolveMobileTerminalTabAgentId(tab, hostAgentIdentity)) {
     return (
       stripLeadingAgentTitleDecorationOrEmpty(tab.title) ||
-      translate('session.terminalTabAgent.terminal', 'Terminal')
+      t('session.terminalTabAgent.terminal', 'Terminal')
     )
   }
-  return tab.title || translate('session.terminalTabAgent.terminal', 'Terminal')
+  return tab.title || t('session.terminalTabAgent.terminal', 'Terminal')
 }
 
 /** The keys for what the tab's agent is doing now, or null for a shell, an unknown agent or state. */

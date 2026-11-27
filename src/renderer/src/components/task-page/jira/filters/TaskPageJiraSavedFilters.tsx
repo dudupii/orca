@@ -1,4 +1,4 @@
-import { isUtf8ByteLengthWithinLimit } from '../../../../../../shared/utf8-byte-limits'
+import { isUtf8ByteLengthWithinLimit } from '../../../../../../shared/text/utf8-byte-limits'
 import { useState } from 'react'
 import { Check, ListFilter, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
@@ -109,13 +109,17 @@ export function TaskPageJiraSavedFilters({
     setDraft(null)
   }
 
+  const savedFiltersLabel = t(
+    'auto.components.TaskPageJiraSavedFilters.6c381858a1',
+    'Saved filters'
+  )
   return (
     <>
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="xs">
+          <Button type="button" variant="outline" size="toolbar" aria-label={savedFiltersLabel}>
             <ListFilter />
-            {t('auto.components.TaskPageJiraSavedFilters.6c381858a1', 'Saved filters')}
+            <span className="@max-[40rem]/rail-page:hidden">{savedFiltersLabel}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-72">

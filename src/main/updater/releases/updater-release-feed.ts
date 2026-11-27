@@ -5,29 +5,146 @@ import {
 } from './updater-prerelease-feed'
 import { getReleaseDownloadUrl } from './updater-release-readiness'
 import { toDelayedUpdate } from './updater-release-delay'
-import { isPersonalVersion } from '../../../shared/release-channel'
-import { updateDelayDaysToMs } from '../../../shared/update-delay'
+import { isPersonalVersion } from '../../../shared/updater/release-channel'
+import { updateDelayDaysToMs } from '../../../shared/updater/update-delay'
 import { isMissingUpdateManifestFailure, isPrereleaseVersion } from './updater-fallback'
-import type { CheckFailureSource } from '../lifecycle/updater-state'
+import { releaseSelectionPolicy } from './updater-release-policy'
+import { ReleaseFeedPreflightError, type CheckFailureSource } from '../lifecycle/updater-state'
 import type { UpdateCheckVariant } from '../lifecycle/updater-types'
-import { ReleaseFeedPreflightError } from '../lifecycle/updater-state'
-import { UpdaterPrereleaseFallback } from './updater-prerelease-fallback'
+import { UpdaterInstallExecution } from '../lifecycle/updater-install-execution'
 
-export abstract class UpdaterReleaseFeed extends UpdaterPrereleaseFallback {
+export abstract class UpdaterReleaseFeed extends UpdaterInstallExecution {
+  protected clearPrereleaseFallbackContextIfSettled(): void {
+    if (
+      this.pendingPrereleaseFallback?.fallbackResultHandled &&
+      !this.pendingPrereleaseFallback.suppressedPrimaryPromiseFailureKey &&
+      !this.pendingPrereleaseFallback.suppressedPrimaryEventFailure &&
+      !this.pendingPrereleaseFallback.suppressedFallbackPromiseFailureKey &&
+      !this.pendingPrereleaseFallback.suppressedFallbackEventFailureKey
+    ) {
+      this.clearPrereleaseFallbackContext()
+    }
+  }
+
+  protected getMissingManifestPrereleaseFallbackUserInitiated(): boolean | null {
+    if (
+      !this.pendingPrereleaseFallback?.retryLaunched ||
+      this.pendingPrereleaseFallback.fallbackResultHandled
+    ) {
+      return null
+    }
+    return this.pendingPrereleaseFallback.userInitiated
+  }
+
+  protected markMissingManifestPrereleaseFallbackChecking(): void {
+    if (
+      !this.pendingPrereleaseFallback?.retryLaunched ||
+      this.pendingPrereleaseFallback.fallbackResultHandled
+    ) {
+      return
+    }
+    this.pendingPrereleaseFallback.fallbackCheckingForUpdateSeen = true
+  }
+
+  protected consumeMissingManifestPrereleaseFallbackResult(): { userInitiated: boolean } | null {
+    if (
+      !this.pendingPrereleaseFallback?.retryLaunched ||
+      this.pendingPrereleaseFallback.fallbackResultHandled
+    ) {
+      return null
+    }
+    const result = { userInitiated: this.pendingPrereleaseFallback.userInitiated }
+    this.pendingPrereleaseFallback.fallbackResultHandled = true
+    this.clearPrereleaseFallbackContextIfSettled()
+    return result
+  }
+
+  protected suppressMissingManifestPrereleaseFallbackPromiseFailure(message: string): void {
+    if (
+      !this.pendingPrereleaseFallback?.retryLaunched ||
+      this.pendingPrereleaseFallback.fallbackResultHandled
+    ) {
+      return
+    }
+    this.pendingPrereleaseFallback.suppressedFallbackPromiseFailureKey = this.getCheckFailureKey(
+      message,
+      this.pendingPrereleaseFallback.userInitiated
+    )
+  }
+
+  protected shouldSuppressMissingManifestPrereleaseFallbackEvent(
+    message: string,
+    error: unknown
+  ): boolean {
+    if (!this.pendingPrereleaseFallback?.retryLaunched) {
+      return false
+    }
+    const failureKey = this.getCheckFailureKey(
+      message,
+      this.pendingPrereleaseFallback.userInitiated
+    )
+    const primaryEventSuppression = this.pendingPrereleaseFallback.suppressedPrimaryEventFailure
+    if (primaryEventSuppression?.failureKey === failureKey) {
+      const isPrimaryPromisePair = primaryEventSuppression.error === error
+      // After fallback starts, identical messages may be its own errors; message matching alone is unsafe.
+      if (isPrimaryPromisePair || !this.pendingPrereleaseFallback.fallbackCheckingForUpdateSeen) {
+        this.pendingPrereleaseFallback.suppressedPrimaryEventFailure = null
+        this.clearPrereleaseFallbackContextIfSettled()
+        return true
+      }
+    }
+    if (this.pendingPrereleaseFallback.suppressedFallbackEventFailureKey === failureKey) {
+      this.pendingPrereleaseFallback.suppressedFallbackEventFailureKey = null
+      this.clearPrereleaseFallbackContextIfSettled()
+      return true
+    }
+    return false
+  }
+
+  protected markMissingManifestPrereleaseFallbackPromiseHandled(message: string): void {
+    if (
+      !this.pendingPrereleaseFallback?.retryLaunched ||
+      this.pendingPrereleaseFallback.fallbackResultHandled
+    ) {
+      return
+    }
+    this.pendingPrereleaseFallback.suppressedFallbackEventFailureKey = this.getCheckFailureKey(
+      message,
+      this.pendingPrereleaseFallback.userInitiated
+    )
+  }
+
   protected async pinDefaultReleaseFeed(
     variant: UpdateCheckVariant = 'default'
   ): Promise<'ready' | 'not-available'> {
     const attemptId = this.activeUpdateCheckAttemptId
-    const autoUpdater = this.getAutoUpdater()
     // Pin the concrete tag because latest/download can move between check and download; stable checks exclude prereleases.
     const currentVersion = app.getVersion()
-    // Personal builds read the fork's feed; the perf filter describes official prereleases only.
+    const team = this.getTeamUpdatePolicy?.()
+    // Personal builds read the fork's feed: the perf filter describes official prereleases only,
+    // and no team policy governs the personal channel.
     const personalFeed = isPersonalVersion(currentVersion)
-    const isPerfCheck = variant === 'perf' && !personalFeed
-    const includePrerelease =
-      isPerfCheck || this.includePrereleaseActive || isPrereleaseVersion(currentVersion)
-    // Perf builds are explicit one-off opt-ins; "install now" consumes its bypass on this pin.
-    const delayDays = isPerfCheck || this.ignoreUpdateDelayOnce ? 0 : this.readUpdateDelayDays()
+    const selection = personalFeed
+      ? {
+          isPerfCheck: false,
+          includePrerelease: this.includePrereleaseActive || isPrereleaseVersion(currentVersion),
+          // "Install now" consumes its bypass on this pin; otherwise the member delay applies.
+          delayDays: this.ignoreUpdateDelayOnce ? 0 : (this.getUpdateDelayDays?.() ?? 0),
+          minimumVersion: undefined
+        }
+      : releaseSelectionPolicy({
+          team,
+          variant,
+          version: currentVersion,
+          includePrerelease: this.includePrereleaseActive,
+          memberChannel: this.getReleaseChannelOverride?.() ?? null,
+          ignoreDelay: this.ignoreUpdateDelayOnce,
+          getUpdateDelayDays: this.getUpdateDelayDays
+        })
+    const { isPerfCheck, includePrerelease, delayDays, minimumVersion } = selection
+    if (!personalFeed) {
+      this.configureTeamReleaseChannel(team, includePrerelease)
+    }
     this.ignoreUpdateDelayOnce = false
     const now = Date.now()
     const releaseTagsResult = await fetchNewerReleaseTagsWithReadiness(
@@ -36,6 +153,7 @@ export abstract class UpdaterReleaseFeed extends UpdaterPrereleaseFallback {
       {
         includePrerelease,
         ...(isPerfCheck ? { releaseFilter: 'perf' as const } : {}),
+        ...(minimumVersion ? { minimumVersion } : {}),
         ...(delayDays > 0 ? { minReleaseAgeMs: updateDelayDaysToMs(delayDays), now } : {})
       }
     )
@@ -75,10 +193,13 @@ export abstract class UpdaterReleaseFeed extends UpdaterPrereleaseFallback {
         // Build-order recency can select a same-base build whose commit hash sorts lower; the
         // pinned feed already proved it newer, so bypass semver gates. Personal releases also
         // ship no blockmaps, making differential downloads pure overhead.
+        const autoUpdater = this.getAutoUpdater()
         autoUpdater.allowDowngrade = true
         autoUpdater.disableDifferentialDownload = true
+        autoUpdater.setFeedURL({ provider: 'generic', url })
+      } else {
+        this.pinTeamApprovedReleaseFeed(url, team, releaseTagsResult.tags)
       }
-      autoUpdater.setFeedURL({ provider: 'generic', url })
       return 'ready'
     }
     if (releaseTagsResult.state === 'not-ready') {
@@ -90,7 +211,7 @@ export abstract class UpdaterReleaseFeed extends UpdaterPrereleaseFallback {
           `[updater] release feed pinned to last-good: current=${currentVersion} includePrerelease=${includePrerelease} → ${url}`
         )
         this.publishingWindowLastGoodCheck = { lastGoodTag: releaseTagsResult.lastGoodTag }
-        autoUpdater.setFeedURL({ provider: 'generic', url })
+        this.pinTeamApprovedReleaseFeed(url, team, [releaseTagsResult.lastGoodTag])
         return 'ready'
       }
       this.clearPublishingWindowLastGoodCheck()
@@ -103,32 +224,32 @@ export abstract class UpdaterReleaseFeed extends UpdaterPrereleaseFallback {
         'Latest release artifacts are not ready'
       )
     }
+    this.clearPrereleaseFallbackContext()
+    this.clearPublishingWindowLastGoodCheck()
     if (
       releaseTagsResult.state === 'unavailable' &&
       releaseTagsResult.unavailableReason === 'manifest' &&
       !includePrerelease
     ) {
-      this.clearPrereleaseFallbackContext()
-      this.clearPublishingWindowLastGoodCheck()
       throw new ReleaseFeedPreflightError(
         'manifest-unavailable',
         'default',
         'Unable to find latest version on GitHub'
       )
     }
-    if (isPerfCheck) {
-      this.clearPrereleaseFallbackContext()
-      this.clearPublishingWindowLastGoodCheck()
+    if (isPerfCheck || minimumVersion) {
       if (releaseTagsResult.state === 'no-newer') {
         console.info(
-          `[updater] perf release not found: current=${currentVersion} includePrerelease=${includePrerelease}`
+          `[updater] matching release not found: current=${currentVersion} includePrerelease=${includePrerelease}`
         )
         return 'not-available'
       }
-      throw new Error('Could not resolve perf update feed')
+      throw new Error(
+        isPerfCheck
+          ? 'Could not resolve perf update feed'
+          : 'Could not resolve the required update feed'
+      )
     }
-    this.clearPrereleaseFallbackContext()
-    this.clearPublishingWindowLastGoodCheck()
     if (releaseDelay?.heldRelease) {
       // Everything newer is still inside the delay; the stable fallback would offer it anyway.
       console.info(
@@ -158,17 +279,8 @@ export abstract class UpdaterReleaseFeed extends UpdaterPrereleaseFallback {
     }
     const url = getReleaseDownloadUrl(stableTag)
     console.info(`[updater] stable fallback feed pinned: current=${currentVersion} → ${url}`)
-    autoUpdater.setFeedURL({ provider: 'generic', url })
+    this.pinTeamApprovedReleaseFeed(url, team, [stableTag])
     return 'ready'
-  }
-
-  private readUpdateDelayDays(): number {
-    try {
-      return this.getUpdateDelayDays?.() ?? 0
-    } catch {
-      // A settings read failure must not block updates entirely.
-      return 0
-    }
   }
 
   protected retryPrereleaseFallbackAfterMissingManifest(

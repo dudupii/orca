@@ -1,4 +1,4 @@
-import { redactKagiSessionToken } from '../browser-url'
+import { redactKagiSessionToken } from './navigation/browser-url'
 import { ORCA_BROWSER_BLANK_URL } from './browser-blank-page'
 
 export function getBrowserDisplayTitle(title: string | null | undefined, url: string): string {
@@ -10,5 +10,5 @@ export function getBrowserDisplayTitle(title: string | null | undefined, url: st
   ) {
     return 'New Tab'
   }
-  return title || redactKagiSessionToken(url) || 'New Tab'
+  return redactKagiSessionToken(title || url) || 'New Tab'
 }

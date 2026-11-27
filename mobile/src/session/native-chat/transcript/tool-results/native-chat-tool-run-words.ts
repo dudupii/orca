@@ -1,13 +1,15 @@
-import type { NativeChatToolRunSentenceWords } from '../../../../../../src/shared/native-chat/tools/native-chat-tool-run-sentence'
-import { getMobileUiLocale, type Translate } from '../../../../i18n/mobile-i18n'
-import { getUiIntlLocale } from '../../../../i18n/ui-intl-locale'
+import {
+  continueNativeChatToolRunClause,
+  type NativeChatToolRunSentenceWords
+} from '../../../../../../src/shared/native-chat/tools/native-chat-tool-run-sentence'
+import type { Translate } from '../../../../i18n/mobile-i18n'
 
-export function nativeChatToolRunWords(t: Translate): NativeChatToolRunSentenceWords {
+export function nativeChatToolRunWords(
+  t: Translate,
+  locale: string
+): NativeChatToolRunSentenceWords {
   return {
-    continuation: (clause) =>
-      ['en', 'es', 'fr', 'pt', 'ru', 'tr'].includes(getMobileUiLocale())
-        ? `${clause.charAt(0).toLocaleLowerCase(getUiIntlLocale())}${clause.slice(1)}`
-        : clause,
+    continuation: (clause) => continueNativeChatToolRunClause(clause, locale),
     clause: (category, count, live) => {
       const copy = live
         ? {

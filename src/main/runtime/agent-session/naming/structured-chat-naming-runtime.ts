@@ -7,17 +7,17 @@ import {
 } from '../../../../shared/source-control/ai/generation/conversation-name-generation'
 import { chatNamingAgentTarget } from './structured-chat-naming-agent-launch'
 import type { AgentLaunchProfileSettings } from '../../../../shared/agent-launch/choices/tui-agent-launch-defaults'
-import { chatNamingFailure } from '../../../../shared/chat-naming-failure-copy'
-import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
+import { chatNamingFailure } from '../../../../shared/text-generation/chat-naming-failure-copy'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../../../../shared/execution-host/execution-host'
 import type { CommitMessageAgentEnvironmentResolvers } from '../../../text-generation/execution/commit-message-agent-environment'
 import type { StructuredChatNamingDeps } from '../../../native-chat/conversation-naming/structured-chat-naming-types'
 import type { StructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/host/structured-agent-session-logger'
 import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/host/structured-agent-session-registry'
 import { LOCAL_COMMIT_MESSAGE_HOST_KEY } from '../../../../shared/source-control/ai/generation/commit-message-host-key'
-import {
-  generateConversationNameFromContext,
-  resolveCommitMessageSettings as resolveTextGenerationParams
-} from '../../../text-generation/commit-message-text-generation'
+import type { resolveCommitMessageSettings as resolveTextGenerationParams } from '../../../text-generation/commit-message-text-generation'
 import { resolveGenerationTarget } from '../../../agent-hooks/first-work/first-work-generation-target'
 
 type StructuredChatNamingRuntime = {
@@ -72,7 +72,25 @@ export function structuredChatNamingDeps(
       const useChatAgent = !recipe.agentId && !recipe.agentArgs?.trim()
       const log = { scope: 'conversation-name', sessionId: record.sessionId }
       // These save every CLI run, so a naming run would sit in the user's own history.
-      if (useChatAgent && (record.provider === 'copilot' || record.provider === 'kimi')) {
+      if (
+        useChatAgent &&
+        [
+          'copilot',
+          'kimi',
+          'cursor',
+          'hermes',
+          'kiro',
+          'goose',
+          'aug',
+          'kilo',
+          'mimo-code',
+          'droid',
+          'qwen-code',
+          'cline',
+          'devin',
+          'codebuddy'
+        ].includes(record.provider)
+      ) {
         return null
       }
       if (useChatAgent && (record.provider === 'grok' || record.provider === 'antigravity')) {
@@ -103,6 +121,10 @@ export function structuredChatNamingDeps(
           return chatNamingFailure(record.provider === 'grok' ? 'grokFailed' : 'antigravityFailed')
         }
       }
+      const {
+        generateConversationNameFromContext,
+        resolveCommitMessageSettings: resolveTextGenerationParams
+      } = await import('../../../text-generation/commit-message-text-generation')
       const settings = resolveTextGenerationParams(
         useChatAgent
           ? {

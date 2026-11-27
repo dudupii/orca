@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router'
 import Constants from 'expo-constants'
 import AboutScreen from '../src/settings/about-screen'
 import { mobileVersionLabel } from '../src/settings/about-version-label'
+import { SettingsAppUpdateSection } from '../src/settings/settings-app-update-section'
 
 // Read version and native build id from expo-constants to match app.json: iOS buildNumber and Android versionCode.
 // The variant names the fork's personal tag the workflow baked in at bundle time (Metro inlines
@@ -25,6 +26,8 @@ export default function NativeAboutRoute() {
       onBack={() => router.back()}
       openExternal={(url) => Linking.openURL(url)}
       versionLabel={getVersionLabel()}
-    />
+    >
+      <SettingsAppUpdateSection />
+    </AboutScreen>
   )
 }

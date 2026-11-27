@@ -79,7 +79,6 @@ export type ParsedSshHostInput = {
   username?: string
   port?: number
   invalidPort?: boolean
-  configHost: string
 }
 
 export function parseSshHostInput(rawInput: string): ParsedSshHostInput | null {
@@ -104,8 +103,7 @@ export function parseSshHostInput(rawInput: string): ParsedSshHostInput | null {
     host: parsed.host,
     username,
     port: parsed.port,
-    invalidPort: parsed.invalidPort,
-    configHost: parsed.host
+    invalidPort: parsed.invalidPort
   }
 }
 
@@ -119,22 +117,25 @@ export function applyParsedSshHostInput(draft: EditingTarget): EditingTarget {
   return {
     ...draft,
     host: parsed.host,
-    configHost: draft.configHost.trim() || parsed.configHost,
     username: draft.username.trim() || parsed.username || '',
     port:
       parsed.port !== undefined && isDefaultPortDraft(draft.port) ? String(parsed.port) : draft.port
   }
 }
 
-export function getSshTargetDraftConnectionFields(draft: EditingTarget): {
+type SshTargetDraftConnectionFields = {
   host: string
   configHost: string
   username: string
   port: number
-} {
+}
+
+export function getSshTargetDraftConnectionFields(
+  draft: EditingTarget
+): SshTargetDraftConnectionFields {
   const parsed = parseSshHostInput(draft.host)
   const host = parsed?.host ?? draft.host.trim()
-  const configHost = draft.configHost.trim() || parsed?.configHost || host
+  const configHost = draft.configHost.trim() || host
   const username = draft.username.trim() || parsed?.username || ''
   const parsedPort = Number.parseInt(draft.port, 10)
   const port =
@@ -150,6 +151,20 @@ export function getSshTargetDraftConnectionFields(draft: EditingTarget): {
     username,
     port
   }
+}
+
+/** Without an alias, a non-default port is the only thing telling hosts on one gateway apart. */
+export function getDefaultSshTargetLabel({
+  host,
+  configHost,
+  username,
+  port
+}: SshTargetDraftConnectionFields): string {
+  if (configHost !== host) {
+    return username ? `${username}@${host}` : configHost
+  }
+  const endpoint = port === 22 ? host : `${host.includes(':') ? `[${host}]` : host}:${port}`
+  return username ? `${username}@${endpoint}` : endpoint
 }
 
 export function hasAdvancedConnectionValues(form: EditingTarget): boolean {
@@ -193,15 +208,13 @@ function parseSshUrl(input: string): ParsedSshHostInput | null {
       return {
         host,
         username: decodeSshUrlUsername(url.username),
-        configHost: host,
         invalidPort: true
       }
     }
     return {
       host,
       username: decodeSshUrlUsername(url.username),
-      port,
-      configHost: host
+      port
     }
   } catch {
     return parseSshUrlWithInvalidPort(input)
@@ -224,7 +237,6 @@ function parseSshUrlWithInvalidPort(input: string): ParsedSshHostInput | null {
   return {
     host,
     username: decodeSshUrlUsername(match[1] ?? ''),
-    configHost: host,
     invalidPort: true
   }
 }

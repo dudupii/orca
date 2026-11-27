@@ -6,6 +6,7 @@ import type { TerminalPaneContextController } from './use-terminal-pane-context-
 export function useTerminalPaneMobileActions(controller: TerminalPaneContextController) {
   const {
     cwd,
+    isVisibleRef,
     managerRef,
     paneCwdRef,
     paneTransportsRef,
@@ -15,17 +16,24 @@ export function useTerminalPaneMobileActions(controller: TerminalPaneContextCont
     tabId,
     worktreeId
   } = controller
-  const {
-    getMobileOwnedTerminalPtyIds,
-    scheduleRestoredTerminalRefit,
-    restorePaneTerminalFit,
-    restoreAllTerminalFits
-  } = useMobileTerminalFitActions({ paneTransportsRef, refreshMobileOverlays, settingsRef })
+  const { restorePaneTerminalFit, restoreAllTerminalFits } = useMobileTerminalFitActions({
+    isVisibleRef,
+    managerRef,
+    paneTransportsRef,
+    refreshMobileOverlays,
+    settingsRef
+  })
   const {
     terminalShouldHandleMiddleClick,
     handlePrimarySelectionMiddleMouseDown,
     handlePrimarySelectionAuxClick
-  } = useTerminalPrimarySelectionActions({ managerRef, paneTransportsRef, setTerminalError, tabId })
+  } = useTerminalPrimarySelectionActions({
+    managerRef,
+    paneTransportsRef,
+    setTerminalError,
+    settingsRef,
+    tabId
+  })
   const { activatePaneTitleInteraction, splitTerminalPaneFromHeader, beginPaneDragFromHeader } =
     useTerminalPaneHeaderActions({
       managerRef,
@@ -37,8 +45,6 @@ export function useTerminalPaneMobileActions(controller: TerminalPaneContextCont
     })
 
   return {
-    getMobileOwnedTerminalPtyIds,
-    scheduleRestoredTerminalRefit,
     restorePaneTerminalFit,
     restoreAllTerminalFits,
     terminalShouldHandleMiddleClick,

@@ -1,3 +1,4 @@
+import { translate } from '../i18n/mobile-i18n'
 import { isCurrentMobileDictationStart } from './mobile-dictation-session-state'
 import { sendAcrossConnectionMove } from './mobile-dictation-audio-chunk'
 import { dictationSessionLostMessage } from '../dictation/mobile-dictation-setup'
@@ -7,7 +8,7 @@ import {
   dictationSessionStart
 } from '../dictation/mobile-dictation-operations'
 import { MOBILE_DICTATION_RECONNECT_GRACE_MS } from '../../../src/shared/rpc-contract/speech/speech-params'
-import { pairedDictationFinishTimeoutMs } from '../../../src/shared/dictation-finish-deadlines'
+import { pairedDictationFinishTimeoutMs } from '../../../src/shared/speech/dictation/dictation-finish-deadlines'
 import { rpcPayloadMember } from '../transport/rpc/rpc-reader-payload'
 import { probeLivenessWhileWaiting } from '../transport/rpc/rpc-liveness-probe-while-waiting'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
@@ -117,7 +118,7 @@ async function startOnHost(options: StartMobileDictationDesktopSessionOptions): 
       )
     ).catch(() => {
       // Only transport failures reject here; host refusals carry their own message through interpret.
-      throw new Error(dictationSessionLostMessage())
+      throw new Error(dictationSessionLostMessage(translate))
     })
     const started = dictationSessionStart.interpret(reply)
     hostDedupesResends =

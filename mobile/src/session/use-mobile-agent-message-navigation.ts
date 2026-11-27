@@ -1,11 +1,12 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
+import { recomputeOn } from '../hooks/recompute-on'
 import { useFocusEffect } from 'expo-router'
-import type { AgentMessageSource } from '../../../src/shared/agent-session/agent-session-message-source'
+import type { AgentMessageSource } from '../../../src/shared/agent-session/journal/agent-session-message-source'
 import { structuredAgentSessionPaneKey } from '../../../src/shared/agent-session/view/structured-agent-session-projection'
 import {
   structuredSessionOpenFailure,
   type StructuredSessionOpenFailure
-} from '../../../src/shared/open-structured-agent-session'
+} from '../../../src/shared/agent-session/view/open-structured-agent-session'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
 import { mobileStructuredSessionOpenMessage } from './native-chat/agent-session/mobile-structured-session-open-message'
 import { openMobileStructuredSession } from './native-chat/agent-session/open-mobile-structured-session'
@@ -34,13 +35,17 @@ export function useMobileAgentMessageNavigation(
 ) {
   const scope = useRef<{ active: boolean; attempt?: { key: string } }>({ active: false })
   useFocusEffect(
-    useCallback(() => {
-      const visit = { active: true }
-      scope.current = visit
-      return () => {
-        visit.active = false
-      }
-    }, [client, navigate, sourceKey])
+    useMemo(
+      () =>
+        recomputeOn([client, navigate, sourceKey], () => () => {
+          const visit = { active: true }
+          scope.current = visit
+          return () => {
+            visit.active = false
+          }
+        }),
+      [client, navigate, sourceKey]
+    )
   )
   return useCallback(
     (from: AgentMessageSource, sender: AgentMessageSource['senders'][number]) => {

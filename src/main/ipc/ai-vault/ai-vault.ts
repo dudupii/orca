@@ -1,14 +1,12 @@
+import { scanLocalAiVaultSessionsAsIssue } from './ai-vault-local-scan'
 import {
   captureRuntimeAiVaultProjectionDependency,
   type AiVaultProjectionDependency
 } from './ai-vault-projection-dependency'
 import { app, ipcMain } from 'electron'
+import type { IpcHandleRegistrar } from '../lazy-ipc-handle-group'
 import { configureAiVaultSessionSources } from '../../ai-vault/discovery/ai-vault-scan-roots'
-import {
-  listAiVaultSessions as listCachedLocalAiVaultSessions,
-  AiVaultLocalScanError,
-  resetAiVaultSessionListCacheForTests
-} from '../../ai-vault/listing/cached-session-list'
+import { resetAiVaultSessionListCacheForTests } from '../../ai-vault/listing/cached-session-list'
 import type { AiVaultSessionSources } from '../../ai-vault/discovery/ai-vault-scan-roots'
 import { deleteAiVaultSession, registerAiVaultDeleteHandler } from './ai-vault-delete'
 import { listAiVaultSubagentSessions } from './ai-vault-subagent-list'
@@ -18,9 +16,10 @@ import {
   mergeAiVaultListResults
 } from '../../ai-vault/listing/session-list-results'
 import type { AiVaultDeleteSessionArgs } from '../../../shared/ai-vault/contracts/ai-vault-session-deletion'
-import { classifyAiVaultScanError } from '../../../shared/ai-vault/scanning/ai-vault-scan-error-message'
+
 import {
   AI_VAULT_SCOPE_PATHS_MAX_COUNT,
+  AI_VAULT_SINGLE_HOST_LIST_TIMEOUT_MS,
   isAiVaultScanCancelledError,
   type AiVaultFirstUserPromptArgs,
   type AiVaultListArgs,
@@ -36,8 +35,8 @@ import {
   requestedExecutionHostScope,
   toRuntimeExecutionHostId,
   type ExecutionHostId
-} from '../../../shared/execution-host'
-import { createSenderScopedRequestCancellations } from '../sender-scoped-request-cancellation'
+} from '../../../shared/execution-host/execution-host'
+import { createSenderScopedRequestCancellations } from '../renderer-requests/sender-scoped-request-cancellation'
 import { discoverAiVaultHosts, type AiVaultHostDiscoveryResult } from './ai-vault-host-discovery'
 import {
   scanRuntimeAiVaultSessions,
@@ -69,7 +68,9 @@ import { registerAiVaultScanProgressBroadcast } from './ai-vault-scan-progress-b
 type AiVaultHandlerOptions = AiVaultSessionSources &
   AiVaultResumeHandlerOptions & {
     getUserDataPath?: () => string
-    getActiveRuntimeAiVaultHostInfos?: () => readonly RuntimeAiVaultHostInfo[]
+    getActiveRuntimeAiVaultHostInfos?: () =>
+      | readonly RuntimeAiVaultHostInfo[]
+      | Promise<readonly RuntimeAiVaultHostInfo[]>
     scanRuntimeAiVaultSessions?: RuntimeAiVaultScanner
     resolveRuntimeAiVaultSessionTitles?: RuntimeAiVaultSessionTitleResolver
   }
@@ -98,10 +99,10 @@ async function listAiVaultSessions(
   const executionHostScope = requestedExecutionHostScope(args?.executionHostScope)
   const hostScope: AiVaultScanHostScope =
     executionHostScope === 'all'
-      ? { scope: executionHostScope, runtimeHosts: getActiveRuntimeAiVaultHostInfosResult() }
+      ? { scope: executionHostScope, runtimeHosts: await getActiveRuntimeAiVaultHostInfosResult() }
       : { scope: executionHostScope }
   const parsedHost = parseRoutableExecutionHostId(executionHostScope)
-  const dependency = captureRuntimeAiVaultProjectionDependency(
+  const dependency = await captureRuntimeAiVaultProjectionDependency(
     hostScope.scope === 'all'
       ? hostScope.runtimeHosts.hostInfos.map((host) => host.environmentId)
       : parsedHost?.kind === 'runtime'
@@ -208,7 +209,7 @@ async function scanAiVaultSessionsByHostScope(
       },
       scanner: handlerOptions.scanRuntimeAiVaultSessions,
       listArgs: args,
-      options: { signal }
+      options: { signal, responseTimeoutMs: AI_VAULT_SINGLE_HOST_LIST_TIMEOUT_MS }
     })
   }
 
@@ -219,41 +220,24 @@ async function scanAiVaultSessionsByHostScope(
   })
 }
 
-export function getActiveRuntimeAiVaultHostInfosResult(): AiVaultHostDiscoveryResult<RuntimeAiVaultHostInfo> {
+export async function getActiveRuntimeAiVaultHostInfosResult(): Promise<
+  AiVaultHostDiscoveryResult<RuntimeAiVaultHostInfo>
+> {
   return discoverAiVaultHosts(() => handlerOptions.getActiveRuntimeAiVaultHostInfos?.() ?? [], {
     path: 'runtime environments',
     fallbackMessage: 'Runtime hosts are unavailable.'
   })
 }
 
-// Like remote failures, local scanner/cache/WSL failures must degrade to issues without discarding healthy hosts.
-async function scanLocalAiVaultSessionsAsIssue(
-  args: AiVaultListArgs | undefined,
-  signal: AbortSignal | undefined
-): Promise<AiVaultListResult> {
-  try {
-    return await listCachedLocalAiVaultSessions(args, { signal })
-  } catch (error) {
-    if (isAiVaultScanCancelledError(error)) {
-      throw error
-    }
-    // Keep raw supervision details in logs; show an actionable host issue.
-    const raw = error instanceof Error ? error.message : 'Local session scan failed.'
-    console.error('[ai-vault] local session scan failed:', raw)
-    const result = aiVaultScanIssueResult({
-      executionHostId: LOCAL_EXECUTION_HOST_ID,
-      path: 'this computer',
-      ...classifyAiVaultScanError(raw)
-    })
-    return error instanceof AiVaultLocalScanError ? { ...result, scanId: error.scanId } : result
-  }
-}
-
-export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): void {
+export function registerAiVaultHandlers(
+  options: AiVaultHandlerOptions = {},
+  ipc: IpcHandleRegistrar = ipcMain,
+  registrationOptions?: { skipWindowFocusListener?: boolean }
+): void {
   handlerOptions = options
   // Configure the same source/cache instance used by runtime RPC and headless serve.
   configureAiVaultSessionSources(options)
-  ipcMain.handle('aiVault:listSessions', async (event, args?: AiVaultListArgs) => {
+  ipc.handle('aiVault:listSessions', async (event, args?: AiVaultListArgs) => {
     const requestToken =
       typeof args?.requestToken === 'string' && args.requestToken.length <= 128
         ? args.requestToken
@@ -273,12 +257,12 @@ export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): vo
       listCancellations.finish(event, requestToken, controller)
     }
   })
-  ipcMain.handle(
+  ipc.handle(
     'aiVault:resolveSessionTitles',
     (_event, args: AiVaultSessionTitlesArgs): Promise<AiVaultSessionTitlesResult> =>
       resolveAiVaultSessionTitles(args)
   )
-  ipcMain.handle(
+  ipc.handle(
     'aiVault:cancelListSessions',
     (event, args: { requestToken?: string } | undefined): void => {
       if (typeof args?.requestToken === 'string' && args.requestToken.length <= 128) {
@@ -286,23 +270,25 @@ export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): vo
       }
     }
   )
-  registerAiVaultResumeHandler(options)
-  ipcMain.handle(
+  registerAiVaultResumeHandler(options, ipc)
+  ipc.handle(
     'aiVault:listSubagentSessions',
     (_event, args?: AiVaultSubagentListArgs): Promise<AiVaultSubagentListResult> =>
       listAiVaultSubagentSessions(args)
   )
-  ipcMain.handle('aiVault:getFirstUserPrompt', (_event, args?: AiVaultFirstUserPromptArgs) =>
+  ipc.handle('aiVault:getFirstUserPrompt', (_event, args?: AiVaultFirstUserPromptArgs) =>
     handleAiVaultGetFirstUserPrompt(args)
   )
-  registerAiVaultDeleteHandler(aiVaultDeleteDeps)
+  registerAiVaultDeleteHandler(aiVaultDeleteDeps, ipc)
   registerAiVaultScanProgressBroadcast()
-  // macOS app activation skips DOM focus events, so emit the refresh signal here.
-  app.on('browser-window-focus', (_event, window) => {
-    if (!window.isDestroyed()) {
-      window.webContents.send('aiVault:windowFocused')
-    }
-  })
+  if (!registrationOptions?.skipWindowFocusListener) {
+    // macOS app activation skips DOM focus events, so emit the refresh signal here.
+    app.on('browser-window-focus', (_event, window) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send('aiVault:windowFocused')
+      }
+    })
+  }
 }
 
 function resetAiVaultCacheForTests(): void {

@@ -17,15 +17,12 @@ import type {
   OrchestrationWorkerServer
 } from './environment-transport'
 import { OrchestrationError } from '../orchestration-error'
+import { UnsentRequestError } from './unsent-request-error'
 import {
   clearFederationAckCheckpoints,
   releaseFederationAckCheckpoint
 } from '../legacy-remote-home/federation-ack-checkpoints'
-import {
-  federatedSyncMovedMail,
-  syncFederatedDispatch,
-  type FederatedSyncResult
-} from '../legacy-remote-home/federation-sync'
+import type { FederatedSyncResult } from '../legacy-remote-home/federation-sync'
 import { FederationAcknowledgmentRecovery } from '../legacy-remote-home/federation-acknowledgment-recovery'
 import type { OrchestrationDb } from '../db/orchestration-db'
 import type { FederationRuntime } from './federation-runtime'
@@ -71,14 +68,18 @@ export class RuntimeOrchestrationFederation {
     this.warnings.clear()
   }
 
-  resolveWorkerServer(selector: string): OrchestrationWorkerServer {
+  async resolveWorkerServer(selector: string): Promise<OrchestrationWorkerServer> {
     if (!this.transport) {
       throw new OrchestrationError(
         'server_required',
         'Connected-server orchestration is unavailable in this runtime.'
       )
     }
-    return this.transport.resolve(selector)
+    return await this.transport.resolve(selector)
+  }
+
+  async listWorkerServers(): Promise<readonly { environmentId: string; name: string }[]> {
+    return (await this.transport?.list?.()) ?? []
   }
 
   async callWorkerServer(
@@ -106,7 +107,11 @@ export class RuntimeOrchestrationFederation {
           ? { ...envelope, orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION }
           : envelope,
         internal?.expectedEnvironmentPairingRevision,
-        { prepareRequest: internal?.prepareRequest, expectedRuntimeId }
+        {
+          prepareRequest: internal?.prepareRequest,
+          prepareGuard: internal?.prepareGuard,
+          expectedRuntimeId
+        }
       )
     const response =
       isOrchestrationMutation(method, params) && !internal?.contractVerified
@@ -153,7 +158,7 @@ export class RuntimeOrchestrationFederation {
       internal?.expectedEnvironmentPairingRevision
     )
     if (statusResponse.ok === false) {
-      throw new OrchestrationError(
+      throw new UnsentRequestError(
         statusResponse.error.code,
         statusResponse.error.message,
         statusResponse.error.data
@@ -188,11 +193,17 @@ export class RuntimeOrchestrationFederation {
     const generation = this.relayGeneration
     const isCurrent = (): boolean =>
       generation === this.relayGeneration && this.runtime.getOrchestrationDb() === db
-    const sync = syncFederatedDispatch(this.runtime, dispatchId, isCurrent)
-      .then((result) => {
+    const sync = import('../legacy-remote-home/federation-sync')
+      .then(({ syncFederatedDispatch, federatedSyncMovedMail }) =>
+        syncFederatedDispatch(this.runtime, dispatchId, isCurrent).then((result) => ({
+          result,
+          movedMail: federatedSyncMovedMail(result)
+        }))
+      )
+      .then(({ result, movedMail }) => {
         if (this.syncs.get(dispatchId)?.promise === sync) {
           this.warnings.delete(dispatchId)
-          this.relays.noteSynced(dispatchId, federatedSyncMovedMail(result))
+          this.relays.noteSynced(dispatchId, movedMail)
         }
         return result
       })
@@ -254,9 +265,12 @@ export class RuntimeOrchestrationFederation {
       return 'ended'
     }
     return this.syncDispatch(dispatchId).then(
-      (result): FederationRelayTickOutcome => (federatedSyncMovedMail(result) ? 'moved' : 'idle'),
-      (): FederationRelayTickOutcome => {
-        if (!this.isEnvironmentRemoved(dispatchId)) {
+      async (result): Promise<FederationRelayTickOutcome> => {
+        const { federatedSyncMovedMail } = await import('../legacy-remote-home/federation-sync')
+        return federatedSyncMovedMail(result) ? 'moved' : 'idle'
+      },
+      async (): Promise<FederationRelayTickOutcome> => {
+        if (!(await this.isEnvironmentRemoved(dispatchId))) {
           return 'failed'
         }
         this.warnings.delete(dispatchId)
@@ -266,7 +280,7 @@ export class RuntimeOrchestrationFederation {
   }
 
   /** Checked only after a failed sync; a store read error keeps the relay retrying. */
-  private isEnvironmentRemoved(dispatchId: string): boolean {
+  private async isEnvironmentRemoved(dispatchId: string): Promise<boolean> {
     const environmentId = this.runtime
       .getOrchestrationDb()
       .getFederatedDispatch(dispatchId)?.environment_id
@@ -275,7 +289,7 @@ export class RuntimeOrchestrationFederation {
     }
     try {
       // A removed server cannot answer; the next ensureRelay re-arms it if the server is added back.
-      return this.transport?.hasEnvironment?.(environmentId) === false
+      return (await this.transport?.hasEnvironment?.(environmentId)) === false
     } catch {
       return false
     }

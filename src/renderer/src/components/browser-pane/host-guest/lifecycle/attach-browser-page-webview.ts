@@ -2,12 +2,14 @@ import type { Dispatch, DragEvent, MutableRefObject, RefObject, SetStateAction }
 import {
   normalizeBrowserNavigationUrl,
   redactKagiSessionToken
-} from '../../../../../../shared/browser-url'
+} from '../../../../../../shared/browser/navigation/browser-url'
 import type {
   BrowserLoadError,
   BrowserViewportPresetId
-} from '../../../../../../shared/browser-workspace-types'
+} from '../../../../../../shared/browser/workspaces/browser-workspace-types'
 import { ensureBrowserPageWebview } from './browser-page-webview'
+import { webviewRegistry } from '../webview-registry'
+import { isBrowserPageMountAdmitted } from '../retention/browser-page-mount-admission'
 import {
   applyBrowserPageViewportLayout,
   ensureBrowserPageViewport
@@ -50,7 +52,7 @@ export type AttachBrowserPageWebviewArgs = {
   faviconUrlRef: MutableRefObject<string | null>
   addressBarInputRef: RefObject<HTMLInputElement | null>
   lastKnownWebviewUrlRef: MutableRefObject<string | null>
-  invalidateBrowserAnnotationDocumentRef: MutableRefObject<() => void>
+  invalidateBrowserAnnotationDocumentRef: MutableRefObject<(newDocument?: boolean) => void>
   onSetUrlRef: MutableRefObject<BrowserPageUrlSetter>
   setBrowserOverlayViewport: Dispatch<SetStateAction<BrowserOverlayViewport>>
   setAddressBarValue: Dispatch<SetStateAction<string>>
@@ -67,6 +69,13 @@ export type AttachBrowserPageWebviewArgs = {
 export function attachBrowserPageWebview(
   args: AttachBrowserPageWebviewArgs
 ): (() => void) | undefined {
+  if (
+    !webviewRegistry.has(args.browserTabId) &&
+    !args.isPaintableRef.current &&
+    !isBrowserPageMountAdmitted(args.browserTabId)
+  ) {
+    return
+  }
   const {
     browserTabId,
     workspaceId,
@@ -104,7 +113,7 @@ export function attachBrowserPageWebview(
   if (!container || !webviewContainer) {
     return
   }
-  args.invalidateBrowserAnnotationDocumentRef.current()
+  args.invalidateBrowserAnnotationDocumentRef.current(true)
   const webview = ensuredWebview.webview
   const needsInitialNavigation = ensuredWebview.created
   seedLiveBrowserUrl(browserTabId, redactKagiSessionToken(browserTabUrlRef.current))

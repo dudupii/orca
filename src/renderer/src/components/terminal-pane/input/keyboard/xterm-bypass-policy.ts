@@ -1,4 +1,3 @@
-import '../../../../../../shared/keybindings'
 import { keybindingMatchesInput } from '../../../../../../shared/keybindings/matching'
 import { isHangulJamoKeyText } from '../ime/hangul-jamo-key'
 import { getLayoutBaseCharacterForCode } from '../../../../lib/keyboard-layout/layout-base-character'
@@ -39,6 +38,8 @@ export type XtermImeKeyboardOptions = {
   isMac: boolean
   // Keep Windows preedit-diff suppression separate from macOS/Linux standalone 229 commits.
   isLinux: boolean
+  // Android soft keyboards send letters and Backspace as bare 229 keydowns that xterm must see to commit (#50460).
+  isAndroid: boolean
 }
 
 export const TERMINAL_INTERRUPT_INPUT = '\x03'
@@ -99,7 +100,8 @@ export function shouldSuppressTerminalImeKeyboardEvent(
     candidateKeyGuardActive,
     pendingCandidateKeyReleaseActive,
     isMac,
-    isLinux
+    isLinux,
+    isAndroid
   } = options
   const suppressCandidateKey =
     isLinux &&
@@ -112,16 +114,16 @@ export function shouldSuppressTerminalImeKeyboardEvent(
   if (!isXtermHandledKeyEvent(event.type)) {
     return false
   }
-  // Suppress composing/Process keys, but let bare macOS/Linux 229 schedule commit diffs; Windows retains suppression for its preedit race.
-  const passesStandalone229Keydown = isMac || isLinux
+  // Suppress composing/Process keys, but let bare macOS/Linux/Android 229 schedule commit diffs; Windows retains suppression for its preedit race.
+  const passesStandalone229Keydown = isMac || isLinux || isAndroid
   // Chromium can leave isComposing stuck on keydowns after fcitx/Wayland drops compositionend; trust the tracker's live-composition view and self-heal instead of suppressing forever.
-  const passesIdleComposingKeydown =
+  const passesIdleComposing229Keydown =
     event.type === 'keydown' &&
     event.isComposing === true &&
     !compositionActive &&
     passesStandalone229Keydown
   return (
-    (event.isComposing === true && !passesIdleComposingKeydown) ||
+    (event.isComposing === true && !passesIdleComposing229Keydown) ||
     (event.keyCode === 229 &&
       (event.type !== 'keydown' || compositionActive || !passesStandalone229Keydown)) ||
     (compositionActive && TERMINAL_IME_OWNED_KEYS.has(event.key)) ||

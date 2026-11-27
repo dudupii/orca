@@ -1,4 +1,7 @@
-import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../shared/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../../../shared/execution-host/execution-host'
 import type { GitAdmissionTier } from '../../../shared/rpc-contract/source-control/git-admission-tier-params'
 import type { LocalProjectGhExecOptions } from '../../workspaces/execution-host/project-runtime-git-options'
 import { OrcaRuntimeWithPreservedBranchCleanup } from './runtime-host-services'
@@ -9,18 +12,20 @@ import {
 } from '../files/chat-scratch-file-root'
 import type { RuntimeStore } from './runtime-store-contract'
 import type { ResolvedWorktree } from '../workspaces/catalog/runtime-worktree-path-identity'
-import type { Repo } from '../../../shared/repo-types'
+import type { Repo } from '../../../shared/repository/repo-types'
 import type { RuntimeRepoSelector } from '../workspaces/catalog/runtime-repo-selector'
 import type { LayoutApplyReply } from '../../../shared/workspace-layout/workspace-layout-command-types'
 import type { WindowLayoutCommand } from '../terminal/layout/runtime-layout-apply'
 import { createRuntimeEditorFileOpener } from '../files/editor-open-through-layout-owner'
 import { resolveNativeChatMediaPath } from '../../native-chat/conversation-files/native-chat-media-path'
 import { getStructuredAgentSessionHost } from '../../native-chat/agent-session-wire/host/structured-agent-session-registry'
-import { RuntimeFileSearch } from '../files/search/file-search'
+import {
+  LazyRuntimeFileAccess,
+  LazyRuntimeFileMutations,
+  LazyRuntimeFileReads,
+  LazyRuntimeFileSearch
+} from '../files/lazy-runtime-file-commands'
 import { RuntimeTerminalArtifacts } from '../terminal/artifacts/terminal-artifacts'
-import { RuntimeFileAccess } from '../files/file-access'
-import { RuntimeFileReads } from '../files/file-reads'
-import { RuntimeFileMutations } from '../files/file-mutations'
 import { RuntimeStagedFileSaves } from '../files/staged-file-save-commands'
 import { RuntimeFileWatches } from '../files/watch/file-watches'
 import { RuntimeTerminalPathResolver } from '../terminal/terminal-path-resolver'
@@ -141,15 +146,15 @@ export abstract class OrcaRuntimeWithFileCommands extends OrcaRuntimeWithPreserv
     }
   }
 
-  protected readonly fileSearch = new RuntimeFileSearch(this.runtimeFileCommandHost)
+  protected readonly fileSearch = new LazyRuntimeFileSearch(this.runtimeFileCommandHost)
 
   protected readonly terminalArtifacts = new RuntimeTerminalArtifacts(this.runtimeFileCommandHost)
 
-  protected readonly fileAccess = new RuntimeFileAccess(this.runtimeFileCommandHost)
+  protected readonly fileAccess = new LazyRuntimeFileAccess(this.runtimeFileCommandHost)
 
-  protected readonly fileReads = new RuntimeFileReads(this.runtimeFileCommandHost)
+  protected readonly fileReads = new LazyRuntimeFileReads(this.runtimeFileCommandHost)
 
-  protected readonly fileMutations = new RuntimeFileMutations(this.runtimeFileCommandHost)
+  protected readonly fileMutations = new LazyRuntimeFileMutations(this.runtimeFileCommandHost)
 
   protected readonly stagedFileSaveCommands = new RuntimeStagedFileSaves(
     this.runtimeFileCommandHost

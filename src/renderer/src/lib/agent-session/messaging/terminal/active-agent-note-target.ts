@@ -1,4 +1,7 @@
-import type { RuntimeTerminalListResult } from '../../../../../../shared/terminal/runtime/runtime-terminal-contracts'
+import type {
+  RuntimeTerminalListResultWithoutPreview,
+  RuntimeTerminalSummaryWithoutPreview
+} from '../../../../../../shared/terminal/runtime/runtime-terminal-contracts'
 import { runtimeTargetForOwnerEnvironment } from '@/runtime/rpc/targets/runtime-client-target'
 import type { RuntimeClientTarget } from '../../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import { toHostSessionTabId } from '../../../../../../shared/workspace-layout/terminal-surface-id'
@@ -50,7 +53,7 @@ export type ActiveTerminalNoteTargetState = {
     | undefined
   >
   runtimePaneTitlesByTabId?: Record<string, Record<number, string> | undefined>
-  agentStatusByPaneKey?: Record<string, AgentStatusEntry | undefined>
+  agentStatusByPaneKey?: ReadonlyMap<string, AgentStatusEntry | undefined>
 } & Pick<WorktreeRuntimeOwnerState, 'repos' | 'worktreesByRepo'>
 
 type ActiveAgentRuntimeProbeDescriptor = {
@@ -95,7 +98,7 @@ export function getActiveAgentNoteTarget(
     return null
   }
 
-  const entry = state.agentStatusByPaneKey?.[makePaneKey(noteTarget.tabId, noteTarget.leafId)]
+  const entry = state.agentStatusByPaneKey?.get(makePaneKey(noteTarget.tabId, noteTarget.leafId))
   if (entry && isAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)) {
     return noteTarget
   }
@@ -166,15 +169,16 @@ export async function findActiveRuntimeTerminal(
     expectedEnvironmentPairingRevision?: number
     beforeSend?: () => void
   } = {}
-): Promise<RuntimeTerminalListResult['terminals'][number] | null> {
-  const { terminals } = await callRuntimeRpc<RuntimeTerminalListResult>(
+): Promise<RuntimeTerminalSummaryWithoutPreview | null> {
+  const { terminals } = await callRuntimeRpc<RuntimeTerminalListResultWithoutPreview>(
     runtimeTarget,
     'terminal.list',
     // Why: worktree ids can look like branch names or paths; keep the lookup unambiguous.
     {
       worktree: toRuntimeWorktreeSelector(worktreeId),
       limit: ACTIVE_AGENT_TERMINAL_LIST_LIMIT,
-      includeVisualLayouts: false
+      includeVisualLayouts: false,
+      includePreview: false
     },
     { timeoutMs, ...options }
   )

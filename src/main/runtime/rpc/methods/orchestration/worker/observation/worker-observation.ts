@@ -11,7 +11,7 @@ import type {
   FederatedDispatchRow,
   WorkerDispatchRow
 } from '../../../../../orchestration/db/orchestration-records'
-import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../../../shared/layout-owner-switch'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../../../shared/workspace-layout/layout-owner-switch'
 import { exposeDispatchContext } from './dispatch-context-exposure'
 import { resolvePinnedFederatedServer } from '../../../../../orchestration/legacy-remote-home/pinned-federated-server'
 
@@ -221,7 +221,9 @@ export function projectFleetWorkerPage(
     statuses,
     limit: 1,
     now,
-    observeSession: createSessionWorkerLivenessReader(db, statuses)
+    observeSession: createSessionWorkerLivenessReader(db, statuses, undefined, {
+      includeResumeGuidance: true
+    })
   })
 }
 
@@ -279,7 +281,7 @@ export async function callFederatedWorkerShow(
     agentWait?: RuntimeTerminalInteractiveWait | null
   }
 }> {
-  const server = resolvePinnedFederatedServer(runtime, federated)
+  const server = await resolvePinnedFederatedServer(runtime, federated)
   return (await runtime.callOrchestrationWorkerServer(
     server.environmentId,
     'orchestration.federationShow',

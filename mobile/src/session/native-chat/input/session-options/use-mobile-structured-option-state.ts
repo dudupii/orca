@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { recomputeOn } from '../../../../hooks/recompute-on'
 import { mobileStructuredSessionStatusFeed } from '../../agent-session/mobile-structured-session-status-feed'
 import { projectRuntimePermission } from '../../../../../../src/shared/agent-session/options/permissions/structured-agent-session-permission-option'
 import { useMobileStructuredSelectionController } from './use-mobile-structured-selection-controller'
@@ -7,7 +8,7 @@ import type { AgentSessionOptionsResult } from '../../../../../../src/shared/age
 import { callAgentSession } from '../../agent-session/mobile-structured-agent-session-rpc'
 import { forgetMobileCreatedStructuredSession } from '../../agent-session/mobile-created-structured-sessions'
 import { createStructuredAgentSessionOptionsReadOwner } from '../../../../../../src/shared/agent-session/options/reconciliation/structured-agent-session-options-read-owner'
-import { BoundedMap } from '../../../../../../src/shared/bounded-map'
+import { BoundedMap } from '../../../../../../src/shared/collections/bounded-map'
 import type { RpcClient } from '../../../../transport/rpc/rpc-client-contract'
 import type { AgentSessionOptionCatalog } from '../../../../../../src/shared/agent-session/options/catalog-providers/agent-session-option-catalog-types'
 import { usesInstalledAgentModelCatalog } from '../../../../../../src/shared/agent-session/options/model-catalog/agent-model-catalog-ownership'
@@ -82,27 +83,43 @@ export function useMobileStructuredOptionState(args: {
       })
   )
   const chatKey = JSON.stringify([agent, sessionId])
-  const reader = useMemo(() => {
-    const retained = readers.get(chatKey)
-    if (retained) {
-      return retained
-    }
-    const created = createStructuredAgentSessionOptionsReadOwner(firstFrame())
-    readers.set(chatKey, created)
-    return created
-  }, [readers, chatKey, agent, optionCatalog])
+  const reader = useMemo(
+    () =>
+      recomputeOn([agent, optionCatalog], () => {
+        const retained = readers.get(chatKey)
+        if (retained) {
+          return retained
+        }
+        const created = createStructuredAgentSessionOptionsReadOwner(firstFrame())
+        readers.set(chatKey, created)
+        return created
+      }),
+    [readers, chatKey, agent, optionCatalog]
+  )
   useEffect(() => () => reader.markAway(), [reader])
   // An older fence's report is stale from the render its fence changes in, before re-attach clears it.
   const projectRuntimeReports = <
-    T extends { reportedPermissionMode?: string | null; reportedEffort?: string }
+    T extends {
+      reportedPermissionMode?: string | null
+      reportedEffort?: string
+      launchPermissionMode?: string
+      runningPermissionMode?: string
+    }
   >(
     state: T
-  ): T =>
-    projectRuntimePermission(
+  ): T => ({
+    ...projectRuntimePermission(
       structuredAgentSessionReportsAtFence(state, reader.getSnapshot().support?.fence, fence),
       summary,
       fence
-    )
+    ),
+    ...(typeof summary?.launchPermissionMode === 'string'
+      ? { launchPermissionMode: summary.launchPermissionMode }
+      : {}),
+    ...(typeof summary?.runningPermissionMode === 'string'
+      ? { runningPermissionMode: summary.runningPermissionMode }
+      : {})
+  })
   const { optionState, support } = useSyncExternalStore(reader.subscribe, reader.getSnapshot)
   const {
     optionStateRef,
@@ -136,7 +153,8 @@ export function useMobileStructuredOptionState(args: {
               commands: support.result.conversationCommands ?? [],
               compactInstructions: support.result.compactInstructions === true,
               forkSupport: support.result.forkSupport,
-              contextUsage: support.result.contextUsage
+              contextUsage: support.result.contextUsage,
+              accountUsage: support.result.accountUsage === true
             },
             imageSupport: {
               sessionId: support.sessionId,

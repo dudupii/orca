@@ -2,7 +2,7 @@ import type * as UseMobileDiffReviewInteractionsModule from '../../../../source-
 import type * as MobileDiffReviewSheetsModule from '../../../../source-control/review/diff-actions/mobile-diff-review-sheets'
 import { hookMount, performHookAction } from '../../react-mounting/hook-mount'
 import { mountFixture } from '../../react-mounting/recorder-fixture-shape'
-import type { DiffComment } from '../../../../../../src/shared/diff-comment-types'
+import type { DiffComment } from '../../../../../../src/shared/file-review/diff-comment-types'
 import type { MobileDiffReviewQueueItem } from '../../../../source-control/review/diff-state/mobile-diff-review-queue'
 import type {
   ReviewScreenState,
@@ -49,7 +49,6 @@ export function diffReviewActionMountAdapters(
         filePath: FILE,
         status: 'modified' as const,
         title: 'app.ts',
-        subtitle: 'src',
         canStage: true,
         canUnstage: false,
         canDiscard: true,

@@ -2,11 +2,12 @@ import type {
   BrowserSelectResult,
   BrowserScrollResult
 } from '../../../../shared/browser/runtime/runtime-browser-contracts'
-import { assertClipboardTextWriteWithinLimitWithYield } from '../../../../shared/clipboard-text'
-import { iterateBrowserTextInsertionChunks } from '../../../../shared/browser-text-insertion-chunks'
+import { assertClipboardTextWriteWithinLimitWithYield } from '../../../../shared/clipboard/clipboard-text'
+import { iterateBrowserTextInsertionChunks } from '../../../../shared/browser/automation/browser-text-insertion-chunks'
 import { AGENT_BROWSER_TEXT_ARGUMENT_MAX_BYTES } from '../protocol/agent-browser-text-argument-budget'
 import { AgentBrowserBridgeCoreCommands } from './agent-browser-bridge-core-commands'
 import { SELECT_OPTION_TARGET_FUNCTION } from '../../cdp/input/browser-element-functions'
+import { redactBrowserMetadataGetter } from '../../../../shared/browser/browser-metadata-redaction'
 
 export abstract class AgentBrowserBridgeInputCommands extends AgentBrowserBridgeCoreCommands {
   async select(
@@ -80,7 +81,7 @@ export abstract class AgentBrowserBridgeInputCommands extends AgentBrowserBridge
         if (selector) {
           args.push(selector)
         }
-        return await this.execAgentBrowser(sessionName, args)
+        return redactBrowserMetadataGetter(what, await this.execAgentBrowser(sessionName, args))
       },
       { elements: [selector] }
     )

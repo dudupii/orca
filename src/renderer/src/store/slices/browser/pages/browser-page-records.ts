@@ -2,15 +2,15 @@ import type {
   BrowserPage,
   BrowserPageDocLocation,
   BrowserWorkspace
-} from '../../../../../../shared/browser-workspace-types'
-import { browserPageDocLocationsEqual } from '../../../../../../shared/browser-page-doc-location'
-import '../../../../../../shared/constants'
+} from '../../../../../../shared/browser/workspaces/browser-workspace-types'
+import { browserPageDocLocationsEqual } from '../../../../../../shared/browser/workspaces/browser-page-doc-location'
+import '../../../../../../shared/orca-profiles/constants'
 import { ORCA_BROWSER_BLANK_URL } from '../../../../../../shared/browser/browser-blank-page'
 import { getBrowserDisplayTitle } from '../../../../../../shared/browser/browser-display-title'
-import { redactKagiSessionToken } from '../../../../../../shared/browser-url'
+import { redactKagiSessionToken } from '../../../../../../shared/browser/navigation/browser-url'
 import { isDocPreviewUrl } from '../../../../../../shared/document-preview/doc-preview-scheme'
 import { basename } from '@/lib/path'
-import { createNonSecureContextUuid as createBrowserUuid } from '../../../../../../shared/non-secure-context-uuid'
+import { createNonSecureContextUuid as createBrowserUuid } from '../../../../../../shared/identifiers/non-secure-context-uuid'
 import { translate } from '@/i18n/i18n'
 
 export function normalizeUrl(url: string): string {
@@ -27,6 +27,7 @@ export function normalizeBrowserTitle(
   url: string,
   docLocation?: BrowserPageDocLocation | null
 ): string {
+  title = title ? redactKagiSessionToken(title) : title
   if (docLocation) {
     // Document blank URLs cannot supply titles; use file fallback. Reject grant-URL title echoes: persisted/mirrored titles would retain expired read authority.
     if (!title || isDocPreviewUrl(title)) {

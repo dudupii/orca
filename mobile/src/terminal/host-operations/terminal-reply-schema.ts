@@ -1,5 +1,5 @@
 import * as z from 'zod'
-import { salvagedOptional } from '../../../../src/shared/zod-salvage'
+import { salvagedOptional } from '../../../../src/shared/validation/zod-salvage'
 
 export const terminalComposerDraftSchema = z.looseObject({
   terminal: salvagedOptional(
@@ -35,3 +35,17 @@ export const terminalAutoRestoreFitSchema = z.looseObject({ ms: z.number().nulla
 export const terminalBufferClearedSchema = z
   .looseObject({ clear: z.looseObject({ cleared: z.boolean() }) })
   .transform((reply) => reply.clear.cleared)
+
+// Only the host's own observation counts; anything unreadable is left for the probe to call unverifiable.
+export const terminalProcessInspectionSchema = z
+  .looseObject({
+    process: z.looseObject({
+      foregroundProcess: z.string().nullable(),
+      hasChildProcesses: z.boolean(),
+      childProcessEvidence: salvagedOptional(
+        'childProcessEvidence',
+        z.enum(['children', 'no-children', 'unverifiable'])
+      )
+    })
+  })
+  .transform((reply) => reply.process)

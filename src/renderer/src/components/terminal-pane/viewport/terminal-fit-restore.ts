@@ -1,5 +1,5 @@
-import type { GlobalSettings } from '../../../../../shared/global-settings-types'
-import { mapWithConcurrency } from '../../../../../shared/map-with-concurrency'
+import type { GlobalSettings } from '../../../../../shared/settings/global-settings-types'
+import { mapWithConcurrency } from '../../../../../shared/concurrency/map-with-concurrency'
 import { TERMINAL_FIT_RESTORE_DEADLINE_MS } from '../../../../../shared/terminal/viewport/terminal-fit-restore-deadline'
 import { callRuntimeRpc } from '@/runtime/rpc/calls/runtime-rpc-call'
 import {
@@ -70,14 +70,15 @@ export function restoreTerminalFitToDesktop(
   )
 }
 
+/** Returns the PTY ids the runtime restored. */
 export async function restoreTerminalFitsToDesktop(
   ptyIds: Iterable<string>,
   settings: TerminalFitRestoreSettings
-): Promise<boolean> {
+): Promise<ReadonlySet<string>> {
   const uniquePtyIds = [...new Set(ptyIds)]
   const deadlineAt = Date.now() + TERMINAL_FIT_RESTORE_DEADLINE_MS
   const results = await mapWithConcurrency(uniquePtyIds, RESTORE_FIT_CONCURRENCY, (ptyId) =>
     restoreTerminalFitToDesktopWithinDeadline(ptyId, settings, deadlineAt)
   )
-  return results.some(Boolean)
+  return new Set(uniquePtyIds.filter((_, index) => results[index]))
 }
