@@ -7,6 +7,7 @@ import { BACKGROUND_OPEN_ARG } from '../../../shared/background-open-argv'
 
 export type AppRelaunchReason =
   | 'admin-restart'
+  | 'external-install'
   | 'gpu-fallback'
   | 'profile-switch'
   | 'profile-transfer'

@@ -25782,5 +25782,12 @@
       "title": "Report a freeze",
       "uncheckAttachments": "Uncheck \"Attach saved freeze report and diagnostic logs\" and try again, or copy the details."
     }
+  },
+  "externalInstall": {
+    "restartNow": "Restart now",
+    "later": "Later",
+    "title": "Orca was updated",
+    "swapMessage": "Orca was updated while this instance was running.",
+    "swapDetail": "Restart to load the update. Until then this window may run stale code or fail to open some pages."
   }
 }
