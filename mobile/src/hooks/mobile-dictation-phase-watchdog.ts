@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { pairedDictationFinishTimeoutMs } from '../../../src/shared/dictation-finish-deadlines'
-import { MOBILE_DICTATION_RECONNECT_GRACE_MS } from '../../../src/shared/rpc-contract/speech/speech-params'
+import {
+  MOBILE_DICTATION_RECONNECT_GRACE_MS,
+  PCM_BYTES_PER_SAMPLE
+} from '../../../src/shared/rpc-contract/speech/speech-params'
+import { MOBILE_DICTATION_PCM_SAMPLE_RATE } from './mobile-dictation-pending-audio-budget'
 import type { DictationStatus } from './mobile-dictation-session-state'
 import type { MobileDictationRun } from './mobile-dictation-engine-run'
 import type { MobileDictationPendingAudioBudget } from './mobile-dictation-pending-audio-budget'
@@ -21,6 +25,18 @@ export const MOBILE_DICTATION_START_STALL_MS = 60_000
 // The finish request's own deadline, plus one reconnect grace for the audio sends it waits out first.
 export function mobileDictationProcessingDeadlineMs(sentAudioSeconds: number): number {
   return pairedDictationFinishTimeoutMs(sentAudioSeconds) + MOBILE_DICTATION_RECONNECT_GRACE_MS
+}
+
+// The audio this processing can still put on the wire. A replay enters processing before its kept
+// recording is sent, and a finish re-arms while held audio still drains through the send slots, so
+// the sent count alone would bound a long replay far short of its own deadline.
+function audioSecondsStillToSend(
+  budget: MobileDictationPendingAudioBudget,
+  run: MobileDictationRun | null
+): number {
+  const recordingSeconds =
+    (run?.recording.current.bytes ?? 0) / (PCM_BYTES_PER_SAMPLE * MOBILE_DICTATION_PCM_SAMPLE_RATE)
+  return Math.max(budget.sentAudioSeconds, recordingSeconds)
 }
 
 // One bound per phase: processing fails the run outright (Retry keeps the recording); a stalled start only
@@ -90,13 +106,21 @@ export function useMobileDictationPhaseBounds(options: MobileDictationPhaseBound
       }
       const dictationId = activeId.current
       if (next === 'processing' && dictationId !== null) {
-        watchdogRef.current.armProcessing(() => {
-          const current = activeId.current
-          const stalled = run.current
-          if (current === dictationId && stalled !== null) {
-            stalled.failActiveDictation(current, new Error(MOBILE_DICTATION_STALLED_ERROR_MESSAGE))
-          }
-        }, mobileDictationProcessingDeadlineMs(pendingAudioBudget.current.sentAudioSeconds))
+        watchdogRef.current.armProcessing(
+          () => {
+            const current = activeId.current
+            const stalled = run.current
+            if (current === dictationId && stalled !== null) {
+              stalled.failActiveDictation(
+                current,
+                new Error(MOBILE_DICTATION_STALLED_ERROR_MESSAGE)
+              )
+            }
+          },
+          mobileDictationProcessingDeadlineMs(
+            audioSecondsStillToSend(pendingAudioBudget.current, run.current)
+          )
+        )
         return
       }
       if (next === 'starting') {

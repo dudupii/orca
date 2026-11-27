@@ -1,4 +1,11 @@
+import type { RefObject } from 'react'
 import { dictationSessionErrorMessage } from '../dictation/mobile-dictation-setup'
+import {
+  claimCaptureSession,
+  hasOtherCaptureSessionClaim,
+  releaseCaptureSession,
+  type CaptureSessionClaim
+} from '../platform/audio-capture/capture-owner'
 import type { DictationCapture } from '../platform/audio-capture/dictation-capture-contract'
 
 type OpenMobileDictationCaptureOptions = {
@@ -6,8 +13,8 @@ type OpenMobileDictationCaptureOptions = {
   // Same start generation and still enabled.
   isCurrent: () => boolean
   isCurrentGeneration: () => boolean
-  // A newer start owns (or is still opening) the microphone, so this stale open must not release it.
-  newerStartOwnsMicrophone: () => boolean
+  // Where the open's claim on the shared audio session is published: recording keeps it until the mic closes.
+  captureClaim: RefObject<CaptureSessionClaim | null>
   setIdle: () => void
   // Called just before begin, so chunks the microphone delivers from then on are held.
   hold: () => void
@@ -28,10 +35,21 @@ export async function openMobileDictationCapture(
   options: OpenMobileDictationCaptureOptions
 ): Promise<boolean> {
   const { capture } = options
+  // The open claims the shared audio session from request to close, so a stale open that settles
+  // late can tell its own abandoned session from one another owner took over.
+  const claim = claimCaptureSession()
+  options.captureClaim.current = claim
+  const dropClaim = () => {
+    releaseCaptureSession(claim)
+    if (options.captureClaim.current === claim) {
+      options.captureClaim.current = null
+    }
+  }
   let opened
   try {
     opened = await capture.open()
   } catch (err) {
+    dropClaim()
     // Stale refusal must neither idle the replacement nor toast over the closure already reported by disable.
     if (!options.isCurrent()) {
       return false
@@ -41,9 +59,12 @@ export async function openMobileDictationCapture(
     throw err instanceof Error ? err : new Error(String(err))
   }
   if (!options.isCurrent()) {
-    // Superseded by a newer start, its open may still be pending or already recording: releasing here
-    // would take the replacement's microphone. Only a cancel or disable still wants the release.
-    if (!options.newerStartOwnsMicrophone()) {
+    // Superseded by a newer start, a cancel, or a disable. Release the shared session only when no
+    // other owner (the replacement's open, voice mode) holds it: releasing would tear down their
+    // microphone, while skipping it leaves only this open's own hold for the next close to free.
+    const otherOwner = hasOtherCaptureSessionClaim(claim)
+    dropClaim()
+    if (!otherOwner) {
       capture.release()
       if (options.isCurrentGeneration()) {
         options.setIdle()
@@ -52,6 +73,7 @@ export async function openMobileDictationCapture(
     return false
   }
   if (!opened.ok) {
+    dropClaim()
     options.setIdle()
     throw new Error(dictationSessionErrorMessage(opened.reason))
   }

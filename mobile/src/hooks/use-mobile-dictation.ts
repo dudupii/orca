@@ -17,10 +17,10 @@ import { MobileDictationRecording } from './mobile-dictation-recording'
 import { failActiveMobileDictation, retryMobileDictationOnHost } from './mobile-dictation-retry'
 import { mobileDictationFailureRetryable } from './mobile-dictation-failure'
 import { finishMobileDictation } from './mobile-dictation-finish'
-import {
-  MOBILE_DICTATION_CLIENT_REPLACED_ERROR_MESSAGE,
-  useMobileDictationPhaseBounds
-} from './mobile-dictation-phase-watchdog'
+import { useMobileDictationPhaseBounds } from './mobile-dictation-phase-watchdog'
+import { releaseCaptureClaim } from './mobile-dictation-engine-run'
+import { useMobileDictationClientReplaced } from './use-mobile-dictation-client-replaced'
+import type { CaptureSessionClaim } from '../platform/audio-capture/capture-owner'
 import type { MobileDictationEngine } from './mobile-dictation-device-engine'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
 import {
@@ -69,6 +69,7 @@ export function useMobileDictation(options: UseMobileDictationOptions): UseMobil
   const worktreeIdRef = useRef(worktreeId)
   const pendingChunksRef = useRef<Set<Promise<void>>>(new Set())
   const pendingAudioBudgetRef = useRef(new MobileDictationPendingAudioBudget())
+  const captureClaimRef = useRef<CaptureSessionClaim | null>(null)
   const audioPhaseRef = useRef<MobileDictationAudioPhase>('closed')
   const heldAudioRef = useRef(new MobileDictationHeldAudio())
   const recordingRef = useRef(new MobileDictationRecording())
@@ -78,25 +79,15 @@ export function useMobileDictation(options: UseMobileDictationOptions): UseMobil
   const runRef = useRef<MobileDictationRun | null>(null)
 
   useLayoutEffect(() => {
-    // A run cannot outlive the client it was started on: the replacement host never heard its
-    // dictation. Fail it kept, so Retry replays the recording to the new client.
-    if (client !== clientRef.current && activeIdRef.current && runRef.current) {
-      failActiveMobileDictation(
-        runRef.current,
-        activeIdRef.current,
-        new Error(MOBILE_DICTATION_CLIENT_REPLACED_ERROR_MESSAGE)
-      )
-    }
     // Native audio events can arrive before passive Effects flush, but refs
     // should only expose options from a committed render.
-    clientRef.current = client
     speechRef.current = speech
     enabledRef.current = enabled
     onTranscriptRef.current = onTranscript
     onErrorRef.current = onError
     onAudioLimitReachedRef.current = onAudioLimitReached
     worktreeIdRef.current = worktreeId
-  }, [client, speech, enabled, onTranscript, onError, onAudioLimitReached, worktreeId])
+  }, [speech, enabled, onTranscript, onError, onAudioLimitReached, worktreeId])
 
   // Every status change funnels through applyStatus, so the phase bounds re-arm with them.
   const phaseBounds = useMobileDictationPhaseBounds({
@@ -146,6 +137,7 @@ export function useMobileDictation(options: UseMobileDictationOptions): UseMobil
     heldAudioRef.current.clear()
     pendingChunksRef.current.clear()
     pendingAudioBudgetRef.current.reset()
+    releaseCaptureClaim(captureClaimRef)
     try {
       void capture.end()
     } catch (err) {
@@ -167,6 +159,7 @@ export function useMobileDictation(options: UseMobileDictationOptions): UseMobil
       audioPhase: audioPhaseRef,
       pendingChunks: pendingChunksRef,
       pendingAudioBudget: pendingAudioBudgetRef,
+      captureClaim: captureClaimRef,
       heldAudio: heldAudioRef,
       recording: recordingRef,
       sendHeldAudio: sendHeldAudioRef,
@@ -235,6 +228,15 @@ export function useMobileDictation(options: UseMobileDictationOptions): UseMobil
   )
 
   const cancel = useCallback(() => abandonDictation(null), [abandonDictation])
+
+  useMobileDictationClientReplaced({
+    client,
+    committedClient: clientRef,
+    status: statusRef,
+    activeId: activeIdRef,
+    run: runRef,
+    abandon: cancel
+  })
 
   const stop = useCallback(async () => {
     if (statusRef.current === 'starting') {

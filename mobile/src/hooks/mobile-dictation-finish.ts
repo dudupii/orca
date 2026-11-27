@@ -4,6 +4,7 @@ import { isCurrentMobileDictationFinish } from './mobile-dictation-session-state
 import { finishDesktopDictation } from './mobile-dictation-desktop-start'
 import {
   finishMobileDictationOnDevice,
+  releaseCaptureClaim,
   settleMobileDictation,
   type MobileDictationRun
 } from './mobile-dictation-engine-run'
@@ -27,6 +28,7 @@ export async function finishMobileDictation(
       run.applyStatus('processing')
       // Stop listening now; the tail joins the held audio the replay sends.
       void capture.end()
+      releaseCaptureClaim(run.captureClaim)
     }
     return
   }
@@ -45,6 +47,7 @@ export async function finishMobileDictation(
   try {
     // Keep shutdown inside try for finally cleanup; accept its tail chunks and snapshot pending sends only after end settles, or finish can overtake the last audio.
     await capture.end()
+    releaseCaptureClaim(run.captureClaim)
     if (engine.kind === 'device') {
       await finishMobileDictationOnDevice(
         run,
