@@ -3,8 +3,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../../../orca-runtime'
 import { RpcDispatcher } from '../../dispatcher'
+import type { RpcRequest } from '../../core'
 import { REPO_METHODS } from './repo'
-import { makeRequest } from './repo-rpc.test-fixture'
+
+// The old repo-rpc test fixture is gone; the dispatcher cases only need a minimal envelope.
+function makeRequest(method: string, params?: unknown): RpcRequest {
+  return { id: 'req-1', authToken: 'tok', method, params }
+}
 
 describe('repo RPC default locations', () => {
   it('clones with a host-side default destination when the caller omits it', async () => {

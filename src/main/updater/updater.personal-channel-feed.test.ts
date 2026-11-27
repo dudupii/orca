@@ -1,4 +1,3 @@
-import type { getReleaseDownloadUrl } from './releases/updater-release-readiness'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadUpdaterModule, warmUpdaterModule } from './testing/updater-test-module-loader'
 import { updaterMainWindow } from './testing/updater-test-main-window'
@@ -24,13 +23,10 @@ vi.mock('./releases/updater-changelog', () => moduleFactories.updaterChangelog()
 vi.mock('./nudges/nudge-campaign', () => moduleFactories.updaterNudge())
 vi.mock('./update-install-exit-watchdog', () => moduleFactories.updateInstallExitWatchdog())
 vi.mock('./releases/updater-prerelease-feed', () => moduleFactories.updaterPrereleaseFeed())
+// Keep the real release-readiness exports: its getReleaseDownloadUrl is the dual-repo
+// builder whose personal-channel routing (dudupii releases) is under test here.
 vi.mock('./releases/updater-release-readiness', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  getReleaseDownloadUrl: (
-    await vi.importMock<{
-      getReleaseDownloadUrl: typeof getReleaseDownloadUrl
-    }>('./releases/updater-prerelease-feed')
-  ).getReleaseDownloadUrl
+  ...(await importOriginal<Record<string, unknown>>())
 }))
 vi.mock('../local-builds/local-build-switch', () => moduleFactories.localBuildSwitch())
 vi.mock('../local-builds/local-build-feed-server', () => moduleFactories.localBuildFeedServer())

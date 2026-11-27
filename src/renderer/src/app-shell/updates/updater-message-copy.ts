@@ -12,7 +12,8 @@ const CHANNEL_LABELS: Record<ReleaseChannel, (t: Translate) => string> = {
   rc: (t) => t('auto.components.settings.ReleaseChannelSection.rcLabel', 'RC'),
   hourly: (t) => t('auto.components.settings.ReleaseChannelSection.hourlyLabel', 'Hourly'),
   daily: (t) => t('auto.components.settings.ReleaseChannelSection.dailyLabel', 'Daily'),
-  adhoc: (t) => t('auto.components.settings.ReleaseChannelSection.adhocLabel', 'Ad hoc')
+  adhoc: (t) => t('auto.components.settings.ReleaseChannelSection.adhocLabel', 'Ad hoc'),
+  personal: (t) => t('auto.components.settings.ReleaseChannelSection.personalLabel', 'Personal')
 }
 
 export function getReleaseChannelLabel(channel: string, t: Translate = translate): string {

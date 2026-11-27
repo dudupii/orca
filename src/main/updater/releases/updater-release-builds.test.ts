@@ -85,7 +85,7 @@ describe('listReleaseBuilds', () => {
     const builds = await listReleaseBuilds('personal', 'linux')
 
     expect(netFetch).toHaveBeenCalledWith(
-      'https://api.github.com/repos/dudupii/orca/releases?per_page=100',
+      'https://api.github.com/repos/dudupii/orca/releases?per_page=100&page=1',
       expect.objectContaining({
         headers: expect.objectContaining({ Accept: 'application/vnd.github+json' })
       })

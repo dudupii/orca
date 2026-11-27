@@ -25,6 +25,7 @@ function imeOptions(overrides: Partial<XtermImeKeyboardOptions>): XtermImeKeyboa
     candidateKeyGuardActive: false,
     pendingCandidateKeyReleaseActive: false,
     isMac: false,
+    isAndroid: false,
     isLinux: true,
     ...overrides
   }
