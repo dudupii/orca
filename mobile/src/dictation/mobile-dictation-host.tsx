@@ -186,6 +186,7 @@ export function MobileDictationHostProvider({ children }: { children: ReactNode 
       isStarting: false,
       isRecording: false,
       isProcessing: false,
+      startStalled: false,
       transcriptSoFar: '',
       error: null,
       failure: null,

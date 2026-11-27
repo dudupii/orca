@@ -34,6 +34,8 @@ export type UseMobileDictationResult = {
   isStarting: boolean
   isRecording: boolean
   isProcessing: boolean
+  // True past the start stall bound: a starting run a new press may supersede, because nothing is ending it.
+  startStalled: boolean
   // Empty until a newer host reports words; older hosts never do.
   transcriptSoFar: string
   error: string | null

@@ -408,6 +408,7 @@ function fakeDictation(): UseMobileDictationResult {
     isStarting: false,
     isRecording: false,
     isProcessing: false,
+    startStalled: false,
     transcriptSoFar: '',
     error: null,
     failure: null,
