@@ -18,7 +18,7 @@ type Seam = {
   tail: Uint8Array | null
   // When set, capture.open parks until its settler runs: a start stuck in the unbounded starting window.
   holdOpen: boolean
-  openSettlers: Array<(open: DictationCaptureOpen) => void>
+  openSettlers: ((open: DictationCaptureOpen) => void)[]
   releaseCalls: number
   // The one capture both microphone owners share; set once the capture mock module loads.
   capture: DictationCapture | null
