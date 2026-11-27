@@ -206,6 +206,7 @@ function fakeDictation(recording: boolean): UseMobileDictationResult {
     isStarting: false,
     isRecording: recording,
     isProcessing: false,
+    startStalled: false,
     transcriptSoFar: '',
     error: null,
     failure: null,

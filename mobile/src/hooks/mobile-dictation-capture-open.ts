@@ -6,6 +6,8 @@ type OpenMobileDictationCaptureOptions = {
   // Same start generation and still enabled.
   isCurrent: () => boolean
   isCurrentGeneration: () => boolean
+  // A newer start owns (or is still opening) the microphone, so this stale open must not release it.
+  newerStartOwnsMicrophone: () => boolean
   setIdle: () => void
   // Called just before begin, so chunks the microphone delivers from then on are held.
   hold: () => void
@@ -39,9 +41,13 @@ export async function openMobileDictationCapture(
     throw err instanceof Error ? err : new Error(String(err))
   }
   if (!options.isCurrent()) {
-    capture.release()
-    if (options.isCurrentGeneration()) {
-      options.setIdle()
+    // Superseded by a newer start, its open may still be pending or already recording: releasing here
+    // would take the replacement's microphone. Only a cancel or disable still wants the release.
+    if (!options.newerStartOwnsMicrophone()) {
+      capture.release()
+      if (options.isCurrentGeneration()) {
+        options.setIdle()
+      }
     }
     return false
   }

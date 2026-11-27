@@ -252,6 +252,9 @@ export async function startMobileDictation(
     capture,
     isCurrent: () => isCurrentGeneration() && run.enabled.current,
     isCurrentGeneration,
+    // A stalled start may be superseded while its open is still pending; that open must not release
+    // the microphone the replacement now holds.
+    newerStartOwnsMicrophone: () => run.status.current !== 'idle' && run.status.current !== 'error',
     setIdle: () => run.applyStatus('idle'),
     // Record from the tap: speech during the host's engine build and round trip is held, not lost; a phone dictation holds it all for a replay.
     hold: () => {
