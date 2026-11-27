@@ -361,14 +361,16 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             notes="$RUNNER_TEMP/notes.md"
             printf 'Personal integration build from %s.\n\nBuilt by CI from the personal-* tag; see the commit list for contents.\n' "$GITHUB_SHA" > "$notes"
+            # --latest: each new personal build becomes the release page's Latest link. Both
+            # personal updaters order builds by created_at, so the badge is display-only.
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "Personal integration build ($tag)" --prerelease --latest=false \
+              --title "Personal integration build ($tag)" --prerelease --latest \
               --notes-file "$notes" --target "$GITHUB_SHA"
           fi
 
           # The APK and IPA carry no electron-builder manifest, so they are renamed here; the
           # desktop formats take their names from the builder's own templates (see
-          # personalArtifactInfix in config/electron-builder.config.cjs).
+          # isPersonalArtifactBuild in config/electron-builder.config.cjs).
           if [ -f artifacts/app-release.apk ]; then
             mv artifacts/app-release.apk "artifacts/Orca-personal-${PERSONAL_BUILD_VERSION}.apk"
           fi
