@@ -9,8 +9,7 @@ import {
 } from 'react'
 import { AppState } from 'react-native'
 import { useDictationCapture } from '../platform/audio-capture/dictation-capture'
-import type { DictationCaptureOpen } from '../platform/audio-capture/dictation-capture-contract'
-import { nativeMicrophoneScreenLock } from '../platform/audio-capture/native-audio-device'
+import { createVoiceModeMicSeam } from './voice-mode-mic-seam'
 import { useOnDeviceSpeech } from '../platform/speech/on-device-speech'
 import { useOnDeviceTone } from '../platform/tone/on-device-tone'
 import { useOnDeviceTts } from '../platform/tts/on-device-tts'
@@ -110,6 +109,8 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
   const captureRef = useRef(capture)
   const dictationHostRef = useRef(dictationHost)
   const toneRef = useRef(tone)
+  // The loop's microphone seam; the shared audio session is claimed for the life of its open.
+  const micSeam = useMemo(() => createVoiceModeMicSeam(captureRef), [])
   // The default holds only until the first loop's start loads the saved delay.
   const delaySecondsRef = useRef(1.5)
   // The loop's one playback owner; its broadcasts land here while the loop runs.
@@ -339,39 +340,7 @@ export function MobileVoiceModeHostProvider({ children }: { children: ReactNode 
           },
           cancelSpeech: () => speechRef.current?.cancel(),
           readSpeech: () => speechRef.current!.read(),
-          openMic: async () => {
-            let opened: DictationCaptureOpen
-            try {
-              opened = await captureRef.current.open()
-            } catch {
-              // The capture contract lets a bridge refusal reject; that is a refused open here.
-              return false
-            }
-            if (!opened.ok) {
-              return false
-            }
-            try {
-              if (!captureRef.current.begin()) {
-                void captureRef.current.end()
-                return false
-              }
-            } catch {
-              // Native recording can throw part-way; treat it like a refused begin so the microphone is released.
-              void captureRef.current.end()
-              return false
-            }
-            return true
-          },
-          closeMic: () => {
-            try {
-              void captureRef.current.end()
-            } catch (err) {
-              // Cleanup must keep going when a synchronous seam throws, or the mic would leak.
-              console.error('Failed to close the voice-mode microphone', err)
-            }
-          },
-          holdScreen: () => nativeMicrophoneScreenLock.hold(),
-          releaseScreen: () => nativeMicrophoneScreenLock.release(),
+          ...micSeam,
           readout,
           // The loop keeps the tone it started with; a grant that arrives mid-loop chimes from the next one.
           tone: toneRef.current,

@@ -1,5 +1,7 @@
 import type { RefObject } from 'react'
 import { dictationSessionErrorMessage } from '../dictation/mobile-dictation-setup'
+import type { CaptureSessionClaim } from '../platform/audio-capture/capture-owner'
+import { releaseCaptureSession } from '../platform/audio-capture/capture-owner'
 import type { DictationCapture } from '../platform/audio-capture/dictation-capture-contract'
 import type { OnDeviceSpeech } from '../platform/speech/on-device-speech-contract'
 import { openMobileDictationCapture } from './mobile-dictation-capture-open'
@@ -42,6 +44,8 @@ export type MobileDictationRun = {
   readonly audioPhase: RefObject<MobileDictationAudioPhase>
   readonly pendingChunks: RefObject<Set<Promise<void>>>
   readonly pendingAudioBudget: RefObject<MobileDictationPendingAudioBudget>
+  // The live recording's claim on the shared audio session; released when its microphone closes.
+  readonly captureClaim: RefObject<CaptureSessionClaim | null>
   readonly heldAudio: RefObject<MobileDictationHeldAudio>
   readonly recording: RefObject<MobileDictationRecording>
   readonly sendHeldAudio: RefObject<() => void>
@@ -57,6 +61,16 @@ export type MobileDictationRun = {
   // kept: the recording stays for Retry, the words so far stay shown, and nothing is inserted yet.
   readonly reportError: (err: unknown, kept?: boolean) => void
   readonly failActiveDictation: (dictationId: string, err: unknown) => void
+}
+
+// The recording's claim on the shared audio session ends with the microphone it held; a stale open
+// that settles later releases only when no other owner took the session over.
+export function releaseCaptureClaim(claim: RefObject<CaptureSessionClaim | null>): void {
+  const held = claim.current
+  if (held !== null) {
+    claim.current = null
+    releaseCaptureSession(held)
+  }
 }
 
 // Stop whichever engine heard this dictation; only a computer session needs a cancel on the wire.
@@ -252,6 +266,9 @@ export async function startMobileDictation(
     capture,
     isCurrent: () => isCurrentGeneration() && run.enabled.current,
     isCurrentGeneration,
+    // A stalled start may be superseded while its open is still pending; the open's claim lets that
+    // stale open release the session only when the replacement (or voice mode) does not hold it.
+    captureClaim: run.captureClaim,
     setIdle: () => run.applyStatus('idle'),
     // Record from the tap: speech during the host's engine build and round trip is held, not lost; a phone dictation holds it all for a replay.
     hold: () => {

@@ -283,9 +283,10 @@ export function useMobileSessionDictation(
   }, [dictationRouteContextRef, dictation])
 
   const handleDictationToggle = useCallback(() => {
+    // A stalled start is superseded by starting again; a live one is stopped the usual way.
     if (dictation.isProcessing) {
       // Ignore toggles until finish settles; a tap must not discard what was said.
-    } else if (dictation.isStarting || dictation.isRecording) {
+    } else if (dictation.isRecording || (dictation.isStarting && !dictation.startStalled)) {
       stopDictation()
     } else {
       startDictation()
@@ -293,7 +294,8 @@ export function useMobileSessionDictation(
   }, [dictation, startDictation, stopDictation])
 
   const handleDictationPressIn = useCallback(() => {
-    if (!dictation.isStarting && !dictation.isRecording && !dictation.isProcessing) {
+    // A live start ignores the press (its release still stops it); a stalled one is superseded inside start.
+    if (!dictation.isRecording && !dictation.isProcessing) {
       startDictation()
     }
   }, [dictation, startDictation])
