@@ -235,7 +235,7 @@ function textContents(root: ReactTestInstance): string[] {
   return findAllByHostType(root, 'Text').map((node) => String(node.props.children))
 }
 
-function pressableByLabel(root: ReactTestInstance, label: string): ReactTestInstance | undefined {
+function pressableByLabel(root: ReactTestInstance, label: string) {
   return findAllByHostType(root, 'Pressable').find(
     (node) => node.props.accessibilityLabel === label
   )

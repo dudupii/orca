@@ -18,12 +18,12 @@ import { failActiveMobileDictation, retryMobileDictationOnHost } from './mobile-
 import { mobileDictationFailureRetryable } from './mobile-dictation-failure'
 import { finishMobileDictation } from './mobile-dictation-finish'
 import { useMobileDictationPhaseBounds } from './mobile-dictation-phase-watchdog'
-import { releaseCaptureClaim } from './mobile-dictation-engine-run'
 import { useMobileDictationClientReplaced } from './use-mobile-dictation-client-replaced'
 import type { CaptureSessionClaim } from '../platform/audio-capture/capture-owner'
 import type { MobileDictationEngine } from './mobile-dictation-device-engine'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
 import {
+  releaseCaptureClaim,
   releaseMobileDictationEngine,
   startMobileDictation,
   type MobileDictationRun

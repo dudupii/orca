@@ -30,6 +30,7 @@ vi.mock('react-native', () => ({
 vi.mock('@orca/expo-two-way-audio', () => ({
   addExpoTwoWayAudioEventListener: (name: string, listener: (event: { data: unknown }) => void) => {
     if (name === 'onMicrophoneData') {
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the mock feeds onMicrophoneData chunks whose data is a Uint8Array, narrowing the module's unknown payload.
       const cast = listener as (event: { data: Uint8Array }) => void
       device.chunkHandlers.add((chunk) => cast({ data: chunk.data }))
     }

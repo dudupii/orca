@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, create, type ReactTestRenderer } from 'react-test-renderer'
+import { act, create } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The catalog read's wire operation, replaced by a faucet this test opens and closes read by read.
@@ -86,7 +86,7 @@ function row(worktreeId: string, repoId: string, isMainWorktree = false): Worktr
 const heldRows = [row('wt-old', 'repo-old', true)]
 const freshRows = [row('wt-old', 'repo-old', true), row('wt-new', 'repo-added', true)]
 
-let root: ReactTestRenderer | null = null
+let root: ReturnType<typeof create> | null = null
 let queryClient: QueryClient | null = null
 
 function mountCatalog(connState: ConnectionState): FetchWorktrees {
