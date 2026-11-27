@@ -516,7 +516,7 @@ type HostHarness = {
   voiceMode: () => MobileSessionVoiceMode
   view: () => VoiceLoopView
   pillTexts: () => string[]
-  pillPressable: typeof pressableByLabel
+  pillPressable: (label: string) => ReturnType<typeof pressableByLabel>
   pillPressables: () => number
   showToast: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
@@ -555,8 +555,9 @@ function mountPillHost(): HostHarness {
     view = useSyncExternalStore(host.subscribe, host.getLive).view
     return null
   }
-  // Structural: only unmount is used, and the lint program resolves the renderer type as any.
-  let current: { unmount: () => void } | null = null
+  // Definite assignment keeps the real renderer type without a written nullable union,
+  // which the changed-lines lint resolves as any; mount assigns before first use.
+  let current!: ReactTestRenderer
   let screen: ReactElement | null = createElement(Probe)
   const providers = (): ReactElement =>
     createElement(
