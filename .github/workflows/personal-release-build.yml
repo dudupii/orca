@@ -341,10 +341,11 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             notes="$RUNNER_TEMP/notes.md"
             printf 'Personal integration build from %s.\n\nBuilt by CI from the personal-* tag; see the commit list for contents.\n' "$GITHUB_SHA" > "$notes"
-            # --latest: each new personal build becomes the release page's Latest link. Both
-            # personal updaters order builds by created_at, so the badge is display-only.
+            # A full (non-prerelease) release so GitHub names it Latest: the API refuses the
+            # Latest designation on prereleases. Both personal updaters order builds by
+            # created_at and filter personal-* tags only, so the flag change is display-only.
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "Personal integration build ($tag)" --prerelease --latest \
+              --title "Personal integration build ($tag)" --latest \
               --notes-file "$notes" --target "$GITHUB_SHA"
           fi
 
