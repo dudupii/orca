@@ -1,4 +1,3 @@
-import { compareVersions } from './updater-fallback'
 import { updateDelayDaysToMs } from '../../../shared/update-delay'
 import type { DelayedUpdate } from '../../../shared/update-status-types'
 import { AUTO_UPDATE_CHECK_INTERVAL_MS } from '../lifecycle/updater-state'
@@ -9,7 +8,8 @@ const DELAYED_UPDATE_CLEAR_BUFFER_MS = 5 * 60 * 1000
 export type DatedReleaseTag = {
   tag: string
   version: string
-  /** GitHub's Atom entry `updated` time: server-side and never earlier than publication. */
+  /** Release time for ordering and delays: the official feed's Atom `updated`, or the personal
+   *  channel's release created_at, which edits never advance. */
   releasedAt: number | null
 }
 
@@ -25,17 +25,16 @@ export type ReleaseDelayResult = {
 export function applyReleaseDelay(
   candidates: DatedReleaseTag[],
   allTags: DatedReleaseTag[],
-  currentVersion: string,
   minReleaseAgeMs: number,
-  now: number
+  now: number,
+  /** Channel-appropriate recency test; personal builds order by release time, not semver. */
+  isNewerRelease: (entry: DatedReleaseTag) => boolean
 ): { eligible: DatedReleaseTag[]; releaseDelay: ReleaseDelayResult } {
   const cutoff = now - minReleaseAgeMs
   // Unknown dates fail closed: a delay exists to avoid unvetted releases.
   const isOldEnough = (entry: DatedReleaseTag): boolean =>
     entry.releasedAt !== null && entry.releasedAt <= cutoff
-  const held = candidates.find(
-    (entry) => compareVersions(entry.version, currentVersion) > 0 && !isOldEnough(entry)
-  )
+  const held = candidates.find((entry) => isNewerRelease(entry) && !isOldEnough(entry))
   return {
     eligible: candidates.filter(isOldEnough),
     releaseDelay: {

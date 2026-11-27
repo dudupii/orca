@@ -7,6 +7,7 @@ const build = (tag: string): ReleaseBuild => ({
   version: tag.slice(1),
   channel: 'hourly',
   name: null,
+  createdAt: null,
   publishedAt: null,
   releaseUrl: `https://github.com/stablyai/orca-hourly/releases/tag/${tag}`,
   installerUrl: null

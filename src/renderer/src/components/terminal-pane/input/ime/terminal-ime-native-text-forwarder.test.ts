@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   installTerminalImeNativeTextForwarder,
   type ImeNativeTextKeyEvent
 } from './terminal-ime-native-text-forwarder'
+import { _setLayoutSnapshotForTests } from '../../../../lib/keyboard-layout/layout-base-character'
 
 function keyEvent(overrides: Partial<ImeNativeTextKeyEvent>): ImeNativeTextKeyEvent {
   return {
@@ -104,6 +105,72 @@ describe('installTerminalImeNativeTextForwarder', () => {
         true
       )
       expect(sendInput).toHaveBeenCalledExactlyOnceWith('\x1b[113u')
+    })
+  })
+
+  describe('a stale-shift commit publishes the layout base character', () => {
+    const installRaw = () => {
+      const sendInput = vi.fn()
+      const forwarder = installTerminalImeNativeTextForwarder({
+        terminalElement: element,
+        isComposing: () => false,
+        sendInput,
+        getKittyKeyboardFlags: () => 0
+      })
+      return { forwarder, sendInput }
+    }
+
+    beforeEach(() => {
+      // fcitx4/Wayland computes punctuation from a stale Shift layer while the keydown carries no Shift.
+      _setLayoutSnapshotForTests({
+        inputSourceId: null,
+        keyCharacters: {
+          Equal: { unmodified: '=', shifted: '+' },
+          KeyA: { unmodified: 'a', shifted: 'A' }
+        }
+      })
+    })
+
+    afterEach(() => {
+      _setLayoutSnapshotForTests(null)
+    })
+
+    it('repairs a shiftless Equal commit that carries its shifted-layer text', () => {
+      const { forwarder, sendInput } = installRaw()
+      expect(forwarder.claimKeyEvent(keyEvent({ key: '=', code: 'Equal' }))).toBe(true)
+      dispatchInsertText(textarea, '+')
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith('=')
+    })
+
+    it('keeps commits that already match the base layer', () => {
+      const { forwarder, sendInput } = installRaw()
+      expect(forwarder.claimKeyEvent(keyEvent({ key: '=', code: 'Equal' }))).toBe(true)
+      dispatchInsertText(textarea, '=')
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith('=')
+    })
+
+    it('never strips an uppercase letter committed under CapsLock', () => {
+      const { forwarder, sendInput } = installRaw()
+      expect(
+        forwarder.claimKeyEvent(
+          keyEvent({
+            key: 'a',
+            code: 'KeyA',
+            getModifierState: (modifier) => modifier === 'CapsLock'
+          })
+        )
+      ).toBe(true)
+      dispatchInsertText(textarea, 'A')
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith('A')
+    })
+
+    it('never strips text committed while Shift was really held', () => {
+      const { forwarder, sendInput } = installRaw()
+      expect(forwarder.claimKeyEvent(keyEvent({ key: '+', code: 'Equal', shiftKey: true }))).toBe(
+        true
+      )
+      dispatchInsertText(textarea, '+')
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith('+')
     })
   })
 })

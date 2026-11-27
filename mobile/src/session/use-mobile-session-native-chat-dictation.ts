@@ -27,6 +27,7 @@ export function useMobileSessionNativeChatDictation(
     deviceTokenRef,
     activeHandleRef,
     activeSessionTab,
+    sessionTabs,
     showToast,
     resetLiveInputFocus
   } = scope
@@ -53,6 +54,7 @@ export function useMobileSessionNativeChatDictation(
     worktreeId,
     activeSessionTab,
     activeSessionTabId,
+    sessionTabs,
     activeHandleRef,
     deviceTokenRef,
     nativeChatTranscriptIsLocalReadable,

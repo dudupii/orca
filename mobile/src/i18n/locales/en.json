@@ -146,7 +146,28 @@
       "autoMode": "Auto",
       "speechModelHeading": "SPEECH MODEL",
       "speechModel": "Speech Model",
-      "loading": "Loading voice settings…"
+      "loading": "Loading voice settings…",
+      "voiceModeHeading": "VOICE MODE",
+      "voiceModeResponseDelay": "Response Delay",
+      "voiceModeResponseDelayDescription": "How long a finished voice message waits before it sends. Tap it while it waits to cancel sending.",
+      "voiceModeDelaySeconds": "{{value}}s",
+      "recognitionLanguage": "Recognition Language",
+      "recognitionLanguageFollowSystem": "Follow system",
+      "recognitionLanguageOther": "Other language",
+      "recognitionLanguageOtherHint": "Type any language tag, e.g. yue or pt-BR",
+      "recognitionLanguageOtherPlaceholder": "e.g. yue, pt-BR, zh-Hant",
+      "recognitionLanguageOtherUse": "Use this language",
+      "recognitionLanguageOtherInvalid": "Not a language tag — use a shape like en, zh-CN or yue-Hant.",
+      "readoutLanguage": "Readout Language",
+      "readoutLanguageAutomatic": "Automatic",
+      "readoutLanguageAutomaticDescription": "Reads each reply in the language it is written in, falling back to the phone’s language.",
+      "readoutLanguageFollowSystem": "Follow system",
+      "voiceSpeakingHeading": "SPEAKING",
+      "voiceSpeakingDescription": "Applies the next time voice mode starts.",
+      "voiceBargeIn": "Interrupt with Your Voice",
+      "voiceBargeInDescription": "Speaking during a readout stops it. A tap on the readout always stops it.",
+      "voiceFallbackReadout": "Read Replies Aloud",
+      "voiceFallbackReadoutDescription": "Read the first sentences of replies that ship no spoken briefing."
     },
     "agents": {
       "permissionOwnAll": "Agents' own settings"
@@ -290,6 +311,33 @@
       "textSize": "Text size",
       "restoreHost": "Restore {{name}}",
       "textSizePickerTitle": "Terminal text size"
+    }
+  },
+  "appMove": {
+    "play": {
+      "title": "Orca is now on Google Play",
+      "description": "This app still works, but updates now come from Google Play. Switching takes a few minutes.",
+      "installTitle": "Install Orca from Google Play",
+      "installDescription": "You can do this now, wherever you are.",
+      "openGooglePlay": "Open Google Play",
+      "cantUseGooglePlay": "I can't use Google Play"
+    },
+    "download": {
+      "title": "Get the new Orca app",
+      "description": "This app still works, but updates and security fixes now come through the new app. Switching takes a few minutes.",
+      "installTitle": "Download the new app",
+      "installDescription": "If your phone asks, allow your browser to install apps.",
+      "download": "Download",
+      "keepThisVersion": "Keep using this version",
+      "keepThisVersionNote": "You'll miss security fixes. We'll remind you in a week."
+    },
+    "pairTitle": "Pair it with your computer",
+    "pairDescription": "In Orca on your computer, go to Settings → Mobile and scan the code.",
+    "deleteTitle": "Delete this app",
+    "deleteDescription": "Once the new app shows your agents. Until then, keep using this one.",
+    "dataKept": "Your agents, chats and workspaces are saved on your computer, so you'll see them all in the new app.",
+    "banner": {
+      "seeHowToSwitch": "See how to switch"
     }
   },
   "accounts": {
@@ -577,6 +625,29 @@
       "hint": "Double-tap to go back"
     }
   },
+  "voiceMode": {
+    "state": {
+      "listening": "Listening…",
+      "thinking": "Thinking…",
+      "speaking": "Speaking…",
+      "title": "Voice mode"
+    },
+    "exit": "Exit voice mode",
+    "stopReadout": "Stop readout",
+    "pendingHint": "Tap to cancel sending",
+    "pendingLabel": "{{utterance}}. Tap to cancel sending.",
+    "notice": {
+      "micExclusive": "Another voice session is using the microphone.",
+      "micUnavailable": "Voice mode needs the microphone.",
+      "speechNeedsDownload": "The recognition language needs a download. Get it in Voice settings.",
+      "speechFailed": "Voice mode stopped: speech recognition failed.",
+      "sendFailed": "Voice mode stopped: the message could not be sent."
+    },
+    "pill": {
+      "label": "{{state}} in {{title}}",
+      "hint": "Double-tap to go back to the conversation"
+    }
+  },
   "home": {
     "appUpdateCard": {
       "title": "Orca {{version}} is available",
@@ -713,7 +784,9 @@
       "primaryWorktreeDeleteHint": "Primary worktree — can't be deleted. Remove the project instead.",
       "removeHost": "Remove Host",
       "removeHostMessage": "Remove \"{{name}}\"? You can re-pair later.",
-      "deleteFailed": "Failed to delete \"{{name}}\""
+      "deleteFailed": "Failed to delete \"{{name}}\"",
+      "newWorkspace": "New workspace",
+      "addProject": "Add project"
     },
     "workspaceRenameSheet": {
       "title": "Rename Workspace",
@@ -1274,11 +1347,14 @@
       "refreshWorkspaceTitle": "Refresh the mobile workspace",
       "refreshWorkspaceBody": "The workspace cached for this host is older than the desktop expects. Reconnect to this host to download the current one.",
       "mobileTooOldAppStore": "This desktop needs a newer Orca Mobile app. Update Orca Mobile from the App Store, then try this host again.",
+      "mobileTooOldGooglePlay": "This desktop needs a newer Orca Mobile app. Update Orca Mobile from Google Play, then try this host again.",
       "mobileTooOldGitHubReleases": "This desktop needs a newer Orca Mobile app. Update Orca Mobile from GitHub Releases, then try this host again.",
       "workspaceNeedsUpdateAppStore": "This desktop's mobile workspace needs a newer Orca Mobile app. Update Orca Mobile from the App Store, then try this host again.",
+      "workspaceNeedsUpdateGooglePlay": "This desktop's mobile workspace needs a newer Orca Mobile app. Update Orca Mobile from Google Play, then try this host again.",
       "workspaceNeedsUpdateGitHubReleases": "This desktop's mobile workspace needs a newer Orca Mobile app. Update Orca Mobile from GitHub Releases, then try this host again.",
       "desktopTooOldBody": "This paired desktop app is too old for your current Orca Mobile app. Update Orca on your computer, then try this host again.",
       "openAppStore": "Open App Store",
+      "openGooglePlay": "Open Google Play",
       "openGitHubReleases": "Open GitHub Releases",
       "getVersion": "Get Orca {{version}}",
       "refreshRecoveryNote": "If this message stays, remove this host and pair it again.",
@@ -1499,6 +1575,27 @@
     "smartRailRow": {
       "title": "Smart rail",
       "subtitle": "Shows keys for what your agent is doing"
+    },
+    "addProjectModal": {
+      "title": "Add project",
+      "browseFolder": "Browse folder",
+      "browseFolderHint": "Existing Git repository or folder on this host",
+      "cloneFromUrl": "Clone from URL",
+      "cloneFromUrlHint": "Clone a remote Git repository",
+      "createNewProject": "Create new project",
+      "createNewProjectHint": "Start from an empty folder",
+      "repositoryUrlLabel": "Repository URL",
+      "repositoryUrlPlaceholder": "https://github.com/owner/repo",
+      "cloneHint": "Cloned into the host's default projects folder. Large repositories can take a few minutes.",
+      "cloneButton": "Clone repository",
+      "projectNameLabel": "Project name",
+      "projectNamePlaceholder": "my-project",
+      "createHint": "An empty git repository with an initial commit, created in the host's default projects folder.",
+      "createButton": "Create project",
+      "projectPathLabel": "Project path",
+      "projectPathPlaceholder": "/home/dev/my-project",
+      "addExistingHint": "The absolute path of an existing git repository on this host.",
+      "backButton": "Back to Add project"
     }
   },
   "pullRequest": {
@@ -3410,7 +3507,10 @@
       "busy": "Another chat or terminal is opening. Wait, then fork the {{agent}} chat again.",
       "unconfirmed": "{{agent}} couldn't confirm the fork. It may have opened anyway; check Session History before forking again.",
       "failed": "{{agent}} couldn't fork this chat. {{detail}}",
-      "unsupported": "This host runs an older Orca. Update Orca on the host, then try again."
+      "unsupported": "This host runs an older Orca. Update Orca on the host, then try again.",
+      "mark": "Fork ·",
+      "markedName": "{{mark}} {{name}}",
+      "accessibleName": "Fork: {{name}}"
     },
     "hostOutage": {
       "offlineAsOf": "{{host}} is offline · as of {{time}}",

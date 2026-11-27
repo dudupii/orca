@@ -103,7 +103,8 @@ export async function startCodexTurn(
         model: nativeOptions.model ?? previousApplied?.model ?? host.reportedOptions?.model,
         reasoning_effort:
           nativeOptions.effort ?? previousApplied?.effort ?? host.reportedOptions?.effort ?? null,
-        developer_instructions: null
+        // Null selects the mode's built-in instructions, displacing the thread's sealed value.
+        developer_instructions: host.sealedDeveloperInstructions ?? null
       }
     }
     requestControls = {

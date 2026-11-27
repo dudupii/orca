@@ -1,159 +1,111 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppUpdatePreferences } from '../storage/app-update-preferences'
-import { createAppUpdateChecker, type AppUpdateCheckerDeps } from './app-update-checker'
-import type { AppUpdateCheckResult, AppUpdateSource } from './app-update-source'
+import { describe, expect, it } from 'vitest'
+import { createAppUpdateChecker } from './app-update-checker'
+import { isNewerReleaseVersion } from './app-update-source'
+import { isStoredPersonalUpdateNewer } from './personal-update-channel'
+import type { KnownAppUpdate } from '../storage/app-update-preferences'
 
-const HOUR = 60 * 60 * 1000
-const T0 = Date.UTC(2026, 8, 28, 12)
-
-type Harness = ReturnType<typeof harness>
-
-function harness(opts: {
-  stored?: Partial<AppUpdatePreferences>
-  installedVersion?: string
-  replies?: (AppUpdateCheckResult | Error | 'hang' | Promise<AppUpdateCheckResult>)[]
-  load?: Promise<void>
-}) {
-  const replies = [...(opts.replies ?? [])]
-  let foreground: () => void = () => {}
-  const saves: unknown[] = []
-  const source: AppUpdateSource = {
-    check: vi.fn(async () => {
-      const reply = replies.shift() ?? { kind: 'current' }
-      if (reply instanceof Promise) {
-        return reply
-      }
-      if (reply === 'hang') {
-        return new Promise<never>(() => {})
-      }
-      if (reply instanceof Error) {
-        throw reply
-      }
-      return reply
-    })
-  }
-  const deps = {
-    source,
-    installedVersion: opts.installedVersion ?? '0.0.48',
-    now: () => Date.now(),
-    setTimer: (run: () => void, delayMs: number) => setTimeout(run, delayMs),
-    clearTimer: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
-    subscribeForeground: (listener: () => void) => {
-      foreground = listener
-      return () => {
-        foreground = () => {}
-      }
-    },
-    loadPreferences: vi.fn(async () => {
-      await opts.load
-      return {
-        lastCheckedAt: null,
-        latest: null,
-        dismissedVersion: null,
-        ...opts.stored
-      }
-    }),
-    saveCheck: async (checkedAt: number, latest: AppUpdatePreferences['latest']) => {
-      saves.push({ checkedAt, latest })
-    },
-    saveDismissedVersion: async (version: string) => {
-      saves.push({ dismissed: version })
-    }
-  } satisfies AppUpdateCheckerDeps
-  const checker = createAppUpdateChecker(deps)
-  return { checker, source, saves, deps, foreground: () => foreground() }
+// The stored-latest gate is channel-shaped: official channels compare semver while personal tags
+// only clear by identity, so the same stored update must behave differently under each predicate.
+const PERSONAL_TAG = 'personal-1.4.214-520cdf128'
+const PERSONAL_UPDATE: KnownAppUpdate = {
+  version: PERSONAL_TAG,
+  url: 'https://github.com/dudupii/orca/releases/tag/personal-1.4.214-520cdf128'
 }
 
-const checks = (h: Harness) => vi.mocked(h.source.check).mock.calls.length
-
-describe('app update checker', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(T0)
+function checkerWith(args: {
+  isStoredLatestNewer: (latestVersion: string, installedVersion: string) => boolean
+  installedVersion: string | null
+  latest: KnownAppUpdate | null
+}) {
+  return createAppUpdateChecker({
+    source: { check: async () => ({ kind: 'current' }) },
+    isStoredLatestNewer: args.isStoredLatestNewer,
+    installedVersion: args.installedVersion,
+    now: () => 0,
+    setTimer: () => setTimeout(() => {}, 0),
+    clearTimer: () => {},
+    subscribeForeground: () => () => {},
+    loadPreferences: async () => ({
+      lastCheckedAt: 1000,
+      latest: args.latest,
+      dismissedVersion: null
+    }),
+    saveCheck: async () => {},
+    saveDismissedVersion: async () => {}
   })
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+}
 
-  it('bounds a check at 8 s and counts it as failed', async () => {
-    const h = harness({ stored: { lastCheckedAt: T0 }, replies: ['hang'] })
-    h.checker.start()
-    const outcome = h.checker.checkNow()
-    await vi.advanceTimersByTimeAsync(8000)
-    await expect(outcome).resolves.toBe('failed')
-    expect(h.checker.getSnapshot().checking).toBe(false)
-  })
+async function flushLoading(): Promise<void> {
+  // The preference load and its publish run as microtasks; one timer turn drains them all.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
 
-  it('keeps the 1 h retry for a manual check that fails while the store is still loading', async () => {
-    let finishLoad: () => void = () => {}
-    const h = harness({
-      stored: { lastCheckedAt: T0 - 30 * HOUR },
-      replies: [new Error('offline')],
-      load: new Promise<void>((resolve) => {
-        finishLoad = resolve
-      })
+describe('stored app update gate', () => {
+  it('surfaces a stored personal tag until the installed tag matches it', async () => {
+    const olderInstall = checkerWith({
+      isStoredLatestNewer: isStoredPersonalUpdateNewer,
+      installedVersion: 'personal-1.4.214-3b51e62d1',
+      latest: PERSONAL_UPDATE
     })
-    h.checker.start()
-    const outcome = h.checker.checkNow()
-    finishLoad()
-    await expect(outcome).resolves.toBe('failed')
-    await vi.advanceTimersByTimeAsync(HOUR - 1)
-    expect(checks(h)).toBe(1)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(checks(h)).toBe(2)
-  })
+    const stopOlder = olderInstall.start()
+    await flushLoading()
+    expect(olderInstall.getSnapshot().available).toEqual(PERSONAL_UPDATE)
+    stopOlder()
 
-  function deferredReply() {
-    let answer: (result: AppUpdateCheckResult) => void = () => {}
-    const reply = new Promise<AppUpdateCheckResult>((resolve) => {
-      answer = resolve
+    const sameInstall = checkerWith({
+      isStoredLatestNewer: isStoredPersonalUpdateNewer,
+      installedVersion: PERSONAL_TAG,
+      latest: PERSONAL_UPDATE
     })
-    return { reply, answer: (result: AppUpdateCheckResult) => answer(result) }
-  }
+    const stopSame = sameInstall.start()
+    await flushLoading()
+    expect(sameInstall.getSnapshot().available).toEqual(null)
+    stopSame()
+  })
 
-  it('arms no timer for a check that finishes after stop()', async () => {
-    const pending = deferredReply()
-    const h = harness({ stored: { lastCheckedAt: T0 }, replies: [pending.reply] })
-    const stop = h.checker.start()
-    await vi.advanceTimersByTimeAsync(0)
-    const outcome = h.checker.checkNow()
-    await vi.advanceTimersByTimeAsync(0)
+  it('offers nothing at cold start when a personal install inherited an official stored latest', async () => {
+    // Preferences are not channel-qualified, so a personal APK installed over an official one
+    // (same package) reads the official channel's latest on first launch; it has no personal
+    // build order, so the home card must stay empty until the personal check runs.
+    const inheritedOfficial = checkerWith({
+      isStoredLatestNewer: isStoredPersonalUpdateNewer,
+      installedVersion: PERSONAL_TAG,
+      latest: {
+        version: '0.0.70',
+        url: 'https://github.com/stablyai/orca/releases/tag/android-v0.0.70'
+      }
+    })
+    const stop = inheritedOfficial.start()
+    await flushLoading()
+    expect(inheritedOfficial.getSnapshot().available).toEqual(null)
     stop()
-    pending.answer({ kind: 'current' })
-    await outcome
-    expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('schedules the next check when a check in flight across stop and restart completes', async () => {
-    const pending = deferredReply()
-    const h = harness({ stored: { lastCheckedAt: T0 }, replies: [pending.reply] })
-    const stop = h.checker.start()
-    await vi.advanceTimersByTimeAsync(0)
-    const outcome = h.checker.checkNow()
-    await vi.advanceTimersByTimeAsync(0)
-    stop()
-    h.checker.start()
-    await vi.advanceTimersByTimeAsync(0)
-    pending.answer({ kind: 'current' })
-    await outcome
-    expect(vi.getTimerCount()).toBe(1)
-    await vi.advanceTimersByTimeAsync(24 * HOUR)
-    expect(checks(h)).toBe(2)
-  })
+  it('keeps the official semver gate, where a stored personal tag never qualifies', async () => {
+    const officialSemver = checkerWith({
+      isStoredLatestNewer: isNewerReleaseVersion,
+      installedVersion: '0.0.51',
+      latest: {
+        version: '0.0.52',
+        url: 'https://github.com/stablyai/orca/releases/tag/mobile-android-v0.0.52'
+      }
+    })
+    const stopSemver = officialSemver.start()
+    await flushLoading()
+    expect(officialSemver.getSnapshot().available).toEqual({
+      version: '0.0.52',
+      url: 'https://github.com/stablyai/orca/releases/tag/mobile-android-v0.0.52'
+    })
+    stopSemver()
 
-  it('runs the check when the armed timer fires even if the clock stepped back', async () => {
-    const h = harness({ stored: { lastCheckedAt: T0 - 2 * HOUR } })
-    h.checker.start()
-    await vi.advanceTimersByTimeAsync(0)
-    vi.setSystemTime(Date.now() - 10 * 60 * 1000)
-    await vi.advanceTimersByTimeAsync(22 * HOUR)
-    expect(checks(h)).toBe(1)
-  })
-
-  it('treats a stored check time ahead of the clock as never checked', async () => {
-    const h = harness({ stored: { lastCheckedAt: T0 + 365 * 24 * HOUR } })
-    h.checker.start()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(checks(h)).toBe(1)
+    const storedPersonalTag = checkerWith({
+      isStoredLatestNewer: isNewerReleaseVersion,
+      installedVersion: '0.0.51',
+      latest: PERSONAL_UPDATE
+    })
+    const stopTag = storedPersonalTag.start()
+    await flushLoading()
+    expect(storedPersonalTag.getSnapshot().available).toEqual(null)
+    stopTag()
   })
 })

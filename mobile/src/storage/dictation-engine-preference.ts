@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   DICTATION_ENGINE_PREFERENCES,
   type DictationEnginePreference
-} from '../mobile-web-shell/bridge/bridge-speech-verbs'
+} from '../mobile-web-shell/bridge/native-capabilities/bridge-speech-verbs'
 
 // Where the phone transcribes dictation. Phone-only: the shell answers it to the page with the speech status.
 const DICTATION_ENGINE_PREFERENCE_KEY = 'orca:dictationEngine'
@@ -24,7 +24,8 @@ export async function loadDictationEnginePreference(): Promise<DictationEnginePr
       DEFAULT_DICTATION_ENGINE_PREFERENCE
     return cached
   } catch {
-    return DEFAULT_DICTATION_ENGINE_PREFERENCE
+    // A save that landed while the read was failing already chose; it wins over the default.
+    return cached ?? DEFAULT_DICTATION_ENGINE_PREFERENCE
   }
 }
 

@@ -4,7 +4,7 @@ import {
   terminalPaneDirection,
   terminalPaneKeyboardLayout
 } from '../terminal/session/pane-layout/mobile-terminal-pane-layout'
-import { Animated, View, Text, Pressable, ActivityIndicator } from 'react-native'
+import { View, Text, Pressable, ActivityIndicator } from 'react-native'
 import { saveTerminalTextScale } from '../storage/preferences'
 import { MobileBrowserPane } from '../browser/MobileBrowserPane'
 import { TerminalPaneView } from '../terminal/session/pane-layout/TerminalPaneView'
@@ -20,6 +20,7 @@ import { colors } from '../theme/mobile-theme'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { styles } from './mobile-session-styles'
+import { renderAnimatedToast } from '../components/feedback/TransientToast'
 import type { MobileSessionController } from './use-mobile-session-controller'
 import { useMobileSessionContentKeyboardLift } from '../terminal/session/input-controls/use-mobile-session-keyboard-lift'
 import { useOpenUrlInOrca } from '../browser/tab-navigation/use-open-url-in-orca'
@@ -33,6 +34,7 @@ import { MarkdownReader } from '../files/session-documents/MobileSessionMarkdown
 import { markdownTabDraftKey } from '../drafts/document-edit-draft-rows'
 import { workspaceDraftRowKey } from '../drafts/durable-draft-rows'
 import { loadMarkdownPreviewImage } from '../files/markdown/mobile-markdown-image-source'
+import { useMobileSessionVoiceMode } from '../voice-mode/use-mobile-session-voice-mode'
 
 export function MobileSessionActiveContent({
   controller
@@ -64,8 +66,6 @@ export function MobileSessionActiveContent({
     dictationMode,
     dictationEnabled,
     toastMessage,
-    handleTerminalInteraction,
-    handleTerminalTap,
     browserScreencastSupported,
     showToast,
     nativeChatSendError,
@@ -95,15 +95,9 @@ export function MobileSessionActiveContent({
     handleFileTap,
     handleNativeChatFileTap,
     handleTerminalOpenUrl,
-    handleTerminalInput,
-    handleTerminalQueryReply,
     handleSelectionMode,
     handleSelectionCopy,
     handleSelectionEvicted,
-    handleClipboardWrite,
-    handleModesChanged,
-    handleKeyboardAvoidanceMetrics,
-    handleHaptic,
     nativeChatImages,
     nativeChatStructuredComposer,
     activeMarkdownTab,
@@ -118,6 +112,9 @@ export function MobileSessionActiveContent({
   } = controller
   const { keyboardLift, activeTerminalKeyboardLift, toastAnimatedStyle } =
     useMobileSessionContentKeyboardLift(controller)
+  // Voice mode runs over the chat: one loop per page, entered from the mic's long press, outliving
+  // this screen; the binder binds the chat's seam — sends, steering, the latest reply — to it.
+  const voiceMode = useMobileSessionVoiceMode(controller)
   const openUrlInOrca = useOpenUrlInOrca(controller)
   const hostProfile = useHostProfile(hostId)
   const hostTitle = useHostDisplay(hostProfile).title
@@ -147,11 +144,7 @@ export function MobileSessionActiveContent({
   // Review notes are for working-tree diffs only.
   const fileTabTakesNotes =
     activeFileTab?.diffSource === 'staged' || activeFileTab?.diffSource === 'unstaged'
-  const toast = toastMessage ? (
-    <Animated.View pointerEvents="none" style={[styles.toast, toastAnimatedStyle]}>
-      <Text style={styles.toastText}>{toastMessage}</Text>
-    </Animated.View>
-  ) : null
+  const toast = renderAnimatedToast(toastMessage, toastAnimatedStyle)
   const content =
     showLoadingState || showEmptyState || showOfflineState ? (
       <MobileSessionContentState
@@ -323,14 +316,14 @@ export function MobileSessionActiveContent({
               onSelectionMode={handleSelectionMode}
               onSelectionCopy={handleSelectionCopy}
               onSelectionEvicted={handleSelectionEvicted}
-              onClipboardWrite={handleClipboardWrite}
-              onModesChanged={handleModesChanged}
-              onKeyboardAvoidanceMetrics={handleKeyboardAvoidanceMetrics}
-              onHaptic={handleHaptic}
-              onTerminalInput={handleTerminalInput}
-              onTerminalQueryReply={handleTerminalQueryReply}
-              onTerminalInteraction={handleTerminalInteraction}
-              onTerminalTap={handleTerminalTap}
+              onClipboardWrite={controller.handleClipboardWrite}
+              onModesChanged={controller.handleModesChanged}
+              onKeyboardAvoidanceMetrics={controller.handleKeyboardAvoidanceMetrics}
+              onHaptic={controller.handleHaptic}
+              onTerminalInput={controller.handleTerminalInput}
+              onTerminalQueryReply={controller.handleTerminalQueryReply}
+              onTerminalInteraction={controller.handleTerminalInteraction}
+              onTerminalTap={controller.handleTerminalTap}
               onFileTap={handleFileTap}
               onOpenUrl={handleTerminalOpenUrl}
             />
@@ -355,6 +348,7 @@ export function MobileSessionActiveContent({
                 images={nativeChatImages}
                 structuredComposer={nativeChatStructuredComposer}
                 onMicPress={dictationEnabled ? handleDictationToggle : undefined}
+                voiceMode={voiceMode}
                 micActive={dictation.isStarting || dictation.isRecording}
                 micStarting={dictation.isStarting}
                 micProcessing={dictation.isProcessing}

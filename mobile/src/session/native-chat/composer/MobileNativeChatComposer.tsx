@@ -127,6 +127,7 @@ export function MobileNativeChatComposer({
   onRemoveAttachment,
   isAttaching = false,
   onMicPress,
+  onMicLongPress,
   micActive = false,
   micStarting,
   micProcessing,
@@ -374,7 +375,7 @@ export function MobileNativeChatComposer({
             {onMicPress ? (
               <MobileNativeChatComposerMic
                 {...{ onMicPress, micActive, micStarting, micProcessing, dictationMode }}
-                {...{ onMicPressIn, onMicPressOut, cancelRef }}
+                {...{ onMicPressIn, onMicPressOut, cancelRef, onMicLongPress }}
                 disabled={disabled || offline}
               />
             ) : null}

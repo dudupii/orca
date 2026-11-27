@@ -1,10 +1,16 @@
 import ExpoModulesCore
 import AVFoundation
+import AudioToolbox
 
 let ON_MIC_DATA_EVENT_NAME = "onMicrophoneData"
 let ON_INPUT_VOLUME_LEVEL_EVENT_NAME = "onInputVolumeLevelData"
 let ON_RECORDING_CHANGE_EVENT_NAME = "onRecordingChange"
 let ON_AUDIO_INTERRUPTION_EVENT_NAME = "onAudioInterruption"
+
+// The standard short confirmation blip. The engine's session allows system sounds while recording
+// runs (AudioEngine.setupAudioSession), and voice-chat mode's processing subtracts what the open
+// microphone hears of it.
+private let RESTORE_CHIME_SOUND_ID: SystemSoundID = 1057
 
 public class ExpoTwoWayAudioModule: Module {
     private var audioEngine: AudioEngine?
@@ -120,6 +126,11 @@ public class ExpoTwoWayAudioModule: Module {
 
         Function("bypassVoiceProcessing") { (bypass: Bool) in
             self.audioEngine?.bypassVoiceProcessing(bypass)
+        }
+
+        Function("tonePlay") { (kind: String) in
+            guard kind == "restore" else { return }
+            AudioServicesPlaySystemSound(RESTORE_CHIME_SOUND_ID)
         }
 
         AsyncFunction("getMicrophonePermissionsAsync") { (promise: Promise) in

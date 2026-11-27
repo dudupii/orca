@@ -52,7 +52,11 @@ function verifyPackagedDaemonEntryBoots(resourcesDir, options = {}) {
   console.log('[verify-packaged-daemon-entry] OK — packaged daemon-entry loads under plain Node')
 }
 
-const TERMINAL_HOST_BOOT_TIMEOUT_MS = 20_000
+// Cold Rosetta translation of the x64 helper on hosted 3-vCPU arm64 runners can
+// exceed the budget upstream's 6-vCPU runners never hit; allow CI to widen the
+// shared round-trip deadline without changing the default.
+const TERMINAL_HOST_BOOT_TIMEOUT_MS =
+  Number(process.env.ORCA_TERMINAL_HOST_BOOT_TIMEOUT_MS) || 20_000
 // Arithmetic so the shell echoing the typed command cannot satisfy the check.
 const TERMINAL_HOST_BOOT_COMMAND = 'echo "OK $((6*7))" && exit'
 const TERMINAL_HOST_BOOT_OUTPUT = 'OK 42'

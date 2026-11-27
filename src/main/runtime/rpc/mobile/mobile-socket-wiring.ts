@@ -156,6 +156,13 @@ export class MobileSocketWiring {
     return this.connectionIds.get(ws)
   }
 
+  /** Whether any authenticated phone currently negotiates `capability`. */
+  hasAuthenticatedClientCapability(capability: RuntimeCapability): boolean {
+    return Array.from(this.authenticatedSockets.values()).some((socket) =>
+      socket.clientCapabilities.includes(capability)
+    )
+  }
+
   get channelCount(): number {
     return this.channels.size
   }

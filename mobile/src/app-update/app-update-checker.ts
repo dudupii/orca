@@ -1,7 +1,6 @@
 import type { AppUpdatePreferences, KnownAppUpdate } from '../storage/app-update-preferences'
 import { EMPTY_APP_UPDATE_PREFERENCES } from '../storage/app-update-preferences'
 import type { AppUpdateSource } from './app-update-source'
-import { isNewerReleaseVersion } from './app-update-source'
 
 // Same cadence as the desktop updater (src/main/updater/updater-events.ts).
 export const APP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -30,6 +29,8 @@ export function undismissedAppUpdate(state: AppUpdateState): KnownAppUpdate | nu
 export type AppUpdateCheckerDeps = {
   source: AppUpdateSource | null
   installedVersion: string | null
+  /** Whether a stored latest still beats the installed build: semver for official channels, tag identity for personal ones. */
+  isStoredLatestNewer: (latestVersion: string, installedVersion: string) => boolean
   now: () => number
   setTimer: (run: () => void, delayMs: number) => TimerHandle
   clearTimer: (handle: TimerHandle) => void
@@ -51,10 +52,12 @@ export function createAppUpdateChecker(deps: AppUpdateCheckerDeps) {
 
   function buildSnapshot(): AppUpdateState {
     const latest = prefs.latest
+    // No source (a Play install): a release stored by an earlier GitHub install of this package is not ours to offer.
     const available =
+      deps.source &&
       latest &&
       deps.installedVersion &&
-      isNewerReleaseVersion(latest.version, deps.installedVersion)
+      deps.isStoredLatestNewer(latest.version, deps.installedVersion)
         ? latest
         : null
     return {

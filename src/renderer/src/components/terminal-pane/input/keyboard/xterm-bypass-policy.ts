@@ -114,14 +114,14 @@ export function shouldSuppressTerminalImeKeyboardEvent(
   }
   // Suppress composing/Process keys, but let bare macOS/Linux 229 schedule commit diffs; Windows retains suppression for its preedit race.
   const passesStandalone229Keydown = isMac || isLinux
-  const passesIdleComposing229Keydown =
+  // Chromium can leave isComposing stuck on keydowns after fcitx/Wayland drops compositionend; trust the tracker's live-composition view and self-heal instead of suppressing forever.
+  const passesIdleComposingKeydown =
     event.type === 'keydown' &&
-    event.keyCode === 229 &&
     event.isComposing === true &&
     !compositionActive &&
     passesStandalone229Keydown
   return (
-    (event.isComposing === true && !passesIdleComposing229Keydown) ||
+    (event.isComposing === true && !passesIdleComposingKeydown) ||
     (event.keyCode === 229 &&
       (event.type !== 'keydown' || compositionActive || !passesStandalone229Keydown)) ||
     (compositionActive && TERMINAL_IME_OWNED_KEYS.has(event.key)) ||
