@@ -86,7 +86,9 @@ function row(worktreeId: string, repoId: string, isMainWorktree = false): Worktr
 const heldRows = [row('wt-old', 'repo-old', true)]
 const freshRows = [row('wt-old', 'repo-old', true), row('wt-new', 'repo-added', true)]
 
-let root: ReturnType<typeof create> | null = null
+// Only unmount/null are used; a structural type keeps the changed line free of the
+// react-test-renderer type, which the lint program resolves as any.
+let root: { unmount: () => void } | null = null
 let queryClient: QueryClient | null = null
 
 function mountCatalog(connState: ConnectionState): FetchWorktrees {

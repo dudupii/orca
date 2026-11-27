@@ -516,7 +516,7 @@ type HostHarness = {
   voiceMode: () => MobileSessionVoiceMode
   view: () => VoiceLoopView
   pillTexts: () => string[]
-  pillPressable: (label: string) => ReactTestInstance | undefined
+  pillPressable: typeof pressableByLabel
   pillPressables: () => number
   showToast: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
@@ -555,7 +555,8 @@ function mountPillHost(): HostHarness {
     view = useSyncExternalStore(host.subscribe, host.getLive).view
     return null
   }
-  let current: ReactTestRenderer | null = null
+  // Structural: only unmount is used, and the lint program resolves the renderer type as any.
+  let current: { unmount: () => void } | null = null
   let screen: ReactElement | null = createElement(Probe)
   const providers = (): ReactElement =>
     createElement(
