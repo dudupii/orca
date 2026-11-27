@@ -341,8 +341,10 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             notes="$RUNNER_TEMP/notes.md"
             printf 'Personal integration build from %s.\n\nBuilt by CI from the personal-* tag; see the commit list for contents.\n' "$GITHUB_SHA" > "$notes"
+            # --latest: each new personal build becomes the release page's Latest link. Both
+            # personal updaters order builds by created_at, so the badge is display-only.
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "Personal integration build ($tag)" --prerelease --latest=false \
+              --title "Personal integration build ($tag)" --prerelease --latest \
               --notes-file "$notes" --target "$GITHUB_SHA"
           fi
 
