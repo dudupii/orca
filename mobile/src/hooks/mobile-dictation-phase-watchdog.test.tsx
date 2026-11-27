@@ -20,6 +20,8 @@ type Seam = {
   holdOpen: boolean
   openSettlers: Array<(open: DictationCaptureOpen) => void>
   releaseCalls: number
+  // The one capture both microphone owners share; set once the capture mock module loads.
+  capture: DictationCapture | null
 }
 
 const seam = vi.hoisted((): Seam => ({
@@ -27,12 +29,27 @@ const seam = vi.hoisted((): Seam => ({
   tail: null,
   holdOpen: false,
   openSettlers: [],
-  releaseCalls: 0
+  releaseCalls: 0,
+  capture: null
 }))
 
 vi.mock('react-native', () => ({
   AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) },
   Platform: { OS: 'ios' }
+}))
+
+// The voice-mode mic seam reaches the shared capture through the native device module.
+vi.mock('@orca/expo-two-way-audio', () => ({
+  addExpoTwoWayAudioEventListener: () => ({ remove: () => {} }),
+  initialize: () => Promise.resolve(true),
+  requestMicrophonePermissionsAsync: () => Promise.resolve({ granted: true }),
+  speechFeed: () => {},
+  tearDown: () => {},
+  toggleRecording: () => true
+}))
+vi.mock('expo-keep-awake', () => ({
+  activateKeepAwakeAsync: () => Promise.resolve(),
+  deactivateKeepAwake: () => Promise.resolve()
 }))
 
 // Keep capture identity stable like both real seams; a fresh object on render would rerun teardown and cancel dictation.
@@ -70,10 +87,13 @@ vi.mock('../platform/audio-capture/dictation-capture', () => {
     },
     onInterruption: () => ({ remove: () => {} })
   }
+  // Publish the shared capture so a test can hand it to the voice-mode seam like a live second owner.
+  seam.capture = capture
   return { useDictationCapture: () => capture }
 })
 
 import { useMobileDictation, type UseMobileDictationResult } from './use-mobile-dictation'
+import { createVoiceModeMicSeam } from '../voice-mode/voice-mode-mic-seam'
 import {
   MOBILE_DICTATION_CLIENT_REPLACED_ERROR_MESSAGE,
   MOBILE_DICTATION_STALLED_ERROR_MESSAGE,
@@ -122,6 +142,15 @@ function dictation(): UseMobileDictationResult {
     throw new Error('nothing mounted')
   }
   return current
+}
+
+// The shared capture a second microphone owner (voice mode) takes over mid-test.
+function sharedCapture(): DictationCapture {
+  const capture = seam.capture
+  if (capture === null) {
+    throw new Error('capture seam not loaded')
+  }
+  return capture
 }
 
 type ProbeProps = {
@@ -251,7 +280,6 @@ describe('a run whose host client is replaced mid-recording', () => {
     })
 
     // The scope hands the hook a replacement client: the new host never heard this dictation.
-    console.log('STEP: pre-update')
     const replacement = createFakeRpcClient()
     act(() => {
       renderer.update(createElement(Probe, { client: replacement, inserted, errors }))
@@ -505,6 +533,53 @@ describe('a retry replaying a long recording', () => {
       message: MOBILE_DICTATION_STALLED_ERROR_MESSAGE,
       offline: false
     })
+    renderer.unmount()
+  })
+})
+
+describe('a stale open that settles while voice mode holds the microphone', () => {
+  it('leaves the session the voice loop owns alone', async () => {
+    const first = createFakeRpcClient()
+    const sent: SentRequest[] = []
+    const errors: { message: string; kept: boolean }[] = []
+    const renderer = mount({ client: first, inserted: [], errors })
+    seam.holdOpen = true
+    await act(async () => {
+      void dictation()
+        .start()
+        .catch(() => undefined)
+      await Promise.resolve()
+    })
+    expect(dictation().status).toBe('starting')
+
+    // The scope hands the hook a replacement client while the open is still pending, so the start
+    // is abandoned to idle exactly like the case above — but voice mode takes the shared microphone
+    // before the stale open settles.
+    const replacement = createFakeRpcClient()
+    act(() => {
+      renderer.update(createElement(Probe, { client: replacement, inserted: [], errors }))
+    })
+    expect(dictation().status).toBe('idle')
+
+    const voiceMic = createVoiceModeMicSeam({ current: sharedCapture() })
+    const releasesBefore = seam.releaseCalls
+    seam.holdOpen = false
+    await act(async () => {
+      expect(await voiceMic.openMic()).toBe(true)
+    })
+
+    // The abandoned open settles at last. Dictation is idle and owns nothing, so only the voice
+    // loop's live claim stands between this settle and tearing the shared microphone down — the
+    // claimless variant above releases here, this one must not.
+    await act(async () => {
+      seam.openSettlers.shift()?.({ ok: true })
+      await pump(first, sent, () => ({}))
+    })
+    expect(dictation().status).toBe('idle')
+    expect(seam.releaseCalls - releasesBefore).toBe(0)
+    expect(sent).toEqual([])
+
+    voiceMic.closeMic()
     renderer.unmount()
   })
 })
