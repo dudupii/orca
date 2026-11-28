@@ -864,7 +864,9 @@
         "pending": "Bağlanıyor…",
         "tools_one": "{{count}} araç",
         "tools_other": "{{count}} araç",
-        "waitingForSignIn": "Oturum açılması bekleniyor…"
+        "waitingForSignIn": "Oturum açılması bekleniyor…",
+        "orcaRemoved": "Kaldırıldı: sonraki mesajda yeniden başlar",
+        "orcaChanged": "Değiştirildi: sonraki mesajda yeniden başlar"
       },
       "source": {
         "project": "Proje",
@@ -897,7 +899,8 @@
         "failed": "Başarısız: {{count}}"
       },
       "pasteHint": "Tarayıcı yüklenmeyen bir sayfaya yönlendiğinde adresi kopyalayıp buraya yapıştırın.",
-      "manage": "MCP sunucularını yönet"
+      "manage": "MCP sunucularını yönet",
+      "stillFailing": "Yeniden bağlandıktan sonra hâlâ başarısız."
     },
     "restartNote": {
       "continued": "Orca, yeniden başlatmanın ardından bu ajandan devam etmesini istedi. İsteminiz yeniden gönderilmedi.",
@@ -1538,7 +1541,7 @@
       "unlockHint": "Telefonunuzun kilidini açın, ardından yeniden denemek için dokunun",
       "worktreeAccessibilitySummary": "{{summary}}, {{activeCount}} etkin",
       "offlineSameWifiOnly": "Çevrimdışı · yalnızca aynı Wi-Fi",
-      "tapToPairAgain": "Masaüstünüzle yeniden eşleştirmek için dokunun"
+      "tapToPairAgain": "Yeniden eşleştirmek için dokunun"
     },
     "hostProtocolGate": {
       "checkingCompatibility": "Sunucu uyumluluğu kontrol ediliyor"
@@ -1558,7 +1561,10 @@
       "connectHint": "Orca masaüstü uygulamasında Ayarlar → Entegrasyonlar bölümüne Jira sitenizi ekleyin, ardından yeniden kontrol edin.",
       "connectOnDesktop": "Bilgisayarınızda Jira'yı bağlayın",
       "credentialUnreadable": "Jira bağlantısı kayıtlı ancak okunamıyor: {{credentialError}}",
-      "updateDesktop": "Bu sunucudaki Orca'yı güncelleyin"
+      "updateDesktop": "Bu sunucudaki Orca'yı güncelleyin",
+      "connectTitle": "Jira hesabını bağla",
+      "connectMessage": "Sana atanan Jira kayıtlarına göz at ve doğrudan Görevler’den çalışmaya başla.",
+      "connect": "Jira’yı bağla"
     },
     "markdownBlocks": {
       "copyCode": "Kodu kopyala",
@@ -2211,7 +2217,9 @@
       "truncatedList": "{{worktreeLabel}} - İlk 5000 dosya gösteriliyor",
       "loading": "Dosyalar yükleniyor…",
       "searching": "Aranıyor…",
-      "searchPlaceholder": "Dosyalarda ara"
+      "searchPlaceholder": "Dosyalarda ara",
+      "more": "Daha Fazla",
+      "newEntry": "Yeni"
     },
     "fileExplorerRow": {
       "fileUnavailable": "{{name}} mobilde kullanılamıyor",
@@ -2226,7 +2234,28 @@
     },
     "fileExplorerRowActions": {
       "copyName": "Adı Kopyala",
-      "copyRelativePath": "Göreli Yolu Kopyala"
+      "copyRelativePath": "Göreli Yolu Kopyala",
+      "newFile": "Yeni Dosya",
+      "newFolder": "Yeni Klasör",
+      "rename": "Yeniden Adlandır",
+      "duplicate": "Çoğalt",
+      "create": "Oluştur",
+      "fileName": "Dosya adı",
+      "folderName": "Klasör adı",
+      "deleteTitle": "{{name}} silinsin mi?",
+      "deleteFileDetail": "Bu, dosyayı kalıcı olarak siler. Bu işlem geri alınamaz.",
+      "deleteFolderDetail": "Bu, klasörü ve içindekileri kalıcı olarak siler. Bu işlem geri alınamaz.",
+      "duplicateFailed": "{{name}} çoğaltılamadı. {{reason}}",
+      "duplicateUnconfirmed": "Kopya tamamlanmamış olabilir. Kontrol edip tekrar deneyin.",
+      "deleteFailed": "{{name}} silinemedi. {{reason}}",
+      "deleteUnconfirmed": "Hâlâ orada. Klasörü kontrol edip tekrar deneyin.",
+      "renameFailed": "{{name}} yeniden adlandırılamadı. {{reason}}",
+      "newFileFailed": "Dosya oluşturulamadı. {{reason}}",
+      "newFolderFailed": "Klasör oluşturulamadı. {{reason}}",
+      "share": "Paylaş",
+      "shareFailed": "{{name}} paylaşılamadı",
+      "shareTooLarge": "256 MB’tan büyük dosyalar telefondan paylaşılamaz",
+      "shareHostOutdated": "Dosya paylaşmak için bu çalışma alanının çalıştığı yerde Orca’yı güncelleyin"
     },
     "fileMarkdownPreview": {
       "copyLoadedSource": "Yüklenen Markdown kaynağını kopyala",
@@ -5278,6 +5307,16 @@
       "checkSkipped": "Atlandı",
       "checkPending": "Beklemede",
       "checkNeutral": "Nötr"
+    },
+    "jiraConnect": {
+      "title": "Jira’yı bağla",
+      "siteUrl": "ekibin.atlassian.net",
+      "email": "Atlassian e-postası",
+      "apiToken": "API belirteci",
+      "storageHint": "Belirtecin bu ana bilgisayarda saklanır, işletim sistemi destekliyorsa şifrelenir.",
+      "createToken": "API belirteci oluştur",
+      "failed": "Bağlantı başarısız",
+      "serverNeedsUpdate": "Bu sunucunun önce Orca güncellemesi alması gerekiyor. Bunun yerine Jira’yı Orca masaüstünden bağla."
     }
   },
   "terminal": {
@@ -5442,7 +5481,7 @@
       "started": "Başladı",
       "trigger": "Tetikleyici",
       "output": "Çıktı",
-      "noOutput": "Çıktı içeriği yok.",
+      "noOutput": "Gösterilecek çıktı yok.",
       "loadingRuns": "Çalıştırmalar yükleniyor…",
       "loading": "Yükleniyor…",
       "hourly": "Saatlik",
@@ -6664,7 +6703,7 @@
       "composerPlaceholder": "Gruba mesaj yazın; bir bottan bahsetmek için @ kullanın",
       "repliesValue": "Yanıtlar: {{value0}}",
       "whoAnswers": "Mesajlarınızı kim yanıtlar?",
-      "peerAsked": "{{from}} bir soru sordu. Sorunun yöneltildiği bot: {{to}}",
+      "peerAsked": "{{from}}, {{to}} botuna sordu",
       "peerFollowedUp": "{{bot}} takip mesajı gönderdi",
       "deleteTitle": "{{name}} silinsin mi?",
       "deleteDescription": "Gruptaki botlar silinmez.",
@@ -6680,7 +6719,6 @@
       "suggestThree": "{{a}}, {{b}} ve {{c}}",
       "suggestMore": "{{a}}, {{b}} ve {{count}} tane daha",
       "pickOne": "Bir bot seçin",
-      "needsTwoBots": "{{host}} üzerinde 2 bot gerekir",
       "peerReadItems": "{{bot}}, öğeleriyle ilgili bir güncellemeyi okudu",
       "remoteReplied": "{{computer}} üzerinde yanıt verdi",
       "remoteNotice": "{{computer}} üzerinde yanıt vermedi",
@@ -8547,6 +8585,7 @@
     "workspacesCount": "{{count}} çalışma alanı",
     "workspacesAllButCount": "{{count}} hariç tümü",
     "headerMissing": "Bu sunucuyu eklemek için {{header}} alanını doldurun.",
-    "servers": "Sunucular"
+    "servers": "Sunucular",
+    "unreadable": "Kayıtlı oturum açma bilgisi veya anahtar açılamıyor. Yeniden oturum açın."
   }
 }
