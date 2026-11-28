@@ -127,19 +127,25 @@ jobs:
       # this repo's personal-<version> tags. A build that silently lost its suffix
       # would look like an official stable release to every updater, so both
       # halves are validated fail-loud before anything is built. The x.y.z base
-      # follows the upstream release line (releases/latest), not main's dev base.
+      # follows the upstream release line (chosen when the tag is cut, carried IN the
+      # tag name), not main's dev base.
       - name: Compute personal build version
         run: |
           set -euo pipefail
-          # Base follows the upstream RELEASE line (releases/latest), not main's
-          # package.json: upstream bumps versions on its release branch while main
-          # carries the dev base, so About reads like the official stable the tree
-          # is derived after (e.g. 1.4.280-<sha>).
-          latest_tag="$(GH_TOKEN="${{ github.token }}" gh api repos/stablyai/orca/releases/latest --jq .tag_name)"
-          base="${latest_tag#v}"
+          # Base follows the upstream RELEASE line, not main's package.json (upstream
+          # bumps versions on its release branch while main carries the dev base).
+          # The tag name is the single source: the updater derives a personal build's
+          # feed tag from its version, so tag and stamped version must never drift
+          # apart by fetching a moving latest twice.
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^personal-([0-9]+\.[0-9]+\.[0-9]+)-[0-9a-f]{9}$ ]]; then
+            echo "tag is not personal-<x.y.z>-<9-hex>: '$tag'" >&2
+            exit 1
+          fi
+          base="${BASH_REMATCH[1]}"
           short9="${GITHUB_SHA:0:9}"
-          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "package.json version is not a plain x.y.z base: '$base'" >&2
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
             exit 1
           fi
           if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
@@ -231,15 +237,20 @@ jobs:
       - name: Compute personal build version
         run: |
           set -euo pipefail
-          # Base follows the upstream RELEASE line (releases/latest), not main's
-          # package.json: upstream bumps versions on its release branch while main
-          # carries the dev base, so About reads like the official stable the tree
-          # is derived after (e.g. 1.4.280-<sha>).
-          latest_tag="$(GH_TOKEN="${{ github.token }}" gh api repos/stablyai/orca/releases/latest --jq .tag_name)"
-          base="${latest_tag#v}"
+          # Base follows the upstream RELEASE line, not main's package.json (upstream
+          # bumps versions on its release branch while main carries the dev base).
+          # The tag name is the single source: the updater derives a personal build's
+          # feed tag from its version, so tag and stamped version must never drift
+          # apart by fetching a moving latest twice.
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^personal-([0-9]+\.[0-9]+\.[0-9]+)-[0-9a-f]{9}$ ]]; then
+            echo "tag is not personal-<x.y.z>-<9-hex>: '$tag'" >&2
+            exit 1
+          fi
+          base="${BASH_REMATCH[1]}"
           short9="${GITHUB_SHA:0:9}"
-          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "package.json version is not a plain x.y.z base: '$base'" >&2
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
             exit 1
           fi
           if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
@@ -350,15 +361,20 @@ jobs:
       - name: Compute personal build version
         run: |
           set -euo pipefail
-          # Base follows the upstream RELEASE line (releases/latest), not main's
-          # package.json: upstream bumps versions on its release branch while main
-          # carries the dev base, so About reads like the official stable the tree
-          # is derived after (e.g. 1.4.280-<sha>).
-          latest_tag="$(GH_TOKEN="${{ github.token }}" gh api repos/stablyai/orca/releases/latest --jq .tag_name)"
-          base="${latest_tag#v}"
+          # Base follows the upstream RELEASE line, not main's package.json (upstream
+          # bumps versions on its release branch while main carries the dev base).
+          # The tag name is the single source: the updater derives a personal build's
+          # feed tag from its version, so tag and stamped version must never drift
+          # apart by fetching a moving latest twice.
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^personal-([0-9]+\.[0-9]+\.[0-9]+)-[0-9a-f]{9}$ ]]; then
+            echo "tag is not personal-<x.y.z>-<9-hex>: '$tag'" >&2
+            exit 1
+          fi
+          base="${BASH_REMATCH[1]}"
           short9="${GITHUB_SHA:0:9}"
-          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "package.json version is not a plain x.y.z base: '$base'" >&2
+          if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
+            echo "GITHUB_SHA did not yield a 9-char lowercase hex prefix: '$short9'" >&2
             exit 1
           fi
           if [[ ! "$short9" =~ ^[0-9a-f]{9}$ ]]; then
