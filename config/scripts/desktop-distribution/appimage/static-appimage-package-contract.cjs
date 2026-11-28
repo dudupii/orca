@@ -8,7 +8,8 @@ const EXPECTED_ARCHITECTURE_BY_FILENAME = new Map([
 
 // Personal release builds stamp their tag into the artifact name (isPersonalArtifactBuild in
 // electron-builder.config.cjs); the architecture keeps the canonical name's position.
-const PERSONAL_APPIMAGE_FILENAME = /^orca-linux(?:-arm64)?-personal-\d+\.\d+\.\d+-[0-9a-f]{9}\.AppImage$/
+const PERSONAL_APPIMAGE_FILENAME =
+  /^orca-linux(?:-arm64)?-personal-\d+\.\d+\.\d+-[0-9a-f]{9}\.AppImage$/
 
 function architectureForAppImageFilename(filename) {
   const canonical = EXPECTED_ARCHITECTURE_BY_FILENAME.get(filename)

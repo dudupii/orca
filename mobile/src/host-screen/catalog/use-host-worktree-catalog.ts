@@ -27,7 +27,7 @@ import {
   NO_SERVER_WORKSPACES
 } from '../../worktree/execution-hosts/server-workspaces'
 import { relayHostsFeed, useRelayHosts } from '../../worktree/execution-hosts/relay-hosts-feed'
-import { WorktreeCatalogReadError } from '../../worktree/catalog/worktree-catalog-snapshot-client'
+import type { WorktreeCatalogSnapshot } from '../../worktree/catalog/worktree-catalog-snapshot-client'
 import { useHostQuery } from '../../query/host-query'
 import { hostReadClient } from '../../query/host-read-client'
 import { hostScopeKey } from '../../query/host-query-key'
