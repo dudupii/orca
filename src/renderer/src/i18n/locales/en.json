@@ -31424,5 +31424,12 @@
       "badJson": "Check the pasted JSON: it doesn’t parse.",
       "none": "Orca found no server it can add. SSE servers, servers with their own OAuth client or tool filters, and values read from the environment (${VAR}) aren’t supported."
     }
+  },
+  "externalInstall": {
+    "restartNow": "Restart now",
+    "later": "Later",
+    "title": "Orca was updated",
+    "swapMessage": "Orca was updated while this instance was running.",
+    "swapDetail": "Restart to load the update. Until then this window may run stale code or fail to open some pages."
   }
 }

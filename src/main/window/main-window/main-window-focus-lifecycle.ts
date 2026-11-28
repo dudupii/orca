@@ -33,6 +33,8 @@ export type MainWindowFocusLifecycle = {
   isFloatingPanelFocused: () => boolean
   isFloatingTerminalInputFocused: () => boolean
   isMarkdownEditorFocused: () => boolean
+  /** True while a scheduled crash recovery owns the next load. */
+  isRecoveryPending: () => boolean
   isRendererProcessGone: () => boolean
   isShortcutRecorderFocused: () => boolean
   isTerminalInputFocused: () => boolean
@@ -312,6 +314,7 @@ export function installMainWindowFocusLifecycle(args: {
     isFloatingPanelFocused: () => floatingPanelFocused,
     isFloatingTerminalInputFocused: () => floatingTerminalInputFocused,
     isMarkdownEditorFocused: () => markdownEditorFocused,
+    isRecoveryPending: () => rendererRecoveryTimer !== null,
     isRendererProcessGone: () => rendererProcessGone,
     isShortcutRecorderFocused: () => shortcutRecorderFocused,
     isTerminalInputFocused: () => terminalInputFocused,

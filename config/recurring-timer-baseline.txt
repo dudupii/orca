@@ -70,7 +70,9 @@
 1 src/main/startup/diagnostics/event-loop-stall-probe.ts
 1 src/main/startup/main-window/synthetic-title-runtime.ts
 1 src/main/telemetry/wsl-usage-reporter.ts
+1 src/main/updater/external-install-swap-watch.ts
 1 src/main/webhooks/webhook-recovery-sweep.ts
+1 src/main/wsl/host-lifecycle/wsl-hosts-policy-live-update.ts
 1 src/main/wsl/orcad/wsl-orcad-connect-stop-fence.ts
 1 src/renderer/src/app-shell/storage/use-app-session-persistence.ts
 1 src/renderer/src/components/bots/google/google-account-readiness.ts

@@ -25,6 +25,7 @@ import {
   submittedReportIds
 } from './crash-reporting-sendable-reports'
 import { buildUncapturedCrashReportText, submitCrashReport } from './crash-reporting-submission'
+import { noteRendererLivenessSignal } from '../../window/renderer-recovery/renderer-bootstrap-silence-watchdog'
 
 export function registerCrashReportingHandlers(
   store: CrashReportStore,
@@ -58,6 +59,10 @@ export function registerCrashReportingHandlers(
         const origin =
           typeof sender?.id === 'number' ? rendererCrashBreadcrumbOrigin(sender.id) : undefined
         recordRendererBreadcrumbFromRenderer(args, origin)
+        if (sender && typeof sender.id === 'number') {
+          // Any breadcrumb is the cheapest proof a document bootstrapped; disarm its silence arm.
+          noteRendererLivenessSignal(sender.id)
+        }
       }
     )
   }

@@ -7,6 +7,7 @@ import { BACKGROUND_OPEN_ARG } from '../../../shared/app-lifecycle/launch/backgr
 
 export type AppRelaunchReason =
   | 'admin-restart'
+  | 'external-install'
   | 'gpu-fallback'
   | 'profile-switch'
   | 'profile-transfer'
