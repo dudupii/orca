@@ -5,6 +5,21 @@ const EXPECTED_ARCHITECTURE_BY_FILENAME = new Map([
   ['orca-linux.AppImage', 'x64'],
   ['orca-linux-arm64.AppImage', 'arm64']
 ])
+
+// Personal release builds stamp their tag into the artifact name (isPersonalArtifactBuild in
+// electron-builder.config.cjs); the architecture keeps the canonical name's position.
+const PERSONAL_APPIMAGE_FILENAME = /^orca-linux(?:-arm64)?-personal-\d+\.\d+\.\d+-[0-9a-f]{9}\.AppImage$/
+
+function architectureForAppImageFilename(filename) {
+  const canonical = EXPECTED_ARCHITECTURE_BY_FILENAME.get(filename)
+  if (canonical !== undefined) {
+    return canonical
+  }
+  if (PERSONAL_APPIMAGE_FILENAME.test(filename)) {
+    return filename.startsWith('orca-linux-arm64-') ? 'arm64' : 'x64'
+  }
+  return undefined
+}
 const APPIMAGE_MAGIC = Buffer.from([0x41, 0x49, 0x02])
 const RUNTIME_SOURCE = Buffer.from('https://github.com/AppImage/type2-runtime')
 const TARGET_ARCHITECTURE_BY_ENUM = new Map([
@@ -24,7 +39,7 @@ const MAX_DYNAMIC_BYTES = 1024 * 1024
 
 function verifyStaticAppImagePackage(filePath, targetArch) {
   const filename = basename(filePath)
-  const filenameArchitecture = EXPECTED_ARCHITECTURE_BY_FILENAME.get(filename)
+  const filenameArchitecture = architectureForAppImageFilename(filename)
   if (!filenameArchitecture) {
     invalid(
       filename,
@@ -257,4 +272,4 @@ function invalid(filename, reason) {
   throw new Error(`Invalid static AppImage ${filename}: ${reason}`)
 }
 
-module.exports = { verifyStaticAppImagePackage }
+module.exports = { architectureForAppImageFilename, verifyStaticAppImagePackage }
