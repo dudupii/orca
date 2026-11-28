@@ -16,6 +16,7 @@ import { initTelemetry, track } from '../telemetry/client'
 import { setCodexTrustGrantTelemetry } from '../codex/trust/grants/codex-trust-grant-telemetry'
 import { initObservability } from '../observability/index'
 import { recordDurableCrashBreadcrumb } from '../crash-reporting/breadcrumbs/durable-crash-breadcrumb'
+import { startExternalInstallSwapWatch } from '../updater/external-install-swap-watch'
 import { reportPreviousHangDetection } from '../hang-watchdog/previous-hang-detection'
 import type { NativeHangTelemetry } from '../hang-watchdog/previous-native-hang-telemetry'
 import { getCanonicalUserDataPath } from '../persistence/loading-store/user-data-path'
@@ -130,6 +131,8 @@ export function initializeMainProcessObservers(): void {
     packaged: app.isPackaged,
     platform: process.platform
   })
+  // An install swapped under a running instance needs a user to restart; headless serve records evidence only.
+  startExternalInstallSwapWatch({ showRestartPrompt: state.isServeMode ? false : undefined })
   state.hangDetection = reportPreviousHangDetection(getCanonicalUserDataPath())
   if (state.hangDetection) {
     const marker = state.hangDetection

@@ -44,6 +44,11 @@ import {
 } from './main-window/main-window-visual-lifecycle'
 import { installMainWindowWebviewSecurity } from './security/main-window-webview-security'
 import { rectHasVisibleAreaOnAnyDisplay } from './presentation/window-bounds-validation'
+import { createRendererBootstrapSilenceWatchdog } from './renderer-recovery/renderer-bootstrap-silence-watchdog'
+import {
+  markExpectedRendererReload,
+  markRecoveryReloadInFlight
+} from '../startup/main-window/main-window-lifecycle-flags'
 import { installWindowsPathRegistryChangeListener } from '../pty/environment/windows-path-registry-change'
 import { recordAgentSessionRuntimeEnd } from '../runtime/agent-session/records/agent-session-runtime-end-record'
 import { installNativeUnloadCoordinator } from './renderer-relays/native-unload-coordinator'
@@ -235,6 +240,20 @@ export function createMainWindow(
     reloadMainWindow: (observer) => loadMainWindow(mainWindow, observer),
     rendererWebContentsId
   })
+  // A loaded-but-silent document emits no renderer death; only this watchdog detects it.
+  const bootstrapSilence = createRendererBootstrapSilenceWatchdog({
+    rendererWebContentsId,
+    isRecoveryPending: focus.isRecoveryPending,
+    shouldAbort: () =>
+      state.isWindowClosing() || opts?.getIsQuitting?.() === true || mainWindow.isDestroyed(),
+    reloadMainWindow: (observer) => loadMainWindow(mainWindow, observer),
+    markReloadExpected: () => {
+      markExpectedRendererReload(rendererWebContentsId)
+      markRecoveryReloadInFlight(rendererWebContentsId)
+    }
+  })
+  mainWindow.webContents.on('did-finish-load', () => bootstrapSilence.armAfterLoad())
+  mainWindow.webContents.on('render-process-gone', () => bootstrapSilence.cancelArm())
   // Register after focus is initialized because the resume callback uses it.
   powerMonitor.on('resume', onSystemResume)
   installMainWindowShortcutRouting({ focus, mainWindow, opts, store })
@@ -254,6 +273,7 @@ export function createMainWindow(
     closeLifecycle.dispose()
     activity.dispose()
     focus.dispose()
+    bootstrapSilence.dispose()
     browserManager.setDictationShortcutForwardingPredicate(null)
     powerMonitor.removeListener('resume', onSystemResume)
     clearTrustedUIRendererWebContentsId(rendererWebContentsId)
