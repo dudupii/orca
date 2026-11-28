@@ -386,6 +386,9 @@ importers:
       acorn:
         specifier: 8.18.0
         version: 8.18.0
+      babel-preset-expo:
+        specifier: ^58.0.23
+        version: 58.0.23(@babel/core@7.29.7(supports-color@8.1.1))(@babel/runtime@7.29.7)(expo@58.0.22)(react-refresh@0.14.2)(supports-color@8.1.1)
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
@@ -4190,6 +4193,7 @@ packages:
     engines: {node: ^22.13.0 || ^24.3.0 || ^26.0.0 || >=27.0.0}
     hasBin: true
     peerDependencies:
+      '@expo/dom-webview': '*'
       '@expo/metro-runtime': '*'
       react: '*'
       react-dom: '*'
@@ -4197,6 +4201,8 @@ packages:
       react-native-web: '*'
       react-native-webview: '*'
     peerDependenciesMeta:
+      '@expo/dom-webview':
+        optional: true
       '@expo/metro-runtime':
         optional: true
       react-dom:
