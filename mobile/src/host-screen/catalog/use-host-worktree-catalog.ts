@@ -9,7 +9,6 @@ import { useFocusEffect } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import type { RpcClient } from '../../transport/rpc/rpc-client-contract'
 import type { ConnectionState } from '../../transport/connection/connection-state'
-import { RpcIncompatibleReplyError } from '../../transport/rpc/rpc-incompatible-reply-error'
 import {
   startHostWorktreeRefresh,
   type BotsChangeScope
@@ -25,14 +24,10 @@ import type { HostScreenState } from '../use-host-screen-state'
 import { relaysToServers } from '../../worktree/execution-hosts/execution-host-scoped-rpc-client'
 import { NO_SERVER_WORKSPACES } from '../../worktree/execution-hosts/server-workspaces'
 import { useRelayHosts } from '../../worktree/execution-hosts/relay-hosts-feed'
-import {
-  WorktreeCatalogReadError,
-  type WorktreeCatalogSnapshot
-} from '../../worktree/catalog/worktree-catalog-snapshot-client'
+import type { WorktreeCatalogSnapshot } from '../../worktree/catalog/worktree-catalog-snapshot-client'
 import { useHostQuery } from '../../query/host-query'
 import { hostReadClient } from '../../query/host-read-client'
 import { hostScopeKey } from '../../query/host-query-key'
-import { isHostNotConnectedError } from '../../query/host-query-errors'
 import {
   isHostListQuery,
   HOST_LIST_BACKSTOP_POLL_MS,
@@ -44,17 +39,7 @@ import {
   hostWorktreeCatalogQuery,
   NO_HOST_LIST_INPUT
 } from './host-list-queries'
-
-// Shown verbatim so broken remote hosts stay diagnosable instead of looking empty (STA-3123).
-function catalogErrorCode(error: unknown): string | null {
-  if (isHostNotConnectedError(error)) {
-    return null
-  }
-  if (error instanceof WorktreeCatalogReadError) {
-    return error.code
-  }
-  return error instanceof RpcIncompatibleReplyError ? 'invalid_response' : 'network_error'
-}
+import { catalogErrorCode } from './catalog-error-code'
 
 export function useHostWorktreeCatalog(args: {
   client: RpcClient | null
@@ -109,7 +94,6 @@ export function useHostWorktreeCatalog(args: {
     }, [])
   )
   const subscribed = embedded || focused
-
   const host = { hostId: hostId ?? '', client }
   // The host's sidebar feed replaces the poll: its notices say when a row changed.
   const pollMs = sidebarFeed ? false : HOST_LIST_POLL_MS

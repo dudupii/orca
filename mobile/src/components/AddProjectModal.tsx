@@ -8,11 +8,13 @@ import {
 } from '../tasks/repo-add-project-operations'
 import { REPO_CLONE_TIMEOUT_MS } from '../new-workspace/creation/workspace-create-timeout'
 import type { RpcClient } from '../transport/rpc/rpc-client-contract'
-import { colors, radii, spacing, typography } from '../theme/mobile-theme'
+import { radii, spacing, typography } from '../theme/mobile-theme'
+import { themedStyles, useThemedStyles } from '../theme/themed-styles'
+import { useMobileColors } from '../theme/use-mobile-color-scheme'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { ActionSheetContent } from './sheets/ActionSheetModal'
 import { BottomDrawer } from './bottom-drawer/BottomDrawer'
-import { newWorktreeFormStyles as formStyles } from '../new-workspace/creation/forms/new-worktree-form-styles'
+import { newWorktreeFormStylesSheet } from '../new-workspace/creation/forms/new-worktree-form-styles'
 import type { MobileWorkspaceRepo } from '../new-workspace/creation/forms/new-worktree-modal-types'
 
 type AddProjectView = 'start' | 'clone' | 'create' | 'addExisting'
@@ -87,6 +89,9 @@ function AddProjectModalContent({
   onAdded: (repo: MobileWorkspaceRepo) => void
 }) {
   const t = useMobileTranslation()
+  const colors = useMobileColors()
+  const styles = useThemedStyles(addProjectStyles)
+  const formStyles = useThemedStyles(newWorktreeFormStylesSheet)
   const [view, setView] = useState<AddProjectView>('start')
   const [cloneUrl, setCloneUrl] = useState('')
   const [projectName, setProjectName] = useState('')
@@ -266,59 +271,61 @@ function AddProjectModalContent({
   )
 }
 
-const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.md
-  },
-  backButton: {
-    marginLeft: -spacing.xs,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.xs
-  },
-  hint: {
-    marginTop: spacing.xs,
-    fontSize: typography.metaSize,
-    color: colors.textMuted
-  },
-  // The shared new-worktree form styles lost these six keys in the sheet-group
-  // redesign; this drawer carries its own copies in the new tokens.
-  title: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textPrimary
-  },
-  input: {
-    backgroundColor: colors.sheetGroup,
-    color: colors.textPrimary,
-    borderRadius: radii.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: typography.bodySize,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.sm
-  },
-  createButton: {
-    backgroundColor: colors.textPrimary,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.control,
-    minWidth: 160,
-    alignItems: 'center'
-  },
-  createButtonDisabled: {
-    opacity: 0.4
-  },
-  createText: {
-    color: colors.bgBase,
-    fontSize: typography.bodySize,
-    fontWeight: '600'
-  }
-})
+const addProjectStyles = themedStyles((colors) =>
+  StyleSheet.create({
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      marginBottom: spacing.md
+    },
+    backButton: {
+      marginLeft: -spacing.xs,
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.xs
+    },
+    hint: {
+      marginTop: spacing.xs,
+      fontSize: typography.metaSize,
+      color: colors.textMuted
+    },
+    // The shared new-worktree form styles lost these six keys in the sheet-group
+    // redesign; this drawer carries its own copies in the new tokens.
+    title: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.textPrimary
+    },
+    input: {
+      backgroundColor: colors.sheetGroup,
+      color: colors.textPrimary,
+      borderRadius: radii.surface,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      fontSize: typography.bodySize,
+      borderWidth: 1,
+      borderColor: colors.borderSubtle
+    },
+    actions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      marginTop: spacing.sm
+    },
+    createButton: {
+      backgroundColor: colors.textPrimary,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.control,
+      minWidth: 160,
+      alignItems: 'center'
+    },
+    createButtonDisabled: {
+      opacity: 0.4
+    },
+    createText: {
+      color: colors.bgBase,
+      fontSize: typography.bodySize,
+      fontWeight: '600'
+    }
+  })
+)
