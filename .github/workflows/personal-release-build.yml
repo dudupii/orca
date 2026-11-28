@@ -126,11 +126,17 @@ jobs:
       # recognizes `x.y.z-<9-hex>` as this fork's personal channel and maps it to
       # this repo's personal-<version> tags. A build that silently lost its suffix
       # would look like an official stable release to every updater, so both
-      # halves are validated fail-loud before anything is built.
+      # halves are validated fail-loud before anything is built. The x.y.z base
+      # follows the upstream release line (releases/latest), not main's dev base.
       - name: Compute personal build version
         run: |
           set -euo pipefail
-          base="$(node -p "require('./package.json').version")"
+          # Base follows the upstream RELEASE line (releases/latest), not main's
+          # package.json: upstream bumps versions on its release branch while main
+          # carries the dev base, so About reads like the official stable the tree
+          # is derived after (e.g. 1.4.280-<sha>).
+          latest_tag="$(GH_TOKEN="${{ github.token }}" gh api repos/stablyai/orca/releases/latest --jq .tag_name)"
+          base="${latest_tag#v}"
           short9="${GITHUB_SHA:0:9}"
           if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "package.json version is not a plain x.y.z base: '$base'" >&2
@@ -225,7 +231,12 @@ jobs:
       - name: Compute personal build version
         run: |
           set -euo pipefail
-          base="$(node -p "require('./package.json').version")"
+          # Base follows the upstream RELEASE line (releases/latest), not main's
+          # package.json: upstream bumps versions on its release branch while main
+          # carries the dev base, so About reads like the official stable the tree
+          # is derived after (e.g. 1.4.280-<sha>).
+          latest_tag="$(GH_TOKEN="${{ github.token }}" gh api repos/stablyai/orca/releases/latest --jq .tag_name)"
+          base="${latest_tag#v}"
           short9="${GITHUB_SHA:0:9}"
           if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "package.json version is not a plain x.y.z base: '$base'" >&2
@@ -339,7 +350,12 @@ jobs:
       - name: Compute personal build version
         run: |
           set -euo pipefail
-          base="$(node -p "require('./package.json').version")"
+          # Base follows the upstream RELEASE line (releases/latest), not main's
+          # package.json: upstream bumps versions on its release branch while main
+          # carries the dev base, so About reads like the official stable the tree
+          # is derived after (e.g. 1.4.280-<sha>).
+          latest_tag="$(GH_TOKEN="${{ github.token }}" gh api repos/stablyai/orca/releases/latest --jq .tag_name)"
+          base="${latest_tag#v}"
           short9="${GITHUB_SHA:0:9}"
           if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "package.json version is not a plain x.y.z base: '$base'" >&2
